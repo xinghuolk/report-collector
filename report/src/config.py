@@ -56,8 +56,9 @@ class Config:
             "enabled": True
         },
         "HK": {
-            "name": "香港交易所",
-            "base_url": "https://www.hkex.com.hk",
+            "name": "港交所披露易",
+            "base_url": "https://www1.hkexnews.hk",
+            "api_url": "https://www1.hkexnews.hk/ncms/json/eds/lcisehk1relsdc_{page}.json",
             "enabled": True
         },
         "US": {
