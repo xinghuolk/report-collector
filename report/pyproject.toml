@@ -1,0 +1,191 @@
+[project]
+name = "financial-reports-mcp"
+version = "0.1.0"
+description = "中国、港股、美股上市公司财报PDF收集的MCP服务器"
+authors = [
+    {name = "Finance Report Team", email = "noreply@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["finance", "mcp", "pdf", "reports", "china", "stocks"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry", 
+    "Topic :: Office/Business :: Financial",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # MCP服务器核心依赖
+    "mcp>=1.2.0",
+    "pydantic>=2.0.0",
+    
+    # 网页爬虫和下载
+    "aiohttp>=3.8.0",
+    "aiofiles>=23.0.0",
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    
+    # 异步和数据库
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.21.0",
+    "asyncio-throttle>=1.0.0",
+    
+    # 缓存和工具
+    "cachetools>=5.3.0",
+    "loguru>=0.7.0",
+    "python-dateutil>=2.8.0",
+    "python-dotenv>=1.0.0",
+    
+    # 数据处理
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+# PDF处理扩展（可选）
+pdf = [
+    "PyPDF2>=3.0.0",
+    "pdfplumber>=0.9.0",
+    "pymupdf>=1.23.0",
+    "tabula-py>=2.8.0",
+    "camelot-py>=0.11.0",
+]
+
+# 完整网页爬虫（可选）
+crawler = [
+    "selenium>=4.15.0",
+    "webdriver-manager>=4.0.0",
+]
+
+# 中文处理（可选） 
+chinese = [
+    "jieba>=0.42.0",
+    "zhconv>=1.4.0",
+]
+
+# Excel支持（可选）
+excel = [
+    "openpyxl>=3.1.0",
+    "xlsxwriter>=3.1.0",
+]
+
+# 开发依赖
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+]
+
+# 完整安装（包含所有可选依赖）
+full = [
+    "financial-reports-mcp[pdf,crawler,chinese,excel]"
+]
+
+[project.urls]
+Homepage = "https://github.com/example/financial-reports-mcp"
+Repository = "https://github.com/example/financial-reports-mcp.git"
+Documentation = "https://github.com/example/financial-reports-mcp#readme"
+"Bug Tracker" = "https://github.com/example/financial-reports-mcp/issues"
+
+[project.scripts]
+financial-reports-mcp = "src.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.0.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+include = '\\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \\.eggs
+  | \\.git
+  | \\.hg
+  | \\.mypy_cache
+  | \\.tox
+  | \\.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["src"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = ["tests/", "build/", "dist/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config", 
+    "--verbose",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
