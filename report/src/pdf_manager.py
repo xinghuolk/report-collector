@@ -20,6 +20,35 @@ class Base(DeclarativeBase):
     pass
 
 
+# 提取器版本 - 更新此版本号会使所有旧缓存失效
+EXTRACTOR_VERSION = "1.0.0"
+
+
+class ExtractedFinancialData(Base):
+    """财务数据提取缓存模型"""
+    __tablename__ = "extracted_financial_data"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # 缓存键 - 基于文件哈希
+    file_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+
+    # 财务数据 (JSON格式存储)
+    income_statement: Mapped[Optional[str]] = mapped_column(Text)
+    balance_sheet: Mapped[Optional[str]] = mapped_column(Text)
+    cash_flow_statement: Mapped[Optional[str]] = mapped_column(Text)
+    financial_metrics: Mapped[Optional[str]] = mapped_column(Text)
+    related_party_transactions: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    extraction_summary: Mapped[Optional[str]] = mapped_column(Text)
+
+    # 缓存管理
+    extracted_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.now)
+    extractor_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    extraction_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    fields_extracted: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ReportPDF(Base):
     """财报PDF文件模型"""
     __tablename__ = "report_pdfs"
@@ -282,3 +311,349 @@ class PDFManager:
             'is_available': pdf.is_available,
             'last_accessed': pdf.last_accessed.isoformat() if pdf.last_accessed else None
         }
+
+    # ==================== 财务数据提取缓存管理 ====================
+
+    async def get_cached_extraction(self, file_hash: str) -> Optional[Dict[str, Any]]:
+        """
+        根据文件哈希获取缓存的提取结果
+
+        Returns:
+            缓存的提取结果字典，如果不存在或版本不匹配则返回 None
+        """
+        try:
+            async with self.async_session() as session:
+                result = await session.execute(
+                    select(ExtractedFinancialData).where(
+                        and_(
+                            ExtractedFinancialData.file_hash == file_hash,
+                            ExtractedFinancialData.extractor_version == EXTRACTOR_VERSION
+                        )
+                    )
+                )
+                cache = result.scalar_one_or_none()
+
+                if cache:
+                    import json
+                    return {
+                        'success': True,
+                        'income_statement': json.loads(cache.income_statement) if cache.income_statement else {},
+                        'balance_sheet': json.loads(cache.balance_sheet) if cache.balance_sheet else {},
+                        'cash_flow_statement': json.loads(cache.cash_flow_statement) if cache.cash_flow_statement else {},
+                        'financial_metrics': json.loads(cache.financial_metrics) if cache.financial_metrics else {},
+                        'related_party_transactions': json.loads(cache.related_party_transactions) if cache.related_party_transactions else [],
+                        'metadata': json.loads(cache.metadata_json) if cache.metadata_json else {},
+                        'extraction_summary': json.loads(cache.extraction_summary) if cache.extraction_summary else {},
+                        '_cache_info': {
+                            'from_cache': True,
+                            'extracted_at': cache.extracted_at.isoformat(),
+                            'extraction_duration_ms': cache.extraction_duration_ms,
+                            'extractor_version': cache.extractor_version,
+                            'fields_extracted': cache.fields_extracted
+                        }
+                    }
+                return None
+
+        except Exception as e:
+            logger.error(f"获取缓存失败: {e}")
+            return None
+
+    async def save_extraction_cache(self, file_hash: str, result: Dict[str, Any],
+                                   extraction_duration_ms: int = 0) -> bool:
+        """
+        保存提取结果到缓存
+
+        Args:
+            file_hash: 文件SHA256哈希
+            result: 提取结果字典
+            extraction_duration_ms: 提取耗时(毫秒)
+
+        Returns:
+            是否保存成功
+        """
+        try:
+            import json
+
+            # 计算提取的字段数
+            fields_count = 0
+            for key in ['income_statement', 'balance_sheet', 'cash_flow_statement',
+                       'financial_metrics', 'related_party_transactions']:
+                data = result.get(key, {})
+                if isinstance(data, dict):
+                    fields_count += sum(1 for v in data.values() if v is not None)
+                elif isinstance(data, list):
+                    fields_count += len(data)
+
+            async with self.async_session() as session:
+                # 检查是否已存在
+                existing = await session.execute(
+                    select(ExtractedFinancialData).where(
+                        ExtractedFinancialData.file_hash == file_hash
+                    )
+                )
+                cache = existing.scalar_one_or_none()
+
+                if cache:
+                    # 更新现有记录
+                    cache.income_statement = json.dumps(result.get('income_statement', {}), ensure_ascii=False)
+                    cache.balance_sheet = json.dumps(result.get('balance_sheet', {}), ensure_ascii=False)
+                    cache.cash_flow_statement = json.dumps(result.get('cash_flow_statement', {}), ensure_ascii=False)
+                    cache.financial_metrics = json.dumps(result.get('financial_metrics', {}), ensure_ascii=False)
+                    cache.related_party_transactions = json.dumps(result.get('related_party_transactions', []), ensure_ascii=False)
+                    cache.metadata_json = json.dumps(result.get('metadata', {}), ensure_ascii=False)
+                    cache.extraction_summary = json.dumps(result.get('extraction_summary', {}), ensure_ascii=False)
+                    cache.extracted_at = datetime.now()
+                    cache.extractor_version = EXTRACTOR_VERSION
+                    cache.extraction_duration_ms = extraction_duration_ms
+                    cache.fields_extracted = fields_count
+                else:
+                    # 创建新记录
+                    cache = ExtractedFinancialData(
+                        file_hash=file_hash,
+                        income_statement=json.dumps(result.get('income_statement', {}), ensure_ascii=False),
+                        balance_sheet=json.dumps(result.get('balance_sheet', {}), ensure_ascii=False),
+                        cash_flow_statement=json.dumps(result.get('cash_flow_statement', {}), ensure_ascii=False),
+                        financial_metrics=json.dumps(result.get('financial_metrics', {}), ensure_ascii=False),
+                        related_party_transactions=json.dumps(result.get('related_party_transactions', []), ensure_ascii=False),
+                        metadata_json=json.dumps(result.get('metadata', {}), ensure_ascii=False),
+                        extraction_summary=json.dumps(result.get('extraction_summary', {}), ensure_ascii=False),
+                        extracted_at=datetime.now(),
+                        extractor_version=EXTRACTOR_VERSION,
+                        extraction_duration_ms=extraction_duration_ms,
+                        fields_extracted=fields_count
+                    )
+                    session.add(cache)
+
+                await session.commit()
+                logger.info(f"缓存保存成功: {file_hash[:16]}... ({fields_count} 字段, {extraction_duration_ms}ms)")
+                return True
+
+        except Exception as e:
+            logger.error(f"保存缓存失败: {e}")
+            return False
+
+    async def invalidate_cache(self, file_hash: str) -> bool:
+        """
+        使缓存失效
+
+        Args:
+            file_hash: 文件SHA256哈希
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            async with self.async_session() as session:
+                result = await session.execute(
+                    select(ExtractedFinancialData).where(
+                        ExtractedFinancialData.file_hash == file_hash
+                    )
+                )
+                cache = result.scalar_one_or_none()
+
+                if cache:
+                    await session.delete(cache)
+                    await session.commit()
+                    logger.info(f"缓存已失效: {file_hash[:16]}...")
+                    return True
+                return False
+
+        except Exception as e:
+            logger.error(f"使缓存失效失败: {e}")
+            return False
+
+    async def cleanup_extraction_cache(self, days: int = 90) -> Dict[str, int]:
+        """
+        清理旧的提取缓存
+
+        Args:
+            days: 清理超过多少天的缓存
+
+        Returns:
+            清理统计 {'deleted': n, 'orphaned': m}
+        """
+        cutoff_time = datetime.now() - timedelta(days=days)
+        deleted_count = 0
+        orphaned_count = 0
+
+        try:
+            async with self.async_session() as session:
+                # 1. 删除旧版本缓存
+                old_version_result = await session.execute(
+                    select(ExtractedFinancialData).where(
+                        ExtractedFinancialData.extractor_version != EXTRACTOR_VERSION
+                    )
+                )
+                old_version_caches = old_version_result.scalars().all()
+                for cache in old_version_caches:
+                    await session.delete(cache)
+                    deleted_count += 1
+
+                # 2. 删除超时缓存
+                old_result = await session.execute(
+                    select(ExtractedFinancialData).where(
+                        ExtractedFinancialData.extracted_at < cutoff_time
+                    )
+                )
+                old_caches = old_result.scalars().all()
+                for cache in old_caches:
+                    await session.delete(cache)
+                    deleted_count += 1
+
+                # 3. 删除孤立缓存（对应PDF已删除）
+                all_caches_result = await session.execute(select(ExtractedFinancialData))
+                all_caches = all_caches_result.scalars().all()
+
+                all_pdf_hashes_result = await session.execute(
+                    select(ReportPDF.file_hash).where(ReportPDF.is_available == True)
+                )
+                valid_hashes = set(h for h in all_pdf_hashes_result.scalars().all() if h)
+
+                for cache in all_caches:
+                    if cache.file_hash not in valid_hashes:
+                        await session.delete(cache)
+                        orphaned_count += 1
+
+                await session.commit()
+                logger.info(f"缓存清理完成: 删除 {deleted_count} 个过期缓存, {orphaned_count} 个孤立缓存")
+
+                return {'deleted': deleted_count, 'orphaned': orphaned_count}
+
+        except Exception as e:
+            logger.error(f"清理缓存失败: {e}")
+            return {'deleted': 0, 'orphaned': 0, 'error': str(e)}
+
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        获取缓存统计信息
+
+        Returns:
+            缓存统计字典
+        """
+        try:
+            async with self.async_session() as session:
+                # 总缓存数
+                total_result = await session.execute(select(ExtractedFinancialData))
+                all_caches = total_result.scalars().all()
+
+                if not all_caches:
+                    return {
+                        'total_cached': 0,
+                        'cache_size_kb': 0,
+                        'avg_extraction_time_ms': 0,
+                        'avg_fields_extracted': 0,
+                        'oldest_cache': None,
+                        'newest_cache': None,
+                        'by_version': {},
+                        'current_version': EXTRACTOR_VERSION
+                    }
+
+                # 计算统计
+                total_size = 0
+                total_time = 0
+                total_fields = 0
+                time_count = 0
+                version_stats = {}
+                oldest = None
+                newest = None
+
+                for cache in all_caches:
+                    # 大小统计（估算JSON大小）
+                    for field in [cache.income_statement, cache.balance_sheet,
+                                 cache.cash_flow_statement, cache.financial_metrics,
+                                 cache.related_party_transactions, cache.metadata_json,
+                                 cache.extraction_summary]:
+                        if field:
+                            total_size += len(field.encode('utf-8'))
+
+                    # 时间统计
+                    if cache.extraction_duration_ms:
+                        total_time += cache.extraction_duration_ms
+                        time_count += 1
+
+                    # 字段统计
+                    total_fields += cache.fields_extracted
+
+                    # 版本统计
+                    version = cache.extractor_version
+                    version_stats[version] = version_stats.get(version, 0) + 1
+
+                    # 时间范围
+                    if oldest is None or cache.extracted_at < oldest:
+                        oldest = cache.extracted_at
+                    if newest is None or cache.extracted_at > newest:
+                        newest = cache.extracted_at
+
+                return {
+                    'total_cached': len(all_caches),
+                    'cache_size_kb': round(total_size / 1024, 2),
+                    'avg_extraction_time_ms': round(total_time / time_count) if time_count > 0 else 0,
+                    'avg_fields_extracted': round(total_fields / len(all_caches), 1),
+                    'oldest_cache': oldest.isoformat() if oldest else None,
+                    'newest_cache': newest.isoformat() if newest else None,
+                    'by_version': version_stats,
+                    'current_version': EXTRACTOR_VERSION
+                }
+
+        except Exception as e:
+            logger.error(f"获取缓存统计失败: {e}")
+            return {'error': str(e)}
+
+    async def get_uncached_pdfs(self, stock_code: Optional[str] = None,
+                                market: Optional[str] = None,
+                                limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        获取未缓存的PDF列表（用于缓存预热）
+
+        Args:
+            stock_code: 可选，指定股票代码
+            market: 可选，指定市场
+            limit: 返回数量限制
+
+        Returns:
+            未缓存的PDF信息列表
+        """
+        try:
+            async with self.async_session() as session:
+                # 获取所有已缓存的哈希
+                cached_result = await session.execute(
+                    select(ExtractedFinancialData.file_hash).where(
+                        ExtractedFinancialData.extractor_version == EXTRACTOR_VERSION
+                    )
+                )
+                cached_hashes = set(cached_result.scalars().all())
+
+                # 查询未缓存的PDF
+                query = select(ReportPDF).where(
+                    and_(
+                        ReportPDF.is_available == True,
+                        ReportPDF.file_hash.isnot(None)
+                    )
+                )
+
+                if stock_code:
+                    query = query.where(ReportPDF.stock_code == stock_code)
+                if market:
+                    query = query.where(ReportPDF.market == market)
+
+                query = query.order_by(ReportPDF.download_time.desc()).limit(limit * 2)
+
+                result = await session.execute(query)
+                pdfs = result.scalars().all()
+
+                uncached = []
+                for pdf in pdfs:
+                    if pdf.file_hash not in cached_hashes:
+                        uncached.append(self._pdf_to_dict(pdf))
+                        if len(uncached) >= limit:
+                            break
+
+                return uncached
+
+        except Exception as e:
+            logger.error(f"获取未缓存PDF失败: {e}")
+            return []
+
+    async def calculate_file_hash(self, file_path: Path) -> str:
+        """计算文件SHA256哈希（公开方法）"""
+        return await self._calculate_file_hash(file_path)

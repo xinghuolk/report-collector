@@ -66,6 +66,33 @@ class FinancialReportsPDFServer:
                     }
                 ),
                 Tool(
+                    name="search_hk_reports",
+                    description="搜索香港上市公司可用的财报PDF。返回繁体中文和英文两个版本。数据来源：港交所披露易。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "stock_code": {
+                                "type": "string",
+                                "description": "股票代码（5位数字，如00700）"
+                            },
+                            "report_type": {
+                                "type": "string",
+                                "enum": ["annual", "semi_annual", "quarterly"],
+                                "description": "报告类型（注意：港股季报非强制披露）",
+                                "default": "annual"
+                            },
+                            "max_count": {
+                                "type": "integer",
+                                "description": "最大搜索数量",
+                                "default": 10,
+                                "minimum": 1,
+                                "maximum": 50
+                            }
+                        },
+                        "required": ["stock_code"]
+                    }
+                ),
+                Tool(
                     name="download_cn_report",
                     description="下载中国A股公司财报PDF。文件按股票代码和报告类型组织存储，自动创建股票名称标识文件。",
                     inputSchema={
@@ -96,13 +123,40 @@ class FinancialReportsPDFServer:
                 ),
                 Tool(
                     name="download_stock_reports",
-                    description="批量下载股票的多个财报PDF",
+                    description="批量下载A股股票的多个财报PDF",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "stock_code": {
                                 "type": "string",
                                 "description": "股票代码（6位数字）"
+                            },
+                            "report_type": {
+                                "type": "string",
+                                "enum": ["annual", "semi_annual", "quarterly"],
+                                "description": "报告类型",
+                                "default": "annual"
+                            },
+                            "max_count": {
+                                "type": "integer",
+                                "description": "最大下载数量",
+                                "default": 3,
+                                "minimum": 1,
+                                "maximum": 10
+                            }
+                        },
+                        "required": ["stock_code"]
+                    }
+                ),
+                Tool(
+                    name="download_hk_reports",
+                    description="批量下载港股的财报PDF。同时下载繁体中文和英文两个版本。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "stock_code": {
+                                "type": "string",
+                                "description": "股票代码（5位数字，如00700）"
                             },
                             "report_type": {
                                 "type": "string",
@@ -191,7 +245,7 @@ class FinancialReportsPDFServer:
                 ),
                 Tool(
                     name="extract_pdf_content",
-                    description="提取财报PDF的结构化财务数据。包括：利润表(营业收入、净利润、扣非净利润、研发费用等)、资产负债表(总资产、应收账款、存货、商誉、无形资产等)、现金流量表、关联交易明细。建议使用完整年报而非摘要版本以获取全部数据。",
+                    description="提取财报PDF的结构化财务数据（支持缓存，首次提取约20秒，后续秒级返回）。包括：利润表(营业收入、净利润、扣非净利润、研发费用等)、资产负债表(总资产、应收账款、存货、商誉、无形资产等)、现金流量表、关联交易明细。返回结果包含_cache_info字段标识缓存状态。",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -202,6 +256,11 @@ class FinancialReportsPDFServer:
                             "pdf_id": {
                                 "type": "integer",
                                 "description": "PDF记录ID（从list_downloaded_pdfs获取）"
+                            },
+                            "force_refresh": {
+                                "type": "boolean",
+                                "description": "强制重新提取（忽略缓存）",
+                                "default": False
                             }
                         }
                     }
@@ -239,6 +298,55 @@ class FinancialReportsPDFServer:
                             }
                         }
                     }
+                ),
+                Tool(
+                    name="get_cache_stats",
+                    description="获取财务数据提取缓存的统计信息。包括缓存数量、大小、平均提取时间、版本分布等。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                ),
+                Tool(
+                    name="cleanup_cache",
+                    description="清理旧的财务数据提取缓存。删除过期缓存和孤立缓存（对应PDF已删除）。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "days": {
+                                "type": "integer",
+                                "description": "清理多少天前的缓存",
+                                "default": 90,
+                                "minimum": 1,
+                                "maximum": 365
+                            }
+                        }
+                    }
+                ),
+                Tool(
+                    name="warm_cache",
+                    description="预热财务数据提取缓存。对未缓存的PDF执行提取操作，适合在下载新财报后批量预热。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "stock_code": {
+                                "type": "string",
+                                "description": "股票代码（可选，指定则只预热该股票）"
+                            },
+                            "market": {
+                                "type": "string",
+                                "enum": ["CN", "HK", "US"],
+                                "description": "市场（可选）"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "最多处理多少个PDF",
+                                "default": 10,
+                                "minimum": 1,
+                                "maximum": 50
+                            }
+                        }
+                    }
                 )
             ]
             
@@ -256,6 +364,13 @@ class FinancialReportsPDFServer:
                         report_type=arguments.get("report_type", "annual"),
                         max_count=arguments.get("max_count", 10)
                     )
+                elif name == "search_hk_reports":
+                    result = await self.pdf_handler.search_available_reports(
+                        stock_code=arguments["stock_code"],
+                        market="HK",
+                        report_type=arguments.get("report_type", "annual"),
+                        max_count=arguments.get("max_count", 10)
+                    )
                 elif name == "download_cn_report":
                     result = await self.pdf_handler.download_report(
                         stock_code=arguments["stock_code"],
@@ -268,6 +383,13 @@ class FinancialReportsPDFServer:
                     result = await self.pdf_handler.download_stock_reports(
                         stock_code=arguments["stock_code"],
                         market="CN",
+                        report_type=arguments.get("report_type", "annual"),
+                        max_count=arguments.get("max_count", 3)
+                    )
+                elif name == "download_hk_reports":
+                    result = await self.pdf_handler.download_stock_reports(
+                        stock_code=arguments["stock_code"],
+                        market="HK",
                         report_type=arguments.get("report_type", "annual"),
                         max_count=arguments.get("max_count", 3)
                     )
@@ -291,7 +413,8 @@ class FinancialReportsPDFServer:
                 elif name == "extract_pdf_content":
                     result = await self.pdf_handler.extract_pdf_content(
                         pdf_path=arguments.get("pdf_path"),
-                        pdf_id=arguments.get("pdf_id")
+                        pdf_id=arguments.get("pdf_id"),
+                        force_refresh=arguments.get("force_refresh", False)
                     )
                 elif name == "extract_pdf_tables":
                     result = await self.pdf_handler.extract_tables(
@@ -302,6 +425,18 @@ class FinancialReportsPDFServer:
                     result = await self.pdf_handler.extract_text(
                         pdf_path=arguments.get("pdf_path"),
                         pdf_id=arguments.get("pdf_id")
+                    )
+                elif name == "get_cache_stats":
+                    result = await self.pdf_handler.get_cache_stats()
+                elif name == "cleanup_cache":
+                    result = await self.pdf_handler.cleanup_extraction_cache(
+                        days=arguments.get("days", 90)
+                    )
+                elif name == "warm_cache":
+                    result = await self.pdf_handler.warm_cache(
+                        stock_code=arguments.get("stock_code"),
+                        market=arguments.get("market"),
+                        limit=arguments.get("limit", 10)
                     )
                 else:
                     result = {"success": False, "error": f"未知工具: {name}"}
