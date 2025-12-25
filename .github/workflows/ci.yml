@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  # PDF Reader MCP (Node.js)
+  pdf-reader-mcp:
+    name: PDF Reader MCP
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pdf-reader-mcp
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: pdf-reader-mcp/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Formatting
+        run: pnpm run check-format
+
+      - name: Lint Code
+        run: pnpm run lint
+
+      - name: Run Tests
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+  # Report Collector (Python)
+  report:
+    name: Report Collector
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: report
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Check import structure
+        run: uv run python -c "from src.main import FinancialReportsPDFServer; print('Import OK')"

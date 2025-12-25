@@ -405,9 +405,11 @@ class CninfoDownloader:
                 detected_exchange = 'bj'   # 北交所
 
         # 构建请求参数
+        # API请求更多结果以应对摘要版本被过滤的情况
+        api_page_size = max(limit * 3, 30)
         params = {
             "pageNum": str(page_num),
-            "pageSize": str(limit),
+            "pageSize": str(api_page_size),
             "column": detected_exchange if detected_exchange != 'all' else 'szse',
             "tabName": "fulltext",
             "searchkey": search_key,  # 关键！使用searchkey进行精确搜索
@@ -423,17 +425,19 @@ class CninfoDownloader:
             async with aiohttp.ClientSession(headers=self.api_headers, timeout=timeout) as session:
                 async with session.post(self.api_url, data=params) as response:
                     logger.info(f"巨潮资讯网API请求: {response.status}, searchkey: '{search_key}', 交易所: {detected_exchange}")
-                    
+
                     if response.status == 200:
                         data = await response.json()
                         total_records = data.get('totalRecordNum', 0)
                         logger.info(f"API响应: 找到 {total_records} 条记录")
                         logger.debug(f"完整响应: {data}")
-                        return self._parse_search_results(data, report_type, exclude_summary)
+                        # 过滤后返回指定数量
+                        results = self._parse_search_results(data, report_type, exclude_summary)
+                        return results[:limit]
                     else:
                         logger.error(f"API请求失败: {response.status}, 参数: {params}")
                         return []
-                        
+
         except Exception as e:
             logger.error(f"搜索请求异常: {e}")
             return []
@@ -675,7 +679,7 @@ class CninfoDownloader:
                                    end_date: str = None) -> List[str]:
         """批量下载股票财报"""
         logger.info(f"开始批量下载 {stock_code} 的 {report_type} 报告，最多 {max_count} 个")
-        
+
         # 搜索报告
         reports = await self.search_reports(
             stock_code=stock_code,

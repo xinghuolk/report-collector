@@ -1,15 +1,25 @@
 # .github/dependabot.yml
 version: 2
 updates:
-  # Dependency updates for npm
+  # PDF Reader MCP (npm)
   - package-ecosystem: 'npm'
-    directory: '/' # Location of package manifests
+    directory: '/pdf-reader-mcp'
     schedule:
       interval: 'weekly'
     open-pull-requests-limit: 10
     commit-message:
-      prefix: 'chore'
-      prefix-development: 'chore(dev)'
+      prefix: 'chore(pdf-reader)'
+      include: 'scope'
+    rebase-strategy: 'auto'
+
+  # Report Collector (pip/uv)
+  - package-ecosystem: 'pip'
+    directory: '/report'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: 'chore(report)'
       include: 'scope'
     rebase-strategy: 'auto'
 
@@ -18,7 +28,7 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
-    open-pull-requests-limit: 5 # Limit for actions
+    open-pull-requests-limit: 5
     commit-message:
       prefix: 'chore(actions)'
       include: 'scope'

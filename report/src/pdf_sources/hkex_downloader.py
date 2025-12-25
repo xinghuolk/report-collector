@@ -87,6 +87,12 @@ class HKEXDownloader:
             'Referer': 'https://www1.hkexnews.hk/',
         }
 
+        # 股票列表 API（用於獲取內部 ID）
+        self.stock_list_url = "https://www1.hkexnews.hk/ncms/script/eds/activestock_sehk_c.json"
+
+        # 股票代碼到內部 ID 的緩存
+        self._stock_id_cache: Dict[str, int] = {}
+
         # 文件組織
         self.max_files_per_dir = 1000
 
@@ -201,6 +207,51 @@ class HKEXDownloader:
         }
         return type_map.get(report_type, 'other')
 
+    async def _get_stock_internal_id(self, stock_code: str) -> Optional[int]:
+        """
+        獲取股票的港交所內部 ID
+
+        Args:
+            stock_code: 股票代碼（如 01810, 00700）
+
+        Returns:
+            內部 ID，如果找不到返回 None
+        """
+        # 標準化股票代碼
+        stock_code = stock_code.zfill(5)
+
+        # 檢查緩存
+        if stock_code in self._stock_id_cache:
+            return self._stock_id_cache[stock_code]
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    self.stock_list_url,
+                    headers=self.json_headers
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        # 查找匹配的股票代碼
+                        for item in data:
+                            if item.get('c') == stock_code:
+                                internal_id = item.get('i')
+                                stock_name = item.get('n', '')
+                                self._stock_id_cache[stock_code] = internal_id
+                                logger.info(f"找到股票 {stock_code} ({stock_name}) 內部ID: {internal_id}")
+                                return internal_id
+
+                        logger.warning(f"未找到股票代碼 {stock_code} 的內部ID")
+                        return None
+                    else:
+                        logger.error(f"獲取股票列表失敗: {response.status}")
+                        return None
+
+        except Exception as e:
+            logger.error(f"獲取股票內部ID異常: {e}")
+            return None
+
     async def search_reports(self,
                            stock_code: str = "",
                            report_type: str = 'annual',
@@ -227,8 +278,15 @@ class HKEXDownloader:
 
         logger.info(f"搜索港股財報: 股票={stock_code}, 類型={report_type}, 限制={limit}")
 
+        # 獲取股票內部 ID
+        internal_id = None
+        if stock_code:
+            internal_id = await self._get_stock_internal_id(stock_code)
+            if not internal_id:
+                logger.warning(f"無法獲取股票 {stock_code} 的內部ID，搜索可能失敗")
+
         # 使用HTML搜索
-        all_results = await self._search_via_html(stock_code, report_type, limit)
+        all_results = await self._search_via_html(stock_code, report_type, limit, internal_id)
 
         # 過濾報告類型
         filtered_results = []
@@ -240,8 +298,8 @@ class HKEXDownloader:
         logger.info(f"找到 {len(filtered_results)} 個符合條件的財報")
         return filtered_results[:limit]
 
-    async def _search_via_html(self, stock_code: str, report_type: str, limit: int) -> List[Dict]:
-        """通過HTML搜索頁面獲取結果"""
+    async def _search_via_html(self, stock_code: str, report_type: str, limit: int, internal_id: Optional[int] = None) -> List[Dict]:
+        """通過HTML搜索頁面獲取結果（只搜索英文版本）"""
         # 報告類型對應的文檔類型代碼
         doc_type_map = {
             'annual': '40100',      # 年報
@@ -255,16 +313,22 @@ class HKEXDownloader:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365 * 5)
 
+        # 使用內部 ID（如果有）或股票代碼
+        stock_id_value = str(internal_id) if internal_id else stock_code
+
+        results = []
+
+        # 只搜索英文界面，獲取英文版本
         form_data = {
-            'lang': 'EN',
+            'lang': 'EN',  # 使用英文界面獲取英文版本
             'category': '0',
             'market': 'SEHK',
             'searchType': '0',
-            'documentType': doc_type,
-            't1code': '-2',
+            'documentType': '-1',  # 使用 -1 獲取所有類型，後續過濾
+            't1code': '40000',     # 財務報告類別
             't2Gcode': '-2',
             't2code': '-2',
-            'stockId': stock_code,
+            'stockId': stock_id_value,
             'from': start_date.strftime('%Y%m%d'),
             'to': end_date.strftime('%Y%m%d'),
             'headline': '',
@@ -272,8 +336,6 @@ class HKEXDownloader:
             'sortDir': '0',
             'sortByDate': 'desc',
         }
-
-        results = []
 
         try:
             timeout = aiohttp.ClientTimeout(total=60)
@@ -292,6 +354,7 @@ class HKEXDownloader:
                     if response.status == 200:
                         html = await response.text()
                         results = self._parse_search_html(html, stock_code, report_type)
+                        logger.info(f"搜索英文界面找到 {len(results)} 個結果")
                     else:
                         logger.warning(f"搜索請求失敗: {response.status}")
 
@@ -348,8 +411,8 @@ class HKEXDownloader:
                 else:
                     pdf_url = href
 
-                # 判斷語言
-                language = 'zh' if '_c.' in href or href.endswith('_c.pdf') else 'en'
+                # 判斷語言（更准确的检测）
+                language = self._detect_language(title, href)
 
                 # 提取年份
                 year = self._extract_year_from_title(title)
@@ -476,6 +539,48 @@ class HKEXDownloader:
         match = re.search(r'20[0-9]{2}', title)
         return int(match.group()) if match else None
 
+    def _get_english_url(self, chinese_url: str) -> Optional[str]:
+        """從中文版URL推斷英文版URL
+
+        港交所PDF URL規律：
+        - 中文版: xxxxx_c.pdf
+        - 英文版: xxxxx.pdf (去掉_c后缀)
+        
+        注意：中英文URL的數字編號可能不同，所以這個推導不一定准確
+        """
+        if not chinese_url:
+            return None
+
+        # 將 _c.pdf 去掉 _c
+        if chinese_url.endswith('_c.pdf'):
+            return chinese_url.replace('_c.pdf', '.pdf')
+        elif '_c.' in chinese_url:
+            return chinese_url.replace('_c.', '.')
+
+        return None
+
+    def _get_chinese_url(self, english_url: str) -> Optional[str]:
+        """從英文版URL推斷中文版URL
+
+        港交所PDF URL規律：
+        - 英文版: xxxxx.pdf (不带后缀)
+        - 中文版: xxxxx_c.pdf (加上_c)
+        
+        注意：中英文URL的數字編號可能不同，所以這個推導不一定准確
+        """
+        if not english_url:
+            return None
+
+        # 如果已經有 _c 後綴，不處理
+        if '_c.pdf' in english_url or '_c.' in english_url:
+            return None
+
+        # 將 .pdf 替換為 _c.pdf
+        if english_url.endswith('.pdf'):
+            return english_url.replace('.pdf', '_c.pdf')
+
+        return None
+
     async def download_pdf(self, pdf_url: str, report_data: Dict) -> Tuple[bool, str, Optional[str]]:
         """下載PDF文件"""
         if not pdf_url:
@@ -564,54 +669,62 @@ class HKEXDownloader:
                                    stock_code: str,
                                    report_type: str = 'annual',
                                    max_count: int = 5,
-                                   download_both_languages: bool = True) -> List[str]:
+                                   download_both_languages: bool = False) -> List[str]:
         """
-        批量下載股票財報
+        批量下載股票財報（只下載英文版本）
 
         Args:
             stock_code: 股票代碼
             report_type: 報告類型
             max_count: 最多下載數量
-            download_both_languages: 是否下載中英文兩個版本
+            download_both_languages: 已廢棄，保留參數以兼容性（現在只下載英文版本）
         """
-        logger.info(f"開始批量下載 {stock_code} 的 {report_type} 報告，最多 {max_count} 個")
+        logger.info(f"開始批量下載 {stock_code} 的 {report_type} 英文報告，最多 {max_count} 個")
 
-        # 搜索報告
+        # 搜索報告（只搜索英文版本）
         reports = await self.search_reports(
             stock_code=stock_code,
             report_type=report_type,
-            limit=max_count * 2  # 多搜索一些，因為要過濾語言
+            limit=max_count * 2  # 多搜索一些作為備選
         )
 
         if not reports:
-            logger.warning(f"未找到 {stock_code} 的 {report_type} 報告")
+            logger.warning(f"未找到 {stock_code} 的 {report_type} 英文報告")
             return []
+
+        # 只保留英文版本
+        english_reports = [r for r in reports if r.get('language') == 'en']
+        
+        logger.info(f"找到 {len(english_reports)} 個英文財報")
 
         downloaded_files = []
         downloaded_count = 0
 
-        for report in reports:
+        for report in english_reports:
             if downloaded_count >= max_count:
                 break
 
             if not report.get('pdf_url'):
                 continue
 
-            logger.info(f"下載: {report['title']}")
-
-            success, message, filepath = await self.download_pdf(report['pdf_url'], report)
-
+            pdf_url = report.get('pdf_url')
+            title = report.get('title', '')
+            
+            # 下載英文版本
+            logger.info(f"下載英文財報: {title}")
+            success, message, filepath = await self.download_pdf(pdf_url, report)
+            
             if success and filepath:
                 downloaded_files.append(filepath)
                 downloaded_count += 1
-                logger.info(f"✓ 下載成功: {Path(filepath).name}")
+                logger.info(f"✓ 下載成功 ({downloaded_count}/{max_count}): {Path(filepath).name}")
             else:
                 logger.warning(f"✗ 下載失敗: {message}")
 
             # 避免請求過於頻繁
             await asyncio.sleep(2)
 
-        logger.info(f"批量下載完成，成功下載 {len(downloaded_files)} 個文件")
+        logger.info(f"批量下載完成，成功下載 {len(downloaded_files)} 個英文財報")
         return downloaded_files
 
     async def search_by_stock_code_web(self, stock_code: str, report_type: str = 'annual',
