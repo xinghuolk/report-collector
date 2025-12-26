@@ -32,7 +32,14 @@ class HKEXDownloader:
     CATEGORY_MAP = {
         'annual': ['年報', '年度報告', 'Annual Report', 'Annual Results'],
         'semi_annual': ['中期報告', '中期業績', 'Interim Report', 'Interim Results'],
-        'quarterly': ['季度報告', '季度業績', 'Quarterly Report', 'Quarterly Results'],
+        'quarterly': [
+            '季度報告', '季度業績', '季報', '季度成績',
+            'Quarterly Report', 'Quarterly Results', 'Quarterly Update',
+            '[Quarterly Results]', '[Quarterly',  # 港交所標題格式
+            'First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter',
+            'Q1 ', 'Q2 ', 'Q3 ', 'Q4 ',
+            '1Q', '2Q', '3Q', '4Q',
+        ],
         'results': ['業績公告', '全年業績', 'Results Announcement'],
     }
 
@@ -300,15 +307,6 @@ class HKEXDownloader:
 
     async def _search_via_html(self, stock_code: str, report_type: str, limit: int, internal_id: Optional[int] = None) -> List[Dict]:
         """通過HTML搜索頁面獲取結果（只搜索英文版本）"""
-        # 報告類型對應的文檔類型代碼
-        doc_type_map = {
-            'annual': '40100',      # 年報
-            'semi_annual': '40200', # 中期報告
-            'quarterly': '40300',   # 季度報告
-        }
-
-        doc_type = doc_type_map.get(report_type, '40100')
-
         # 計算日期範圍（過去5年）
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365 * 5)
@@ -318,6 +316,15 @@ class HKEXDownloader:
 
         results = []
 
+        # 根據報告類型設置不同的搜索參數
+        # 季度報告在港交所屬於"公告與通知"類別，不是"財務報告"類別
+        if report_type == 'quarterly':
+            t1code = '-1'  # 搜索所有類別
+            headline = 'quarterly'  # 通過標題關鍵字過濾
+        else:
+            t1code = '40000'  # 財務報告類別（年報、中報）
+            headline = ''
+
         # 只搜索英文界面，獲取英文版本
         form_data = {
             'lang': 'EN',  # 使用英文界面獲取英文版本
@@ -325,13 +332,13 @@ class HKEXDownloader:
             'market': 'SEHK',
             'searchType': '0',
             'documentType': '-1',  # 使用 -1 獲取所有類型，後續過濾
-            't1code': '40000',     # 財務報告類別
+            't1code': t1code,
             't2Gcode': '-2',
             't2code': '-2',
             'stockId': stock_id_value,
             'from': start_date.strftime('%Y%m%d'),
             'to': end_date.strftime('%Y%m%d'),
-            'headline': '',
+            'headline': headline,
             'searchText': '',
             'sortDir': '0',
             'sortByDate': 'desc',
@@ -397,7 +404,16 @@ class HKEXDownloader:
                     continue
 
                 href = link.get('href', '')
-                title = link.get_text(strip=True)
+                link_title = link.get_text(strip=True)
+
+                # 獲取完整的headline（包含類別信息如[Quarterly Results]）
+                headline_div = row.find('div', class_='headline')
+                if headline_div:
+                    # 獲取整個headline的文本，包括類別和鏈接文本
+                    full_headline = headline_div.get_text(separator=' ', strip=True)
+                    title = full_headline
+                else:
+                    title = link_title
 
                 # 獲取發布日期
                 date_cell = cells[0] if cells else None

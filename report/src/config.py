@@ -76,10 +76,16 @@ class Config:
     # 日志配置
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE = BASE_DIR / "financial_reports_pdf.log"
-    
+
     # 搜索配置
     DEFAULT_SEARCH_LIMIT = 20
     MAX_SEARCH_LIMIT = 100
+
+    # HTTP API服务器配置
+    HTTP_HOST = os.getenv("HTTP_HOST", "0.0.0.0")
+    HTTP_PORT = int(os.getenv("HTTP_PORT", "8000"))
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+    API_PREFIX = "/api/v1"
     
     @classmethod
     def setup_directories(cls):
