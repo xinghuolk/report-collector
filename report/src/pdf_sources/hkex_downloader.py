@@ -430,8 +430,8 @@ class HKEXDownloader:
                 # 判斷語言（更准确的检测）
                 language = self._detect_language(title, href)
 
-                # 提取年份
-                year = self._extract_year_from_title(title)
+                # 提取年份（從標題、URL或發布時間）
+                year = self._extract_year_from_title(title, href, date_text)
 
                 results.append({
                     'stock_code': stock_code,
@@ -514,8 +514,8 @@ class HKEXDownloader:
             # 判斷語言版本
             language = self._detect_language(title, web_path)
 
-            # 提取年份
-            year = self._extract_year_from_title(title)
+            # 提取年份（從標題、URL或發布時間）
+            year = self._extract_year_from_title(title, web_path, release_time)
 
             return {
                 'news_id': news_id,
@@ -550,10 +550,26 @@ class HKEXDownloader:
         # 默認英文
         return 'en'
 
-    def _extract_year_from_title(self, title: str) -> Optional[int]:
-        """從標題中提取年份"""
+    def _extract_year_from_title(self, title: str, url: str = None, release_time: str = None) -> Optional[int]:
+        """從標題、URL或發布時間中提取年份"""
+        # 優先從標題提取
         match = re.search(r'20[0-9]{2}', title)
-        return int(match.group()) if match else None
+        if match:
+            return int(match.group())
+
+        # 從URL路徑提取 (如 /sehk/2025/1118/xxx.pdf)
+        if url:
+            match = re.search(r'/20([0-9]{2})/', url)
+            if match:
+                return int('20' + match.group(1))
+
+        # 從發布時間提取 (如 "Release Time:18/11/2025 17:25" 或 "18/11/2025")
+        if release_time:
+            match = re.search(r'(\d{2})/(\d{2})/(20\d{2})', release_time)
+            if match:
+                return int(match.group(3))
+
+        return None
 
     def _get_english_url(self, chinese_url: str) -> Optional[str]:
         """從中文版URL推斷英文版URL
