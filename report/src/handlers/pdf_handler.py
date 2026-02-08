@@ -110,6 +110,179 @@ class PDFHandler:
         except Exception as e:
             logger.error(f"搜索财报失败: {e}")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _parse_hk_release_time(release_time: Optional[str]) -> Optional[datetime]:
+        """解析港股披露易发布时间"""
+        if not release_time:
+            return None
+
+        cleaned = release_time.replace("Release Time:", "").strip()
+        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(cleaned, fmt)
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _parse_cn_announcement_time(report: Dict[str, Any]) -> Optional[datetime]:
+        """解析A股公告发布时间"""
+        raw_ts = report.get("announcement_time")
+        if raw_ts:
+            try:
+                return datetime.fromtimestamp(int(raw_ts) / 1000)
+            except (ValueError, TypeError):
+                pass
+
+        date_text = report.get("announcement_date")
+        if date_text:
+            try:
+                return datetime.strptime(date_text, "%Y-%m-%d")
+            except ValueError:
+                return None
+
+        return None
+
+    @staticmethod
+    def _normalize_report_types(
+        report_types: Optional[List[str]], market: str
+    ) -> List[str]:
+        """标准化报告类型列表"""
+        if not report_types:
+            return ["annual", "semi_annual", "quarterly"]
+
+        normalized: List[str] = []
+        for report_type in report_types:
+            if not report_type:
+                continue
+            if report_type == "all":
+                return ["annual", "semi_annual", "quarterly"]
+            normalized.append(report_type)
+
+        return normalized or ["annual", "semi_annual", "quarterly"]
+
+    @staticmethod
+    def _report_identity(report: Dict[str, Any], market: str) -> str:
+        """生成报告去重标识"""
+        if market == "CN":
+            return (
+                report.get("adjunct_url")
+                or report.get("announcement_id")
+                or report.get("pdf_url")
+                or report.get("announcement_title")
+                or ""
+            )
+        return (
+            report.get("web_path")
+            or report.get("news_id")
+            or report.get("pdf_url")
+            or report.get("title")
+            or ""
+        )
+
+    def _with_publish_time(self, report: Dict[str, Any], market: str) -> Dict[str, Any]:
+        """补充统一的发布时间字段"""
+        if market == "CN":
+            publish_dt = self._parse_cn_announcement_time(report)
+        else:
+            publish_dt = self._parse_hk_release_time(report.get("release_time"))
+
+        if publish_dt:
+            report["publish_time"] = publish_dt.isoformat()
+            report["publish_timestamp"] = int(publish_dt.timestamp())
+        else:
+            report["publish_time"] = None
+            report["publish_timestamp"] = 0
+
+        return report
+
+    async def search_latest_reports(
+        self,
+        stock_code: str,
+        market: str,
+        report_types: Optional[List[str]] = None,
+        max_count: int = 10,
+    ) -> Dict[str, Any]:
+        """跨类型检索并按发布时间排序的最新报告"""
+        is_valid, error = DataValidator.validate_stock_symbol(stock_code, market)
+        if not is_valid:
+            return {"success": False, "error": error}
+
+        is_valid, error = DataValidator.validate_market(market)
+        if not is_valid:
+            return {"success": False, "error": error}
+
+        normalized_types = self._normalize_report_types(report_types, market)
+
+        invalid_types = [
+            report_type
+            for report_type in normalized_types
+            if report_type not in ("annual", "semi_annual", "quarterly")
+        ]
+        if invalid_types:
+            return {"success": False, "error": f"不支持的报告类型: {', '.join(invalid_types)}"}
+
+        cache_key = f"latest_{market}_{stock_code}_{'_'.join(normalized_types)}_{max_count}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+
+        try:
+            if market == "CN":
+                tasks = [
+                    self.cn_downloader.search_reports(
+                        stock_code=stock_code,
+                        report_type=report_type,
+                        limit=max_count * 2,
+                    )
+                    for report_type in normalized_types
+                ]
+            elif market == "HK":
+                tasks = [
+                    self.hk_downloader.search_reports(
+                        stock_code=stock_code,
+                        report_type=report_type,
+                        limit=max_count * 2,
+                    )
+                    for report_type in normalized_types
+                ]
+            else:
+                return {"success": False, "error": f"不支持的市场: {market}"}
+
+            results = await asyncio.gather(*tasks)
+            merged: Dict[str, Dict[str, Any]] = {}
+
+            for report_list in results:
+                for report in report_list:
+                    enriched = self._with_publish_time(report, market)
+                    identity = self._report_identity(enriched, market)
+                    if not identity:
+                        identity = f"{enriched.get('title')}_{enriched.get('publish_time')}"
+                    merged[identity] = enriched
+
+            sorted_reports = sorted(
+                merged.values(),
+                key=lambda item: item.get("publish_timestamp", 0),
+                reverse=True,
+            )
+
+            final_reports = sorted_reports[:max_count]
+            result = {
+                "success": True,
+                "data": final_reports,
+                "count": len(final_reports),
+                "stock_code": stock_code,
+                "market": market,
+                "report_types": normalized_types,
+                "sorted_by": "publish_time_desc",
+            }
+
+            self.cache[cache_key] = result
+            return result
+
+        except Exception as e:
+            logger.error(f"最新报告检索失败: {e}")
+            return {"success": False, "error": str(e)}
             
     async def download_report(self, stock_code: str, market: str = "CN",
                             report_type: str = "annual", report_url: str = None,
@@ -190,9 +363,13 @@ class PDFHandler:
             logger.error(f"下载财报失败: {e}")
             return {"success": False, "error": str(e)}
             
-    async def download_stock_reports(self, stock_code: str, market: str = "CN",
-                                   report_type: str = "annual", 
-                                   max_count: int = 3) -> Dict[str, Any]:
+    async def download_stock_reports(
+        self,
+        stock_code: str,
+        market: str = "CN",
+        report_type: str = "annual",
+        max_count: int = 3,
+    ) -> Dict[str, Any]:
         """批量下载股票财报"""
         try:
             if market == "CN":
@@ -200,18 +377,40 @@ class PDFHandler:
                 downloaded_files = await self.cn_downloader.download_stock_reports(
                     stock_code, report_type, max_count
                 )
+
+                # 获取对应的报告信息用于补充元数据（顺序与下载一致）
+                reports = await self.cn_downloader.search_reports(
+                    stock_code=stock_code,
+                    report_type=report_type,
+                    limit=max_count,
+                )
                 
                 # 批量添加到数据库
                 pdf_ids = []
-                for file_path in downloaded_files:
+                for idx, file_path in enumerate(downloaded_files):
+                    matched_report = reports[idx] if idx < len(reports) else None
+
+                    announcement_date = (
+                        self._parse_cn_announcement_time(matched_report)
+                        if matched_report
+                        else None
+                    )
                     pdf_info = {
-                        'stock_code': stock_code,
-                        'market': market,
-                        'report_type': report_type,
-                        'original_title': Path(file_path).stem,
-                        'file_path': file_path,
-                        'file_name': Path(file_path).name,
-                        'source_name': '巨潮资讯网'
+                        "stock_code": stock_code,
+                        "market": market,
+                        "report_type": report_type,
+                        "report_year": matched_report.get("year") if matched_report else None,
+                        "announcement_date": announcement_date,
+                        "original_title": (
+                            matched_report.get("announcement_title")
+                            if matched_report
+                            else Path(file_path).stem
+                        ),
+                        "file_path": file_path,
+                        "file_name": Path(file_path).name,
+                        "source_url": matched_report.get("pdf_url") if matched_report else None,
+                        "source_name": "巨潮资讯网",
+                        "metadata_json": None,
                     }
                     
                     pdf_id = await self.pdf_manager.add_pdf(pdf_info)
@@ -235,17 +434,39 @@ class PDFHandler:
                     stock_code, report_type, max_count
                 )
 
+                reports = await self.hk_downloader.search_reports(
+                    stock_code=stock_code,
+                    report_type=report_type,
+                    limit=max_count,
+                )
+                english_reports = [r for r in reports if r.get("language") == "en"]
+
                 # 批量添加到数据库
                 pdf_ids = []
-                for file_path in downloaded_files:
+                for idx, file_path in enumerate(downloaded_files):
+                    matched_report = english_reports[idx] if idx < len(english_reports) else None
+
+                    announcement_date = (
+                        self._parse_hk_release_time(matched_report.get("release_time"))
+                        if matched_report
+                        else None
+                    )
                     pdf_info = {
-                        'stock_code': stock_code,
-                        'market': market,
-                        'report_type': report_type,
-                        'original_title': Path(file_path).stem,
-                        'file_path': file_path,
-                        'file_name': Path(file_path).name,
-                        'source_name': '港交所披露易'
+                        "stock_code": stock_code,
+                        "market": market,
+                        "report_type": report_type,
+                        "report_year": matched_report.get("year") if matched_report else None,
+                        "announcement_date": announcement_date,
+                        "original_title": (
+                            matched_report.get("title")
+                            if matched_report
+                            else Path(file_path).stem
+                        ),
+                        "file_path": file_path,
+                        "file_name": Path(file_path).name,
+                        "source_url": matched_report.get("pdf_url") if matched_report else None,
+                        "source_name": "港交所披露易",
+                        "metadata_json": None,
                     }
 
                     pdf_id = await self.pdf_manager.add_pdf(pdf_info)
@@ -270,15 +491,24 @@ class PDFHandler:
             logger.error(f"批量下载财报失败: {e}")
             return {"success": False, "error": str(e)}
             
-    async def list_downloaded_pdfs(self, stock_code: str = None, market: str = None,
-                                 report_type: str = None, limit: int = 20) -> Dict[str, Any]:
+    async def list_downloaded_pdfs(
+        self,
+        stock_code: str = None,
+        market: str = None,
+        report_type: str = None,
+        limit: int = 20,
+        sort_by: str = "download_time",
+        sort_order: str = "desc",
+    ) -> Dict[str, Any]:
         """列出已下载的PDF"""
         try:
             pdfs = await self.pdf_manager.search_pdfs(
                 stock_code=stock_code,
                 market=market,
                 report_type=report_type,
-                limit=limit
+                limit=limit,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
             
             return {

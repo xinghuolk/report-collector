@@ -188,6 +188,42 @@ class TestNormalizeReportType:
         assert downloader._normalize_report_type("unknown") == "other"
 
 
+class TestPeriodLabelExtraction:
+    """季度期间标签提取测试"""
+
+    @pytest.fixture
+    def downloader(self, tmp_path):
+        return HKEXDownloader(
+            download_dir=str(tmp_path / "downloads"),
+            db_path=str(tmp_path / "test.db")
+        )
+
+    def test_extract_q1_label(self, downloader):
+        label = downloader._extract_period_label(
+            "ANNOUNCEMENT OF THE 2025 Q1 FINANCIAL RESULTS",
+            "quarterly",
+        )
+        assert label == "q1"
+
+    def test_extract_q3_label(self, downloader):
+        label = downloader._extract_period_label(
+            "Announcement of the 2025 Q3 Financial Results",
+            "quarterly",
+        )
+        assert label == "q3"
+
+    def test_extract_q4_full_year_label(self, downloader):
+        label = downloader._extract_period_label(
+            "ANNOUNCEMENT OF THE 2025 Q4 AND FULL YEAR FINANCIAL RESULTS",
+            "quarterly",
+        )
+        assert label == "q4_fy"
+
+    def test_extract_label_non_quarterly(self, downloader):
+        label = downloader._extract_period_label("Annual Report 2025", "annual")
+        assert label is None
+
+
 class TestDownloadSubpath:
     """下载路径生成测试"""
 
@@ -420,6 +456,43 @@ class TestDownloadPDF:
             assert success is True
             assert filepath is not None
             assert Path(filepath).exists()
+
+    @pytest.mark.asyncio
+    async def test_download_quarterly_filename_has_period_label(self, downloader):
+        """测试季度报告文件名包含季度标签，避免同年覆盖"""
+        pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\nxref\n%%EOF"
+
+        report_data = {
+            "stock_code": "09987",
+            "stock_name": "Yum China",
+            "title": "ANNOUNCEMENT OF THE 2025 Q3 FINANCIAL RESULTS",
+            "report_type": "quarterly",
+            "language": "en",
+            "year": 2025
+        }
+
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session = MagicMock()
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.read = AsyncMock(return_value=pdf_content)
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session_class.return_value = mock_session
+
+            success, _, filepath = await downloader.download_pdf(
+                "https://www1.hkexnews.hk/report.pdf",
+                report_data
+            )
+
+            assert success is True
+            assert filepath is not None
+            assert Path(filepath).name == "2025_quarterly_q3_en.pdf"
 
 
 class TestDatabaseOperations:

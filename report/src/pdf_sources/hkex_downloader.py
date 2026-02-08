@@ -31,7 +31,12 @@ class HKEXDownloader:
     # 港股报告分类映射
     CATEGORY_MAP = {
         'annual': ['年報', '年度報告', 'Annual Report', 'Annual Results'],
-        'semi_annual': ['中期報告', '中期業績', 'Interim Report', 'Interim Results'],
+        'semi_annual': [
+            '中期報告', '中期業績',
+            'Interim Report', 'Interim Results',
+            'Results Announcement', 'Half Year', 'Half-Year',
+            'Six Months', 'Six-month', 'H1', '1H',
+        ],
         'quarterly': [
             '季度報告', '季度業績', '季報', '季度成績',
             'Quarterly Report', 'Quarterly Results', 'Quarterly Update',
@@ -39,6 +44,7 @@ class HKEXDownloader:
             'First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter',
             'Q1 ', 'Q2 ', 'Q3 ', 'Q4 ',
             '1Q', '2Q', '3Q', '4Q',
+            'Results Announcement', 'Q1 Results', 'Q2 Results', 'Q3 Results', 'Q4 Results',
         ],
         'results': ['業績公告', '全年業績', 'Results Announcement'],
     }
@@ -213,6 +219,47 @@ class HKEXDownloader:
             'other': 'other'
         }
         return type_map.get(report_type, 'other')
+
+    def _extract_period_label(self, title: str, report_type: str) -> Optional[str]:
+        """從標題中提取期間標籤（用於文件名去重）
+
+        主要用於 quarterly 報告，避免同一年 Q1/Q3 文件同名覆蓋。
+        """
+        if report_type != "quarterly" or not title:
+            return None
+
+        title_lower = title.lower()
+
+        quarter_patterns = [
+            ("q1", [r"\bq1\b", r"first quarter", r"第一季度", r"一季度", r"\b1q\b"]),
+            ("q2", [r"\bq2\b", r"second quarter", r"第二季度", r"二季度", r"\b2q\b"]),
+            ("q3", [r"\bq3\b", r"third quarter", r"第三季度", r"三季度", r"\b3q\b"]),
+            ("q4", [r"\bq4\b", r"fourth quarter", r"第四季度", r"四季度", r"\b4q\b"]),
+        ]
+
+        matched_quarter: Optional[str] = None
+        for quarter, patterns in quarter_patterns:
+            if any(re.search(pattern, title_lower, re.IGNORECASE) for pattern in patterns):
+                matched_quarter = quarter
+                break
+
+        if not matched_quarter:
+            return None
+
+        has_full_year = any(
+            keyword in title_lower
+            for keyword in (
+                "full year",
+                "全年",
+                "年度",
+                "annual results",
+                "year ended",
+            )
+        )
+        if matched_quarter == "q4" and has_full_year:
+            return "q4_fy"
+
+        return matched_quarter
 
     async def _get_stock_internal_id(self, stock_code: str) -> Optional[int]:
         """
@@ -624,10 +671,15 @@ class HKEXDownloader:
             report_type = report_data.get('report_type', 'other')
             language = report_data.get('language', 'en')
             year = report_data.get('year', datetime.now().year)
+            title = report_data.get('title', '')
 
             # 生成文件名: {年份}_{報告類型}_{語言}.pdf
             lang_suffix = 'zh' if language == 'zh' else 'en'
-            filename = f"{year}_{report_type}_{lang_suffix}.pdf"
+            filename_parts = [str(year), report_type]
+            period_label = self._extract_period_label(title, report_type)
+            if period_label:
+                filename_parts.append(period_label)
+            filename = f"{'_'.join(filename_parts)}_{lang_suffix}.pdf"
 
             # 獲取下載路徑
             subpath = self._get_download_subpath(stock_code, report_type, stock_name)

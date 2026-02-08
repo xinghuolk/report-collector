@@ -98,6 +98,14 @@ async def list_downloaded_pdfs(
     market: Optional[str] = Query(default=None, description="市场筛选 (CN/HK/US)"),
     report_type: Optional[str] = Query(default=None, description="报告类型筛选"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
+    sort_by: str = Query(
+        default="download_time",
+        description="排序字段: download_time/announcement_date/report_year",
+    ),
+    sort_order: str = Query(
+        default="desc",
+        description="排序方向: desc/asc",
+    ),
     handler: PDFHandler = Depends(get_pdf_handler),
 ) -> APIResponse[Dict[str, Any]]:
     """
@@ -110,6 +118,8 @@ async def list_downloaded_pdfs(
         market=market,
         report_type=report_type,
         limit=limit,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
     if result.get("success"):

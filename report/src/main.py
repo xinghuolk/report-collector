@@ -93,6 +93,40 @@ class FinancialReportsPDFServer:
                     }
                 ),
                 Tool(
+                    name="search_latest_reports",
+                    description="跨类型检索并按发布时间排序的最新报告列表（支持CN/HK）。",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "market": {
+                                "type": "string",
+                                "enum": ["CN", "HK"],
+                                "description": "市场"
+                            },
+                            "stock_code": {
+                                "type": "string",
+                                "description": "股票代码（CN 6位 / HK 5位）"
+                            },
+                            "report_types": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["annual", "semi_annual", "quarterly", "all"]
+                                },
+                                "description": "报告类型列表（不填则默认全类型）"
+                            },
+                            "max_count": {
+                                "type": "integer",
+                                "description": "最大返回数量",
+                                "default": 10,
+                                "minimum": 1,
+                                "maximum": 50
+                            }
+                        },
+                        "required": ["market", "stock_code"]
+                    }
+                ),
+                Tool(
                     name="download_cn_report",
                     description="下载中国A股公司财报PDF。文件按股票代码和报告类型组织存储，自动创建股票名称标识文件。",
                     inputSchema={
@@ -370,6 +404,13 @@ class FinancialReportsPDFServer:
                         market="HK",
                         report_type=arguments.get("report_type", "annual"),
                         max_count=arguments.get("max_count", 10)
+                    )
+                elif name == "search_latest_reports":
+                    result = await self.pdf_handler.search_latest_reports(
+                        stock_code=arguments["stock_code"],
+                        market=arguments.get("market", "CN"),
+                        report_types=arguments.get("report_types"),
+                        max_count=arguments.get("max_count", 10),
                     )
                 elif name == "download_cn_report":
                     result = await self.pdf_handler.download_report(

@@ -97,9 +97,9 @@ class TestPDFRecordCRUD:
         pdf_id1 = await pdf_manager.add_pdf(pdf_info)
         assert pdf_id1 is not None
 
-        # 第二次添加应该返回 None（重复文件）
+        # 第二次添加应返回已存在的记录ID
         pdf_id2 = await pdf_manager.add_pdf(pdf_info)
-        assert pdf_id2 is None
+        assert pdf_id2 == pdf_id1
 
     @pytest.mark.asyncio
     async def test_get_pdf_by_id_exists(self, pdf_manager, temp_pdf_file):

@@ -120,9 +120,28 @@ class PDFManager:
                 existing = await session.execute(
                     select(ReportPDF).where(ReportPDF.file_hash == file_hash)
                 )
-                if existing.scalar_one_or_none():
-                    logger.info(f"PDF文件已存在: {pdf_info['file_name']}")
-                    return None
+                existing_record = existing.scalar_one_or_none()
+                if existing_record:
+                    updated = False
+                    for field in [
+                        "source_url",
+                        "announcement_date",
+                        "report_year",
+                        "report_quarter",
+                        "stock_name",
+                        "metadata_json",
+                    ]:
+                        incoming = pdf_info.get(field)
+                        if incoming is not None and getattr(existing_record, field) in (None, ""):
+                            setattr(existing_record, field, incoming)
+                            updated = True
+
+                    if updated:
+                        await session.commit()
+                        logger.info(f"PDF记录已更新: {pdf_info['file_name']}")
+                    else:
+                        logger.info(f"PDF文件已存在: {pdf_info['file_name']}")
+                    return existing_record.id
                     
                 # 创建新记录
                 pdf_record = ReportPDF(
@@ -155,11 +174,16 @@ class PDFManager:
             logger.error(f"添加PDF记录失败: {e}")
             return None
             
-    async def search_pdfs(self, stock_code: Optional[str] = None, 
-                         market: Optional[str] = None,
-                         report_type: Optional[str] = None,
-                         year: Optional[int] = None,
-                         limit: int = 20) -> List[Dict[str, Any]]:
+    async def search_pdfs(
+        self,
+        stock_code: Optional[str] = None,
+        market: Optional[str] = None,
+        report_type: Optional[str] = None,
+        year: Optional[int] = None,
+        limit: int = 20,
+        sort_by: str = "download_time",
+        sort_order: str = "desc",
+    ) -> List[Dict[str, Any]]:
         """搜索PDF文件"""
         try:
             async with self.async_session() as session:
@@ -174,7 +198,14 @@ class PDFManager:
                 if year:
                     query = query.where(ReportPDF.report_year == year)
                     
-                query = query.order_by(ReportPDF.download_time.desc()).limit(limit)
+                sort_fields = {
+                    "download_time": ReportPDF.download_time,
+                    "announcement_date": ReportPDF.announcement_date,
+                    "report_year": ReportPDF.report_year,
+                }
+                sort_field = sort_fields.get(sort_by, ReportPDF.download_time)
+                order_func = sort_field.desc if sort_order.lower() == "desc" else sort_field.asc
+                query = query.order_by(order_func()).limit(limit)
                 
                 result = await session.execute(query)
                 pdfs = result.scalars().all()

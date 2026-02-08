@@ -21,6 +21,7 @@ class IncomeStatement:
     operating_profit: Optional[float] = None           # 营业利润
     total_profit: Optional[float] = None               # 利润总额（税前利润）
     net_profit: Optional[float] = None                 # 净利润
+    net_profit_attributable_to_parent: Optional[float] = None  # 归属于母公司股东的净利润
     net_profit_deducted: Optional[float] = None        # 扣非净利润
     interest_expense: Optional[float] = None           # 财务费用/利息支出
     rd_expense: Optional[float] = None                 # 研发费用
@@ -49,6 +50,7 @@ class BalanceSheet:
     bonds_payable: Optional[float] = None              # 应付债券
     # 权益
     total_equity: Optional[float] = None               # 股东权益
+    equity_attributable_to_parent: Optional[float] = None  # 归属于母公司股东的净资产
 
 
 @dataclass
@@ -100,6 +102,10 @@ class ReportMetadata:
     stock_name: Optional[str] = None
     report_period: Optional[str] = None                # 报告期 如 2024年年度
     report_type: Optional[str] = None                  # annual/semi_annual/quarterly
+    period_type: Optional[str] = None                  # quarter/semi_annual/annual/full_year_in_quarterly_announcement
+    currency: Optional[str] = None                     # USD/HKD/CNY
+    amount_unit: Optional[str] = None                  # million/billion/none
+    per_share_currency: Optional[str] = None           # EPS币种
     total_pages: int = 0
     file_size: int = 0
 
@@ -137,6 +143,11 @@ class PDFContentExtractor:
             r'(?:归属于母公司|归母)(?:股东的?)?净利润[：:\s]*([0-9,，-]+\.?[0-9]*)',
             r'净利润[：:\s]*([0-9,，-]+\.?[0-9]*)',
             r'归属于上市公司股东的净利润\s+([0-9,，-]+\.?[0-9]*)',
+        ],
+        'net_profit_attributable_to_parent': [
+            r'归属于母公司(?:股东)?(?:的)?净利润[：:\s]*([0-9,，-]+\.?[0-9]*)',
+            r'归母净利润[：:\s]*([0-9,，-]+\.?[0-9]*)',
+            r'归属于上市公司股东的净利润[：:\s]*([0-9,，-]+\.?[0-9]*)',
         ],
         'net_profit_deducted': [
             r'扣除非经常性损益(?:后)?(?:的)?(?:归属于母公司)?(?:股东的?)?净利润[：:\s]*([0-9,，-]+\.?[0-9]*)',
@@ -176,6 +187,11 @@ class PDFContentExtractor:
         'total_equity': [
             r'(?:股东权益|所有者权益)(?:合)?计[：:\s]*([0-9,，]+\.?[0-9]*)',
             r'归属于母公司(?:股东)?(?:的)?(?:所有者)?权益[：:\s]*([0-9,，]+\.?[0-9]*)',
+        ],
+        'equity_attributable_to_parent': [
+            r'归属于母公司(?:股东)?(?:的)?(?:所有者)?权益[：:\s]*([0-9,，]+\.?[0-9]*)',
+            r'归母(?:股东)?权益[：:\s]*([0-9,，]+\.?[0-9]*)',
+            r'归属于上市公司股东的权益[：:\s]*([0-9,，]+\.?[0-9]*)',
         ],
         'cash_and_equivalents': [
             r'货币资金[：:\s]*([0-9,，]+\.?[0-9]*)',
@@ -256,10 +272,19 @@ class PDFContentExtractor:
     PATTERNS_EN = {
         # Income Statement
         'revenue': [
-            r'(?:Total\s+)?Revenue[:\s]+([0-9,]+(?:\.[0-9]+)?)',
-            r'(?:Operating\s+)?Revenue[:\s]+([0-9,]+(?:\.[0-9]+)?)',
+            # 优先匹配Total Revenue/Total revenues（带单位识别）
+            r'Total\s+Revenues?[:\s]+\$?\s*([0-9,]+(?:\.[0-9]+)?)',
+            r'Total\s+Revenues?\s+\$?\s*([0-9,]+(?:\.[0-9]+)?)',
+            # 匹配Revenue（带billion单位的文本格式，如"$11.3 billion of revenues"）
+            r'\$?\s*([0-9,]+(?:\.[0-9]+)?)\s*billion\s+of\s+revenues?',
+            r'revenues?\s+(?:of|in)\s+\$?\s*([0-9,]+(?:\.[0-9]+)?)\s*billion',
+            # 匹配Revenue（一般格式）
+            r'Revenue[:\s]+([0-9,]+(?:\.[0-9]+)?)',
+            r'Revenue[:\s]+\$?\s*([0-9,]+(?:\.[0-9]+)?)',
+            # 匹配Turnover
             r'Turnover[:\s]+([0-9,]+(?:\.[0-9]+)?)',
-            r'Sales[:\s]+([0-9,]+(?:\.[0-9]+)?)',
+            # 最后匹配Sales（但要避免Company sales等部分收入）
+            r'(?:^|\n)(?:Total\s+)?(?:Operating\s+)?Sales[:\s]+([0-9,]+(?:\.[0-9]+)?)',
         ],
         'operating_cost': [
             # 优先匹配千元表格格式（无小数点，数值较大）
@@ -280,9 +305,16 @@ class PDFContentExtractor:
             r'Pre[\s-]?tax\s+Profit[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
         ],
         'net_profit': [
+            r'Net\s+Income\s+[–-]\s+including\s+noncontrolling\s+interests[:\s]+\$?\s*([0-9,\-]+(?:\.[0-9]+)?)',
             r'(?:Net\s+)?Profit\s+(?:for\s+the\s+year|attributable\s+to\s+(?:owners|shareholders))[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
             r'Profit\s+(?:for\s+the\s+(?:year|period))[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
             r'Net\s+(?:Profit|Income)[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
+        ],
+        'net_profit_attributable_to_parent': [
+            r'Profit\s+attributable\s+to\s+(?:owners|equity\s+holders|shareholders)\s+of\s+(?:the\s+)?(?:Company|Parent)[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
+            r'Net\s+profit\s+attributable\s+to\s+(?:owners|equity\s+holders|shareholders)[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
+            r'Profit\s+attributable\s+to\s+equity\s+holders[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
+            r'Net\s+Income\s+[–-]\s+.*?(?:Holdings|Company|Inc\.)[:\s]+\$?\s*([0-9,\-]+(?:\.[0-9]+)?)',
         ],
         'interest_expense': [
             r'(?:Finance|Interest)\s+(?:Costs?|Expenses?)[:\s]+([0-9,]+(?:\.[0-9]+)?)',
@@ -308,6 +340,10 @@ class PDFContentExtractor:
         'total_equity': [
             r'(?:Total\s+)?(?:Shareholders\'?|Owners\'?)\s+(?:Equity|Funds)[:\s]+([0-9,]+(?:\.[0-9]+)?)',
             r'Equity\s+attributable\s+to\s+(?:owners|shareholders)[:\s]+([0-9,]+(?:\.[0-9]+)?)',
+        ],
+        'equity_attributable_to_parent': [
+            r'Equity\s+attributable\s+to\s+(?:owners|equity\s+holders|shareholders)\s+of\s+(?:the\s+)?(?:Company|Parent)[:\s]+([0-9,]+(?:\.[0-9]+)?)',
+            r'Total\s+equity\s+attributable\s+to\s+(?:owners|equity\s+holders|shareholders)[:\s]+([0-9,]+(?:\.[0-9]+)?)',
         ],
         'cash_and_equivalents': [
             r'Cash\s+and\s+cash\s+equivalents\s+at\s+end\s+of\s+(?:year|period)\s+([0-9,]+(?:\.[0-9]+)?)',
@@ -362,11 +398,11 @@ class PDFContentExtractor:
 
         # Financial Metrics
         'eps': [
-            r'(?:Basic\s+)?Earnings?\s+[Pp]er\s+[Ss]hare[:\s]+([0-9,.\-]+)',
+            r'(?:Basic\s+)?Earnings?\s+Per\s+(?:Common\s+)?Share[:\s]+\$?\s*([0-9,.\-]+)',
             r'EPS[:\s]+([0-9,.\-]+)',
         ],
         'eps_diluted': [
-            r'Diluted\s+(?:Earnings?\s+)?[Pp]er\s+[Ss]hare[:\s]+([0-9,.\-]+)',
+            r'Diluted\s+(?:Earnings?\s+)?Per\s+(?:Common\s+)?Share[:\s]+\$?\s*([0-9,.\-]+)',
             r'Diluted\s+EPS[:\s]+([0-9,.\-]+)',
         ],
         'bps': [
@@ -393,12 +429,19 @@ class PDFContentExtractor:
     # 英文表格关键词映射（用于港股英文财报）
     TABLE_KEYWORDS_EN = {
         # 利润表
-        'revenue': ['Revenue', 'Turnover', 'Sales', 'Operating revenue'],
+        'revenue': ['Revenue', 'Revenues', 'Total revenues', 'Turnover', 'Sales', 'Operating revenue'],
         'operating_cost': ['Cost of sales', 'Cost of revenue', 'Cost of goods sold'],
         'gross_profit': ['Gross profit'],
         'operating_profit': ['Operating profit', 'Profit from operations'],
         'total_profit': ['Profit before tax', 'Pre-tax profit'],
-        'net_profit': ['Profit for the year', 'Net profit', 'Profit attributable to owners', 'Profit attributable to shareholders'],
+        'net_profit': [
+            'Profit for the year',
+            'Net profit',
+            'Net income',
+            'Net Income',
+            'Profit attributable to owners',
+            'Profit attributable to shareholders',
+        ],
         'interest_expense': ['Finance costs', 'Interest expense'],
         'rd_expense': ['R&D expense', 'Research and development'],
         # 资产负债表
@@ -406,7 +449,15 @@ class PDFContentExtractor:
         'current_assets': ['Current assets', 'Total current assets'],
         'total_liabilities': ['Total liabilities'],
         'current_liabilities': ['Current liabilities', 'Total current liabilities'],
-        'total_equity': ['Total equity', "Shareholders' equity", "Owners' equity", 'Equity attributable to owners'],
+        'total_equity': [
+            'Total equity',
+            "Shareholders' equity",
+            "Owners' equity",
+            'Equity attributable to owners',
+            "Stockholders' equity",
+            'Total stockholders’ equity',
+            'Total stockholders\' equity',
+        ],
         'cash_and_equivalents': ['Cash and cash equivalents', 'Bank balances and cash'],
         'short_term_debt': ['Short-term borrowings', 'Short-term debt'],
         'long_term_debt': ['Long-term borrowings', 'Long-term debt'],
@@ -417,13 +468,35 @@ class PDFContentExtractor:
         'intangible_assets': ['Intangible assets'],
         'fixed_assets': ['Property, plant and equipment', 'Fixed assets'],
         # 现金流量表
-        'operating_cash_flow': ['Cash generated from operating activities', 'Net cash from operating activities'],
-        'investing_cash_flow': ['Cash used in investing activities', 'Net cash from investing activities'],
-        'financing_cash_flow': ['Cash used in financing activities', 'Net cash from financing activities'],
+        'operating_cash_flow': [
+            'Cash generated from operating activities',
+            'Net cash from operating activities',
+            'Net cash provided by operating activities',
+        ],
+        'investing_cash_flow': [
+            'Cash used in investing activities',
+            'Net cash from investing activities',
+            'Net cash used in investing activities',
+        ],
+        'financing_cash_flow': [
+            'Cash used in financing activities',
+            'Net cash from financing activities',
+            'Net cash used in financing activities',
+        ],
         'capital_expenditure': ['Capital expenditure', 'CAPEX', 'Purchase of property'],
         # 财务指标
-        'eps': ['Basic earnings per share', 'Earnings per share', 'EPS'],
-        'eps_diluted': ['Diluted earnings per share', 'Diluted EPS'],
+        'eps': [
+            'Basic earnings per share',
+            'Basic earnings per common share',
+            'Earnings per share',
+            'Earnings per common share',
+            'EPS',
+        ],
+        'eps_diluted': [
+            'Diluted earnings per share',
+            'Diluted earnings per common share',
+            'Diluted EPS',
+        ],
         'bps': ['Net asset value per share', 'Book value per share'],
         'dividend_per_share': ['Dividend per share', 'DPS', 'Final dividend'],
         'roe': ['Return on equity', 'ROE'],
@@ -583,6 +656,54 @@ class PDFContentExtractor:
                 elif '第三季度' in self.full_text or '三季度' in self.full_text:
                     metadata.report_type = 'quarterly_3'
 
+        # 推断期间类型
+        text_lower = self.full_text.lower()
+        if metadata.report_type in ('quarterly', 'quarterly_1', 'quarterly_3'):
+            if 'full year' in text_lower and ('quarter' in text_lower or 'q4' in text_lower or 'fourth quarter' in text_lower):
+                metadata.period_type = 'full_year_in_quarterly_announcement'
+            else:
+                metadata.period_type = 'quarter'
+        elif metadata.report_type == 'semi_annual':
+            metadata.period_type = 'semi_annual'
+        elif metadata.report_type == 'annual':
+            metadata.period_type = 'annual'
+
+        # 提取币种与单位
+        currency_map = {
+            'us$': 'USD',
+            'usd': 'USD',
+            'hk$': 'HKD',
+            'hkd': 'HKD',
+            'rmb': 'CNY',
+            'cny': 'CNY',
+            '人民币': 'CNY',
+            '港元': 'HKD',
+            '美元': 'USD',
+        }
+        unit_map = {
+            'million': 'million',
+            'mn': 'million',
+            'billion': 'billion',
+            '千': 'none',
+            '百万': 'million',
+            '亿': 'billion',
+        }
+
+        currency_match = re.search(r'(US\$|HK\$|USD|HKD|RMB|CNY|人民币|港元|美元)', self.full_text, re.IGNORECASE)
+        if currency_match:
+            key = currency_match.group(1).lower()
+            metadata.currency = currency_map.get(key, currency_match.group(1).upper())
+
+        unit_match = re.search(r'(million|mn|billion|百万|亿|千)', self.full_text, re.IGNORECASE)
+        if unit_match:
+            unit_key = unit_match.group(1).lower()
+            metadata.amount_unit = unit_map.get(unit_key, 'none')
+        else:
+            metadata.amount_unit = 'none'
+
+        if metadata.currency:
+            metadata.per_share_currency = metadata.currency
+
         # 提取报告期
         if self.is_english_report:
             period_match = re.search(r'(?:year|period)\s+ended?\s+.*?(20\d{2})', self.full_text, re.IGNORECASE)
@@ -605,6 +726,7 @@ class PDFContentExtractor:
         income.operating_profit = self._find_value('operating_profit')
         income.total_profit = self._find_value('total_profit')
         income.net_profit = self._find_value('net_profit')
+        income.net_profit_attributable_to_parent = self._find_value('net_profit_attributable_to_parent')
         income.net_profit_deducted = self._find_value('net_profit_deducted')
         income.interest_expense = self._find_value('interest_expense')
         income.rd_expense = self._find_value('rd_expense')
@@ -632,6 +754,7 @@ class PDFContentExtractor:
         balance.long_term_debt = self._find_value('long_term_debt')
         balance.bonds_payable = self._find_value('bonds_payable')
         balance.total_equity = self._find_value('total_equity')
+        balance.equity_attributable_to_parent = self._find_value('equity_attributable_to_parent')
 
         # 从表格中补充提取
         self._extract_from_tables_balance(balance)
@@ -752,7 +875,7 @@ class PDFContentExtractor:
         return transactions if transactions else None
 
     def _find_value(self, field_name: str) -> Optional[float]:
-        """使用正则从文本中查找数值"""
+        """使用正则从文本中查找数值（支持单位识别）"""
         # 根据语言选择模式
         if self.is_english_report:
             patterns = self.PATTERNS_EN.get(field_name, [])
@@ -760,11 +883,43 @@ class PDFContentExtractor:
             patterns = self.PATTERNS.get(field_name, [])
 
         for pattern in patterns:
-            matches = re.findall(pattern, self.full_text, re.IGNORECASE)
+            # 查找匹配，包括单位信息
+            matches = re.finditer(pattern, self.full_text, re.IGNORECASE)
             for match in matches:
-                value = self._parse_number(match)
+                # 获取匹配的数值
+                value_str = match.group(1) if match.groups() else match.group(0)
+                
+                # 获取匹配前后的上下文，查找单位
+                match_start = max(0, match.start() - 30)
+                match_end = min(len(self.full_text), match.end() + 50)
+                context = self.full_text[match_start:match_end].lower()
+                
+                # 识别单位（检查匹配文本本身和上下文）
+                unit_multiplier = 1.0
+                match_text_lower = match.group(0).lower()
+                
+                # 检查是否在模式中已经包含billion（如"$11.3 billion of revenues"）
+                if 'billion' in match_text_lower or 'billion' in context:
+                    unit_multiplier = 1000.0  # billion = 1000 million
+                elif 'million' in context or 'mn' in context:
+                    unit_multiplier = 1.0  # million = 基准单位
+                elif 'thousand' in context or 'k' in context:
+                    unit_multiplier = 0.001  # thousand = 0.001 million
+                
+                value = self._parse_number(value_str)
                 if value is not None:
-                    return value
+                    # 应用单位转换（转换为百万单位）
+                    converted_value = value * unit_multiplier
+                    
+                    # 对于revenue等大额字段，如果值很小（<100）且没有识别到单位，可能是billion
+                    # 但这种情况要谨慎，避免误判
+                    if field_name == 'revenue' and converted_value < 100 and unit_multiplier == 1.0:
+                        # 检查上下文，如果明确是表格中的数值（通常表格是million单位），保持原值
+                        # 如果是在文本描述中（如"$11.3 billion"），可能是billion
+                        if 'billion' in context and value < 20:
+                            converted_value = value * 1000.0
+                    
+                    return converted_value
 
         # 如果英文模式没找到，尝试中文模式（或反之）
         if self.is_english_report:
@@ -773,9 +928,10 @@ class PDFContentExtractor:
             fallback_patterns = self.PATTERNS_EN.get(field_name, [])
 
         for pattern in fallback_patterns:
-            matches = re.findall(pattern, self.full_text, re.IGNORECASE)
+            matches = re.finditer(pattern, self.full_text, re.IGNORECASE)
             for match in matches:
-                value = self._parse_number(match)
+                value_str = match.group(1) if match.groups() else match.group(0)
+                value = self._parse_number(value_str)
                 if value is not None:
                     return value
 
@@ -817,6 +973,46 @@ class PDFContentExtractor:
                 return value
         return None
 
+    def _get_table_year_end_index(self, table: List[List[Any]]) -> Optional[int]:
+        """从表格头部识别全年(Year Ended)列索引"""
+        date_cells: List[Tuple[int, int]] = []
+        for row in table:
+            if not row:
+                continue
+            row_text = " ".join(str(cell) for cell in row if cell)
+            if not row_text:
+                continue
+            for idx, cell in enumerate(row):
+                if not cell:
+                    continue
+                cell_text = str(cell)
+                match = re.search(r'(?:12/31|31/12)/?(20\d{2})', cell_text)
+                if match:
+                    year = int(match.group(1))
+                    date_cells.append((idx, year))
+            if len(date_cells) >= 2:
+                # 优先使用当前行的日期列
+                break
+
+        if not date_cells:
+            return None
+
+        date_cells.sort(key=lambda item: item[0])
+        if len(date_cells) >= 4:
+            year_end_cells = date_cells[-2:]
+        else:
+            year_end_cells = date_cells[-2:]
+
+        # 选择年份最大的列（通常是最新年度）
+        target_index = max(year_end_cells, key=lambda item: item[1])[0]
+        return target_index
+
+    def _get_row_value_by_index(self, row: List[Any], index: Optional[int]) -> Optional[float]:
+        """按列索引提取数值"""
+        if index is None or index >= len(row):
+            return None
+        return self._parse_number(str(row[index]).replace('\n', '') if row[index] else "")
+
     def _extract_from_tables_income(self, income: IncomeStatement):
         """从表格中提取利润表数据"""
         if self.is_english_report:
@@ -827,6 +1023,13 @@ class PDFContentExtractor:
                 'operating_profit': self.TABLE_KEYWORDS_EN.get('operating_profit', []),
                 'total_profit': self.TABLE_KEYWORDS_EN.get('total_profit', []),
                 'net_profit': self.TABLE_KEYWORDS_EN.get('net_profit', []),
+                'net_profit_attributable_to_parent': [
+                    'Net Income',
+                    'Net income',
+                    'Net Profit',
+                    'Net profit',
+                    'Profit attributable to',
+                ],
                 'interest_expense': self.TABLE_KEYWORDS_EN.get('interest_expense', []),
                 'rd_expense': self.TABLE_KEYWORDS_EN.get('rd_expense', []),
             }
@@ -843,18 +1046,36 @@ class PDFContentExtractor:
                 'rd_expense': ['研发费用', '研发支出', '研究开发费用'],
             }
 
+        min_value = 1 if self.is_english_report else 10000
+
         for table in self.tables:
+            if self.is_english_report:
+                table_text = " ".join(
+                    str(cell) for row in table for cell in row if cell
+                ).lower()
+                if any(
+                    keyword in table_text
+                    for keyword in ("segment results", "kfc operating results", "pizza hut operating results")
+                ):
+                    continue
+
+                year_end_index = self._get_table_year_end_index(table)
+            else:
+                year_end_index = None
+
             for row in table:
                 if not row or len(row) < 2:
                     continue
 
                 # 清理换行符，合并单元格文本
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
+                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     current_value = getattr(income, field)
                     for keyword in keywords:
-                        if keyword in row_text:
+                        keyword_lower = keyword.lower()
+                        if keyword_lower in row_text_lower:
                             # 排除"扣除非经常性损益后的基本每股收益"误匹配
                             if field == 'net_profit_deducted' and '每股' in row_text:
                                 continue
@@ -862,11 +1083,36 @@ class PDFContentExtractor:
                             if field == 'net_profit' and '权益' in row_text:
                                 continue
                             # 获取第一个大于阈值的数值（跳过注释编号等）
-                            value = self._get_first_large_value(row[1:], min_value=10000)
+                            if self.is_english_report and field in (
+                                'net_profit',
+                                'net_profit_attributable_to_parent',
+                                'operating_profit',
+                                'total_profit',
+                            ):
+                                value = self._get_row_value_by_index(row, year_end_index)
+                                if value is None:
+                                    value = self._get_first_large_value(row[1:], min_value=1)
+                            else:
+                                value = self._get_row_value_by_index(row, year_end_index)
+                                if value is None:
+                                    value = self._get_first_large_value(row[1:], min_value=min_value)
                             if value is not None:
                                 # 如果当前值太小（可能是EPS等），用表格值覆盖
                                 if current_value is None or abs(current_value) < 10000:
-                                    setattr(income, field, value)
+                                    if self.is_english_report and field in (
+                                        'net_profit',
+                                        'net_profit_attributable_to_parent',
+                                    ):
+                                        if 'including noncontrolling' in row_text_lower:
+                                            income.net_profit = value
+                                        elif 'noncontrolling' in row_text_lower:
+                                            continue
+                                        elif 'attributable' in row_text_lower or 'holdings' in row_text_lower or 'inc.' in row_text_lower:
+                                            income.net_profit_attributable_to_parent = value
+                                        else:
+                                            setattr(income, field, value)
+                                    else:
+                                        setattr(income, field, value)
                             break
 
     def _extract_from_tables_balance(self, balance: BalanceSheet):
@@ -906,27 +1152,35 @@ class PDFContentExtractor:
                 'total_equity': ['归属于母公司所有者的权益', '所有者权益合计', '股东权益合计'],
             }
 
+        min_value = 1 if self.is_english_report else 10000
+
         for table in self.tables:
+            year_end_index = self._get_table_year_end_index(table) if self.is_english_report else None
+
             for row in table:
                 if not row or len(row) < 2:
                     continue
 
                 # 清理换行符
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
+                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     current_value = getattr(balance, field)
                     for keyword in keywords:
+                        keyword_lower = keyword.lower()
                         # 精确匹配或前缀匹配（避免"购建固定资产"匹配"固定资产"）
-                        if row_text.strip() == keyword or row_text.startswith(keyword):
+                        if row_text_lower.strip() == keyword_lower or row_text_lower.startswith(keyword_lower):
                             # 排除净利润行误匹配权益
                             if field == 'total_equity' and '净利润' in row_text:
                                 continue
                             # 跳过注释编号列，获取真实数值
-                            value = self._get_first_large_value(row[1:], min_value=10000)
+                            value = self._get_row_value_by_index(row, year_end_index)
+                            if value is None:
+                                value = self._get_first_large_value(row[1:], min_value=min_value)
                             if value is not None:
                                 # 如果当前值太小或为空，用表格值覆盖
-                                if current_value is None or abs(current_value) < 10000:
+                                if current_value is None or abs(current_value) < min_value:
                                     setattr(balance, field, value)
                             break
 
@@ -947,22 +1201,27 @@ class PDFContentExtractor:
             }
 
         for table in self.tables:
+            year_end_index = self._get_table_year_end_index(table) if self.is_english_report else None
             for row in table:
                 if not row or len(row) < 2:
                     continue
 
                 # 清理换行符
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
+                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     if getattr(cash_flow, field) is None:
                         for keyword in keywords:
-                            if keyword in row_text:
-                                for cell in row[1:]:
-                                    value = self._parse_number(str(cell).replace('\n', '') if cell else "")
-                                    if value is not None and abs(value) > 1:
-                                        setattr(cash_flow, field, value)
-                                        break
+                            if keyword.lower() in row_text_lower:
+                                value = self._get_row_value_by_index(row, year_end_index)
+                                if value is None:
+                                    for cell in row[1:]:
+                                        value = self._parse_number(str(cell).replace('\n', '') if cell else "")
+                                        if value is not None and abs(value) > 1:
+                                            break
+                                if value is not None and abs(value) > 1:
+                                    setattr(cash_flow, field, value)
                                 break
 
     def _extract_from_tables_metrics(self, metrics: FinancialMetrics):
@@ -990,25 +1249,30 @@ class PDFContentExtractor:
             }
 
         for table in self.tables:
+            year_end_index = self._get_table_year_end_index(table) if self.is_english_report else None
             for row in table:
                 if not row or len(row) < 2:
                     continue
 
                 # 清理换行符
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
+                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     if getattr(metrics, field) is None:
                         for keyword in keywords:
-                            if keyword in row_text:
+                            if keyword.lower() in row_text_lower:
                                 # 排除"扣除非经常性损益后"的每股收益
                                 if field == 'eps' and '扣除' in row_text:
                                     continue
-                                for cell in row[1:]:
-                                    value = self._parse_number(str(cell).replace('\n', '') if cell else "")
-                                    if value is not None:
-                                        setattr(metrics, field, value)
-                                        break
+                                value = self._get_row_value_by_index(row, year_end_index)
+                                if value is None:
+                                    for cell in row[1:]:
+                                        value = self._parse_number(str(cell).replace('\n', '') if cell else "")
+                                        if value is not None:
+                                            break
+                                if value is not None:
+                                    setattr(metrics, field, value)
                                 break
 
     def _calculate_derived_metrics(self, balance: BalanceSheet, income: IncomeStatement,
@@ -1049,6 +1313,29 @@ class PDFContentExtractor:
         # 计算ROA (需要年化处理，这里简化)
         if balance.total_assets and income.net_profit:
             metrics.roa = round(income.net_profit / balance.total_assets * 100, 2)
+
+        # 计算ROE (净资产收益率) = 净利润 / 净资产 * 100
+        # 优先使用归母数据（更精准）：归属于母公司股东的净利润 / 归属于母公司股东的净资产
+        if metrics.roe is None:
+            # 最优：归母净利润 / 归母净资产
+            if income.net_profit_attributable_to_parent and balance.equity_attributable_to_parent:
+                metrics.roe = round(income.net_profit_attributable_to_parent / balance.equity_attributable_to_parent * 100, 2)
+            # 次优：归母净利润 / 总净资产（如果只有归母净利润）
+            elif income.net_profit_attributable_to_parent and balance.total_equity:
+                metrics.roe = round(income.net_profit_attributable_to_parent / balance.total_equity * 100, 2)
+            # 再次：净利润 / 归母净资产（如果只有归母净资产）
+            elif income.net_profit and balance.equity_attributable_to_parent:
+                metrics.roe = round(income.net_profit / balance.equity_attributable_to_parent * 100, 2)
+            # 备选：净利润 / 总净资产
+            elif income.net_profit and balance.total_equity:
+                metrics.roe = round(income.net_profit / balance.total_equity * 100, 2)
+            # 最后：如果没有净资产，尝试用总资产-总负债计算净资产
+            elif income.net_profit and balance.total_assets and balance.total_liabilities:
+                calculated_equity = balance.total_assets - balance.total_liabilities
+                if calculated_equity > 0:
+                    # 优先使用归母净利润
+                    net_profit_for_roe = income.net_profit_attributable_to_parent or income.net_profit
+                    metrics.roe = round(net_profit_for_roe / calculated_equity * 100, 2)
 
         # 计算自由现金流 = 经营现金流 - 资本支出
         if cash_flow.operating_cash_flow is not None and cash_flow.capital_expenditure is not None:
