@@ -258,6 +258,35 @@ class TestPeriodLabelExtraction:
         label = downloader._extract_period_label("Annual Report 2025", "annual")
         assert label is None
 
+    def test_build_period_hint_for_quarterly(self, downloader):
+        period_hint = downloader._build_period_hint(
+            title="ANNOUNCEMENT OF THE 2025 Q4 AND FULL YEAR FINANCIAL RESULTS",
+            report_type="quarterly",
+            year=2025,
+        )
+        assert period_hint == "2025_q4_fy"
+
+    @pytest.mark.asyncio
+    async def test_search_results_include_period_hint(self, downloader):
+        mock_results = [
+            {
+                "title": "ANNOUNCEMENT OF THE 2025 Q3 FINANCIAL RESULTS",
+                "year": 2025,
+                "pdf_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2025/1111/abc.pdf",
+            }
+        ]
+
+        with patch.object(downloader, "_search_via_html", new_callable=AsyncMock) as mock_search:
+            mock_search.return_value = mock_results
+            results = await downloader.search_reports(
+                stock_code="09987",
+                report_type="quarterly",
+                limit=10,
+            )
+
+        assert results
+        assert results[0].get("period_hint") == "2025_q3"
+
 
 class TestDownloadSubpath:
     """下载路径生成测试"""

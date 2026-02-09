@@ -3,7 +3,7 @@
 """
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, Body
+from fastapi import APIRouter, Depends, Query, Body, Request
 
 from ..dependencies import get_pdf_handler
 from ..schemas.common import APIResponse
@@ -12,13 +12,37 @@ from ...handlers.pdf_handler import PDFHandler
 router = APIRouter()
 
 
+def _resolve_schema_version(request: Request, schema: Optional[str]) -> str:
+    """解析 schema 版本（query > X-Schema-Version > Accept）"""
+    if schema in {"v1", "v2"}:
+        return schema
+
+    header_schema = request.headers.get("X-Schema-Version")
+    if header_schema in {"v1", "v2"}:
+        return header_schema
+
+    accept = (request.headers.get("Accept") or "").lower()
+    if "application/vnd.financial-reports.v1+json" in accept:
+        return "v1"
+    if "application/vnd.financial-reports.v2+json" in accept:
+        return "v2"
+
+    return "v2"
+
+
 @router.post("/extract/content", response_model=APIResponse[Dict[str, Any]])
 async def extract_pdf_content(
+    request: Request,
     pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
     pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
     force_refresh: bool = Body(default=False, description="强制重新提取(忽略缓存)"),
     min_confidence: Optional[float] = Body(
         default=None, ge=0.0, le=1.0, description="仅返回置信度不低于该值的 facts（仅V2）"
+    ),
+    schema: Optional[str] = Query(
+        default=None,
+        pattern=r"^(v1|v2)$",
+        description="响应结构版本（query 兼容入口）",
     ),
     handler: PDFHandler = Depends(get_pdf_handler),
 ) -> APIResponse[Dict[str, Any]]:
@@ -44,10 +68,12 @@ async def extract_pdf_content(
             error="请提供 pdf_path 或 pdf_id 参数",
         )
 
+    schema_version = _resolve_schema_version(request, schema)
     result = await handler.extract_pdf_content(
         pdf_path=pdf_path,
         pdf_id=pdf_id,
         force_refresh=force_refresh,
+        schema_version=schema_version,
         min_confidence=min_confidence,
     )
 

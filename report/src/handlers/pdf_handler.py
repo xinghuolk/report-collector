@@ -3,6 +3,8 @@ PDF财报处理器
 整合所有PDF下载、管理和内容提取功能
 """
 import asyncio
+import json
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -143,6 +145,77 @@ class PDFHandler:
                 return None
 
         return None
+
+    @staticmethod
+    def _normalize_schema_version(schema_version: Optional[str]) -> str:
+        if schema_version in {"v1", "v2"}:
+            return schema_version
+        return "v2"
+
+    @staticmethod
+    def _to_v1_response(result: Dict[str, Any]) -> Dict[str, Any]:
+        """将 V2 结果转换为 V1 兼容响应"""
+        return {
+            "success": bool(result.get("success")),
+            "income_statement": result.get("income_statement", {}),
+            "balance_sheet": result.get("balance_sheet", {}),
+            "cash_flow_statement": result.get("cash_flow_statement", {}),
+            "financial_metrics": result.get("financial_metrics", {}),
+            "related_party_transactions": result.get("related_party_transactions", []),
+            "metadata": result.get("metadata", {}),
+            "extraction_summary": result.get("extraction_summary", {}),
+            "_cache_info": result.get("_cache_info", {}),
+            "file_path": result.get("file_path"),
+        }
+
+    @staticmethod
+    def _build_hk_period_hint(
+        report_type: str,
+        title: Optional[str],
+        year: Optional[int],
+    ) -> Optional[str]:
+        if not title:
+            return f"{year}_{report_type}" if year else None
+
+        title_lower = title.lower()
+        if report_type == "annual":
+            return f"{year}_fy" if year else "fy"
+        if report_type == "semi_annual":
+            return f"{year}_h1_ytd" if year else "h1_ytd"
+        if report_type != "quarterly":
+            return f"{year}_{report_type}" if year else report_type
+
+        quarter_patterns = [
+            ("q1", [r"\bq1\b", r"first quarter"]),
+            ("q2", [r"\bq2\b", r"second quarter", r"six months", r"interim"]),
+            ("q3", [r"\bq3\b", r"third quarter", r"nine months"]),
+            ("q4", [r"\bq4\b", r"fourth quarter"]),
+        ]
+        for label, patterns in quarter_patterns:
+            if any(re.search(pattern, title_lower, re.IGNORECASE) for pattern in patterns):
+                if label == "q4" and ("full year" in title_lower or "year ended" in title_lower):
+                    return f"{year}_q4_fy" if year else "q4_fy"
+                return f"{year}_{label}" if year else label
+        return f"{year}_quarterly" if year else "quarterly"
+
+    def _build_hk_metadata_json(
+        self, matched_report: Optional[Dict[str, Any]], report_type: str
+    ) -> Optional[str]:
+        if not matched_report:
+            return None
+
+        metadata = {
+            "title": matched_report.get("title"),
+            "release_time": matched_report.get("release_time"),
+            "web_path": matched_report.get("web_path"),
+            "period_hint": matched_report.get("period_hint")
+            or self._build_hk_period_hint(
+                report_type=report_type,
+                title=matched_report.get("title"),
+                year=matched_report.get("year"),
+            ),
+        }
+        return json.dumps(metadata, ensure_ascii=False)
 
     @staticmethod
     def _normalize_report_types(
@@ -466,7 +539,9 @@ class PDFHandler:
                         "file_name": Path(file_path).name,
                         "source_url": matched_report.get("pdf_url") if matched_report else None,
                         "source_name": "港交所披露易",
-                        "metadata_json": None,
+                        "metadata_json": self._build_hk_metadata_json(
+                            matched_report, report_type
+                        ),
                     }
 
                     pdf_id = await self.pdf_manager.add_pdf(pdf_info)
@@ -572,6 +647,8 @@ class PDFHandler:
             包含结构化财务数据的字典，包含 _cache_info 字段标识缓存状态
         """
         try:
+            schema_version = self._normalize_schema_version(schema_version)
+
             # 确定PDF路径
             if pdf_path:
                 file_path = Path(pdf_path)
@@ -609,23 +686,36 @@ class PDFHandler:
             extraction_duration_ms = int((time.time() - start_time) * 1000)
 
             if result.get("success"):
-                # 保存到缓存
+                # V2 始终写缓存（主结构）
                 await self.pdf_manager.save_extraction_cache(
                     file_hash=file_hash,
                     result=result,
                     extraction_duration_ms=extraction_duration_ms,
-                    schema_version=result.get("schema_version", schema_version),
+                    schema_version="v2",
                 )
 
                 # 添加缓存信息
                 result['_cache_info'] = {
                     'from_cache': False,
-                    'schema_version': result.get("schema_version", schema_version),
+                    'schema_version': "v2",
                     'extracted_at': datetime.now().isoformat(),
                     'extraction_duration_ms': extraction_duration_ms,
                     'file_hash': file_hash
                 }
                 result['file_path'] = str(file_path)
+
+                if schema_version == "v1":
+                    v1_result = self._to_v1_response(result)
+                    cache_info = dict(result.get("_cache_info", {}))
+                    cache_info["schema_version"] = "v1"
+                    v1_result["_cache_info"] = cache_info
+                    await self.pdf_manager.save_extraction_cache(
+                        file_hash=file_hash,
+                        result=v1_result,
+                        extraction_duration_ms=extraction_duration_ms,
+                        schema_version="v1",
+                    )
+                    return v1_result
 
                 return self._apply_min_confidence_filter(result, min_confidence)
             else:

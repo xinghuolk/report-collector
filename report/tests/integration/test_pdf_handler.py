@@ -545,6 +545,42 @@ class TestConfidenceFilter:
             for issue in filtered["quality"]["issues"]
         )
 
+    def test_to_v1_response_keeps_legacy_fields(self):
+        v2_result = {
+            "success": True,
+            "schema_version": "v2",
+            "income_statement": {"revenue": 100},
+            "balance_sheet": {"total_assets": 1000},
+            "cash_flow_statement": {"operating_cash_flow": 200},
+            "financial_metrics": {"eps": 1.2},
+            "related_party_transactions": [],
+            "metadata": {"stock_code": "09987"},
+            "extraction_summary": {"fields_extracted": 4},
+            "_cache_info": {"from_cache": False},
+            "file_path": "/tmp/test.pdf",
+        }
+
+        v1_result = PDFHandler._to_v1_response(v2_result)
+        assert v1_result["success"] is True
+        assert "schema_version" not in v1_result
+        assert v1_result["income_statement"]["revenue"] == 100
+        assert v1_result["metadata"]["stock_code"] == "09987"
+
+    def test_build_hk_metadata_json_includes_period_hint(self):
+        handler = PDFHandler()
+        metadata_json = handler._build_hk_metadata_json(
+            matched_report={
+                "title": "ANNOUNCEMENT OF THE 2025 Q4 AND FULL YEAR FINANCIAL RESULTS",
+                "release_time": "04/02/2026 18:00",
+                "web_path": "/listedco/listconews/sehk/2026/0204/xxx.pdf",
+                "year": 2025,
+            },
+            report_type="quarterly",
+        )
+        assert metadata_json is not None
+        assert "period_hint" in metadata_json
+        assert "q4_fy" in metadata_json
+
 
 class TestCleanupOldFiles:
     """清理旧文件测试"""

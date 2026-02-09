@@ -281,6 +281,23 @@ class HKEXDownloader:
 
         return matched_quarter
 
+    def _build_period_hint(
+        self,
+        *,
+        title: Optional[str],
+        report_type: str,
+        year: Optional[int],
+    ) -> Optional[str]:
+        """构建 downloader 侧期间 hint（仅提示，不作为最终口径）"""
+        period_label = self._extract_period_label(title or "", report_type)
+        if period_label and year:
+            return f"{year}_{period_label}"
+        if report_type == "annual" and year:
+            return f"{year}_fy"
+        if report_type == "semi_annual" and year:
+            return f"{year}_h1"
+        return period_label
+
     async def _get_stock_internal_id(self, stock_code: str) -> Optional[int]:
         """
         獲取股票的港交所內部 ID
@@ -414,7 +431,13 @@ class HKEXDownloader:
         for item in all_results:
             title = item.get('title', '')
             if self._match_report_type(title, report_type):
-                filtered_results.append(item)
+                enriched = dict(item)
+                enriched["period_hint"] = self._build_period_hint(
+                    title=title,
+                    report_type=report_type,
+                    year=item.get("year"),
+                )
+                filtered_results.append(enriched)
 
         logger.info(f"找到 {len(filtered_results)} 個符合條件的財報")
         return filtered_results[:limit]

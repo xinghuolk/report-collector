@@ -517,6 +517,8 @@ class PDFContentExtractor:
         self.table_locations: List[Tuple[int, int]] = []
         self.is_english_report: bool = False  # 是否为英文财报
         self._derived_fact_keys: Set[Tuple[str, str]] = set()
+        self._runtime_quality_issues: List[Dict[str, Any]] = []
+        self._segment_skip_keys: Set[str] = set()
 
     def extract(self, pdf_path: str) -> Dict[str, Any]:
         """提取PDF财报的全部结构化数据"""
@@ -595,6 +597,8 @@ class PDFContentExtractor:
         self.full_text = ""
         self.tables = []
         self.table_locations = []
+        self._runtime_quality_issues = []
+        self._segment_skip_keys = set()
 
         with pdfplumber.open(self.current_pdf_path) as pdf:
             for page_index, page in enumerate(pdf.pages, start=1):
@@ -989,6 +993,28 @@ class PDFContentExtractor:
             "is_audited": metadata.is_audited,
         }
 
+    def _add_runtime_issue(
+        self,
+        issue_type: str,
+        severity: str,
+        message: str,
+        affected_facts: Optional[List[str]] = None,
+        dedupe_key: Optional[str] = None,
+    ) -> None:
+        """记录运行时质量问题（提取过程中产生）"""
+        if dedupe_key and dedupe_key in self._segment_skip_keys:
+            return
+        if dedupe_key:
+            self._segment_skip_keys.add(dedupe_key)
+        self._runtime_quality_issues.append(
+            {
+                "type": issue_type,
+                "severity": severity,
+                "message": message,
+                "affected_facts": affected_facts or [],
+            }
+        )
+
     def _build_facts_evidence_quality(
         self,
         metadata: ReportMetadata,
@@ -1332,6 +1358,9 @@ class PDFContentExtractor:
                     }
                 )
 
+        issues.extend(self._build_cross_check_issues(facts))
+        issues.extend(self._runtime_quality_issues)
+
         quality_status = "ok"
         if any(issue["severity"] == "error" for issue in issues):
             quality_status = "review"
@@ -1343,6 +1372,105 @@ class PDFContentExtractor:
             "issues": issues,
         }
         return facts, evidence, quality
+
+    def _build_cross_check_issues(self, facts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """构建交叉校验问题（cross_check_failed）"""
+        fact_map: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        for fact in facts:
+            key = (fact.get("statement"), fact.get("metric"), fact.get("period_id"))
+            fact_map[key] = fact
+
+        period_ids = sorted({fact.get("period_id") for fact in facts if fact.get("period_id")})
+        issues: List[Dict[str, Any]] = []
+
+        for period_id in period_ids:
+            # EPS * shares ≈ net_profit
+            eps = fact_map.get(("financial_metrics", "eps", period_id))
+            shares = fact_map.get(("financial_metrics", "total_shares", period_id))
+            net_profit = fact_map.get(("income_statement", "net_profit", period_id))
+            if eps and shares and net_profit:
+                try:
+                    expected = float(eps["value"]) * float(shares["value"])
+                    actual = float(net_profit["value"])
+                    if abs(actual) > 1e-6:
+                        deviation = abs(expected - actual) / abs(actual)
+                        if deviation > 0.2:
+                            issues.append(
+                                {
+                                    "type": "cross_check_failed",
+                                    "severity": "warning",
+                                    "message": (
+                                        "EPS × shares 与 net_profit 偏差过大。"
+                                        f" period={period_id}, deviation={deviation:.2%}"
+                                    ),
+                                    "affected_facts": [
+                                        f"financial_metrics.eps@{period_id}",
+                                        f"financial_metrics.total_shares@{period_id}",
+                                        f"income_statement.net_profit@{period_id}",
+                                    ],
+                                }
+                            )
+                except (TypeError, ValueError):
+                    pass
+
+            # gross_margin ≈ gross_profit / revenue * 100
+            gross_profit = fact_map.get(("income_statement", "gross_profit", period_id))
+            revenue = fact_map.get(("income_statement", "revenue", period_id))
+            gross_margin = fact_map.get(("income_statement", "gross_margin", period_id))
+            if gross_profit and revenue and gross_margin:
+                try:
+                    if abs(float(revenue["value"])) > 1e-6:
+                        computed = float(gross_profit["value"]) / float(revenue["value"]) * 100
+                        actual_margin = float(gross_margin["value"])
+                        if abs(computed - actual_margin) > 3.0:
+                            issues.append(
+                                {
+                                    "type": "cross_check_failed",
+                                    "severity": "warning",
+                                    "message": (
+                                        "gross_margin 与 gross_profit/revenue 不一致。"
+                                        f" period={period_id}, delta={abs(computed - actual_margin):.2f}pp"
+                                    ),
+                                    "affected_facts": [
+                                        f"income_statement.gross_profit@{period_id}",
+                                        f"income_statement.revenue@{period_id}",
+                                        f"income_statement.gross_margin@{period_id}",
+                                    ],
+                                }
+                            )
+                except (TypeError, ValueError, ZeroDivisionError):
+                    pass
+
+            # free_cash_flow ≈ operating_cash_flow - capital_expenditure
+            op_cf = fact_map.get(("cash_flow_statement", "operating_cash_flow", period_id))
+            capex = fact_map.get(("cash_flow_statement", "capital_expenditure", period_id))
+            fcf = fact_map.get(("cash_flow_statement", "free_cash_flow", period_id))
+            if op_cf and capex and fcf:
+                try:
+                    computed_fcf = float(op_cf["value"]) - float(capex["value"])
+                    actual_fcf = float(fcf["value"])
+                    base = max(abs(actual_fcf), 1.0)
+                    deviation = abs(computed_fcf - actual_fcf) / base
+                    if deviation > 0.1:
+                        issues.append(
+                            {
+                                "type": "cross_check_failed",
+                                "severity": "warning",
+                                "message": (
+                                    "free_cash_flow 与 operating_cash_flow-capital_expenditure 不一致。"
+                                    f" period={period_id}, deviation={deviation:.2%}"
+                                ),
+                                "affected_facts": [
+                                    f"cash_flow_statement.operating_cash_flow@{period_id}",
+                                    f"cash_flow_statement.capital_expenditure@{period_id}",
+                                    f"cash_flow_statement.free_cash_flow@{period_id}",
+                                ],
+                            }
+                        )
+                except (TypeError, ValueError):
+                    pass
+
+        return issues
 
     def _resolve_balance_period_id(
         self, periods: List[Dict[str, Any]], fallback_period_id: Optional[str]
@@ -1526,19 +1654,36 @@ class PDFContentExtractor:
 
     def _normalize_row_label(self, text: str) -> str:
         normalized = re.sub(r"\s+", " ", text.strip().lower())
-        return normalized.replace("（", "(").replace("）", ")")
+        normalized = normalized.replace("（", "(").replace("）", ")")
+        normalized = normalized.replace("–", "-").replace("—", "-")
+        return normalized
 
     def _row_label_matches_metric(
         self, metric: str, row_label: str, keywords: List[str]
     ) -> bool:
         normalized = self._normalize_row_label(row_label)
         blacklist = {
+            "revenue": [
+                "other revenue",
+                "other revenues",
+                "other operating revenue",
+                "deferred revenue",
+                "unearned revenue",
+                "interest revenue",
+                "investment revenue",
+                "其他收益",
+                "其他业务收入",
+                "递延收入",
+                "利息收入",
+            ],
             "net_profit": [
                 "noncontrolling",
                 "non-controlling",
                 "minority interests",
                 "非控股",
                 "少数股东",
+                "net profit margin",
+                "profit ratio",
             ],
             "net_profit_attributable_to_parent": [
                 "noncontrolling",
@@ -1546,6 +1691,29 @@ class PDFContentExtractor:
                 "minority interests",
                 "非控股",
                 "少数股东",
+            ],
+            "cash_and_equivalents": [
+                "restricted cash",
+                "pledged deposits",
+                "time deposits",
+                "受限制现金",
+                "受限货币资金",
+                "受限制銀行存款",
+                "抵押存款",
+            ],
+            "accounts_receivable": [
+                "other receivables",
+                "receivables financing",
+                "due from related parties",
+                "其他应收",
+                "应收关联方",
+                "应收款项融资",
+            ],
+            "operating_cash_flow": [
+                "before changes in working capital",
+                "excluding working capital",
+                "未计营运资金变动",
+                "營運資金變動前",
             ],
             "total_equity": ["net profit", "净利润"],
             "operating_cost": ["sales and marketing", "selling expenses", "销售费用"],
@@ -2287,7 +2455,9 @@ class PDFContentExtractor:
 
         min_value = 1 if self.is_english_report else 10000
 
-        for table, year_end_index in self._iter_tables_for_statement("income_statement"):
+        for table_idx, (table, year_end_index) in enumerate(
+            self._iter_tables_for_statement("income_statement"), start=1
+        ):
             if self.is_english_report:
                 table_text = " ".join(
                     str(cell) for row in table for cell in row if cell
@@ -2296,6 +2466,20 @@ class PDFContentExtractor:
                     keyword in table_text
                     for keyword in ("segment results", "kfc operating results", "pizza hut operating results")
                 ):
+                    page, tb_idx = (
+                        self.table_locations[table_idx - 1]
+                        if table_idx - 1 < len(self.table_locations)
+                        else (None, table_idx)
+                    )
+                    self._add_runtime_issue(
+                        issue_type="segment_table_skipped",
+                        severity="warning",
+                        message=(
+                            "检测到分部经营表，已跳过以避免误提取。"
+                            f" page={page}, table={tb_idx}"
+                        ),
+                        dedupe_key=f"segment:{page}:{tb_idx}",
+                    )
                     continue
 
             for row in table:
