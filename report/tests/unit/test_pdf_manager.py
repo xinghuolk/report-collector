@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from src.pdf_manager import PDFManager, ReportPDF, ExtractedFinancialData, EXTRACTOR_VERSION
+from src.pdf_manager import (
+    PDFManager,
+    ReportPDF,
+    ExtractedFinancialData,
+    EXTRACTOR_VERSION,
+)
 from src.config import Config
 
 
@@ -431,6 +436,63 @@ class TestExtractionCache:
 
         # 应该统计非空字段
         assert cached["_cache_info"]["fields_extracted"] > 0
+
+    @pytest.mark.asyncio
+    async def test_schema_version_isolation_between_v1_and_v2(self, pdf_manager):
+        """测试同一 file_hash 在 v1/v2 缓存隔离"""
+        file_hash = "test_hash_schema_isolation"
+        v1_result = {
+            "income_statement": {"revenue": 1000},
+            "metadata": {"stock_code": "000001"},
+        }
+        v2_result = {
+            "success": True,
+            "schema_version": "v2",
+            "compat_mode": True,
+            "document": {"stock_code": "09987", "primary_period_id": "2025FY"},
+            "periods": [{"period_id": "2025FY", "is_primary": True}],
+            "facts": [
+                {
+                    "statement": "income_statement",
+                    "metric": "revenue",
+                    "period_id": "2025FY",
+                    "value": 11300,
+                    "evidence_ids": ["ev_0001"],
+                }
+            ],
+            "evidence": [
+                {
+                    "evidence_id": "ev_0001",
+                    "page": 2,
+                    "table_index": 1,
+                    "row_label": "Total Revenue",
+                    "column_header": "Year ended Dec 31, 2025",
+                    "raw_value": "11,300",
+                    "snippet": "Total Revenue 11,300",
+                }
+            ],
+            "quality": {"status": "ok", "issues": []},
+            "income_statement": {"revenue": 11300},
+            "balance_sheet": {},
+            "cash_flow_statement": {},
+            "financial_metrics": {},
+            "related_party_transactions": [],
+            "metadata": {"stock_code": "09987"},
+            "extraction_summary": {"fields_extracted": 1},
+        }
+
+        assert await pdf_manager.save_extraction_cache(file_hash, v1_result, 100) is True
+        assert await pdf_manager.save_extraction_cache(file_hash, v2_result, 120) is True
+
+        cached_v1 = await pdf_manager.get_cached_extraction(file_hash, schema_version="v1")
+        cached_v2 = await pdf_manager.get_cached_extraction(file_hash, schema_version="v2")
+
+        assert cached_v1 is not None
+        assert cached_v2 is not None
+        assert cached_v1["income_statement"]["revenue"] == 1000
+        assert cached_v2["schema_version"] == "v2"
+        assert cached_v2["document"]["primary_period_id"] == "2025FY"
+        assert cached_v2["facts"][0]["metric"] == "revenue"
 
 
 class TestCacheCleanup:

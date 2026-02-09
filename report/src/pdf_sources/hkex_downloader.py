@@ -34,7 +34,7 @@ class HKEXDownloader:
         'semi_annual': [
             '中期報告', '中期業績',
             'Interim Report', 'Interim Results',
-            'Results Announcement', 'Half Year', 'Half-Year',
+            'Half Year', 'Half-Year',
             'Six Months', 'Six-month', 'H1', '1H',
         ],
         'quarterly': [
@@ -44,10 +44,30 @@ class HKEXDownloader:
             'First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter',
             'Q1 ', 'Q2 ', 'Q3 ', 'Q4 ',
             '1Q', '2Q', '3Q', '4Q',
-            'Results Announcement', 'Q1 Results', 'Q2 Results', 'Q3 Results', 'Q4 Results',
+            'Results Announcement',
+            'Financial Results',
+            'Three Months', 'Three-month',
+            'Nine Months', 'Nine-month',
+            'Q1 Results', 'Q2 Results', 'Q3 Results', 'Q4 Results',
         ],
         'results': ['業績公告', '全年業績', 'Results Announcement'],
     }
+
+    # 需要排除的“通知类”关键词，避免误下载为财报正文
+    EXCLUDED_NOTICE_KEYWORDS = [
+        'date of board meeting',
+        'board meeting',
+        'notice to investors',
+        'announcement date',
+        '董事會召開日期',
+        '董事会召开日期',
+        '董事會會議日期',
+        '董事会会议日期',
+        'investor notice',
+        'notice of board meeting',
+    ]
+
+    QUARTERLY_HEADLINE_QUERIES = ["quarterly", "results announcement"]
 
     # 報告類型中英文對照
     REPORT_TYPE_NAMES = {
@@ -339,8 +359,55 @@ class HKEXDownloader:
             if not internal_id:
                 logger.warning(f"無法獲取股票 {stock_code} 的內部ID，搜索可能失敗")
 
+        # 解析日期參數（支持 YYYYMMDD / YYYY-MM-DD）
+        def parse_date(value: Optional[str]) -> Optional[datetime]:
+            if not value:
+                return None
+            for fmt in ("%Y%m%d", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(value, fmt)
+                except ValueError:
+                    continue
+            return None
+
+        user_start = parse_date(start_date)
+        user_end = parse_date(end_date)
+
         # 使用HTML搜索
-        all_results = await self._search_via_html(stock_code, report_type, limit, internal_id)
+        if report_type == "quarterly":
+            # 季报默认按窗口分段抓取，避免单次查询被源站结果上限截断导致漏Q1/Q2
+            range_end = user_end or datetime.now()
+            range_start = user_start or (range_end - timedelta(days=365 * 2))
+
+            merged: Dict[str, Dict[str, Any]] = {}
+            window_days = 120
+            cursor_end = range_end
+            while cursor_end >= range_start:
+                cursor_start = max(range_start, cursor_end - timedelta(days=window_days))
+                chunk = await self._search_via_html(
+                    stock_code=stock_code,
+                    report_type=report_type,
+                    limit=limit,
+                    internal_id=internal_id,
+                    start_date=cursor_start,
+                    end_date=cursor_end,
+                )
+                for item in chunk:
+                    identity = item.get("web_path") or item.get("pdf_url") or item.get("title")
+                    if identity:
+                        merged[identity] = item
+                cursor_end = cursor_start - timedelta(days=1)
+
+            all_results = list(merged.values())
+        else:
+            all_results = await self._search_via_html(
+                stock_code=stock_code,
+                report_type=report_type,
+                limit=limit,
+                internal_id=internal_id,
+                start_date=user_start,
+                end_date=user_end,
+            )
 
         # 過濾報告類型
         filtered_results = []
@@ -352,70 +419,85 @@ class HKEXDownloader:
         logger.info(f"找到 {len(filtered_results)} 個符合條件的財報")
         return filtered_results[:limit]
 
-    async def _search_via_html(self, stock_code: str, report_type: str, limit: int, internal_id: Optional[int] = None) -> List[Dict]:
+    async def _search_via_html(
+        self,
+        stock_code: str,
+        report_type: str,
+        limit: int,
+        internal_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Dict]:
         """通過HTML搜索頁面獲取結果（只搜索英文版本）"""
         # 計算日期範圍（過去5年）
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365 * 5)
+        range_end = end_date or datetime.now()
+        range_start = start_date or (range_end - timedelta(days=365 * 5))
 
         # 使用內部 ID（如果有）或股票代碼
         stock_id_value = str(internal_id) if internal_id else stock_code
-
-        results = []
 
         # 根據報告類型設置不同的搜索參數
         # 季度報告在港交所屬於"公告與通知"類別，不是"財務報告"類別
         if report_type == 'quarterly':
             t1code = '-1'  # 搜索所有類別
-            headline = 'quarterly'  # 通過標題關鍵字過濾
+            headline_queries = self.QUARTERLY_HEADLINE_QUERIES
         else:
             t1code = '40000'  # 財務報告類別（年報、中報）
-            headline = ''
+            headline_queries = [""]
 
         # 只搜索英文界面，獲取英文版本
-        form_data = {
-            'lang': 'EN',  # 使用英文界面獲取英文版本
-            'category': '0',
-            'market': 'SEHK',
-            'searchType': '0',
-            'documentType': '-1',  # 使用 -1 獲取所有類型，後續過濾
-            't1code': t1code,
-            't2Gcode': '-2',
-            't2code': '-2',
-            'stockId': stock_id_value,
-            'from': start_date.strftime('%Y%m%d'),
-            'to': end_date.strftime('%Y%m%d'),
-            'headline': headline,
-            'searchText': '',
-            'sortDir': '0',
-            'sortByDate': 'desc',
-        }
+        merged_results: Dict[str, Dict[str, Any]] = {}
 
         try:
             timeout = aiohttp.ClientTimeout(total=60)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    self.search_url,
-                    data=form_data,
-                    headers={
-                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Origin': 'https://www1.hkexnews.hk',
-                        'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
+                for headline in headline_queries:
+                    form_data = {
+                        'lang': 'EN',  # 使用英文界面獲取英文版本
+                        'category': '0',
+                        'market': 'SEHK',
+                        'searchType': '0',
+                        'documentType': '-1',  # 使用 -1 獲取所有類型，後續過濾
+                        't1code': t1code,
+                        't2Gcode': '-2',
+                        't2code': '-2',
+                        'stockId': stock_id_value,
+                        'from': range_start.strftime('%Y%m%d'),
+                        'to': range_end.strftime('%Y%m%d'),
+                        'headline': headline,
+                        'searchText': '',
+                        'sortDir': '0',
+                        'sortByDate': 'desc',
                     }
-                ) as response:
-                    if response.status == 200:
+
+                    async with session.post(
+                        self.search_url,
+                        data=form_data,
+                        headers={
+                            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Origin': 'https://www1.hkexnews.hk',
+                            'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
+                        }
+                    ) as response:
+                        if response.status != 200:
+                            logger.warning(f"搜索請求失敗: {response.status}, headline={headline}")
+                            continue
+
                         html = await response.text()
                         results = self._parse_search_html(html, stock_code, report_type)
-                        logger.info(f"搜索英文界面找到 {len(results)} 個結果")
-                    else:
-                        logger.warning(f"搜索請求失敗: {response.status}")
+                        for item in results:
+                            identity = item.get("web_path") or item.get("pdf_url") or item.get("title")
+                            if identity:
+                                merged_results[identity] = item
+
+            logger.info(f"搜索英文界面找到 {len(merged_results)} 個去重結果")
 
         except Exception as e:
             logger.error(f"HTML搜索異常: {e}")
 
-        return results
+        return list(merged_results.values())
 
     def _parse_search_html(self, html: str, stock_code: str, report_type: str) -> List[Dict]:
         """解析搜索結果HTML"""
@@ -453,14 +535,20 @@ class HKEXDownloader:
                 href = link.get('href', '')
                 link_title = link.get_text(strip=True)
 
-                # 獲取完整的headline（包含類別信息如[Quarterly Results]）
+                # 獲取完整的headline（通常是分類標籤）與鏈接標題（通常是具體公告名）
                 headline_div = row.find('div', class_='headline')
                 if headline_div:
-                    # 獲取整個headline的文本，包括類別和鏈接文本
                     full_headline = headline_div.get_text(separator=' ', strip=True)
-                    title = full_headline
                 else:
+                    full_headline = ""
+
+                # 優先保留具體鏈接標題，並附帶分類信息，避免丟失Q1/Q3/Q4關鍵詞
+                if full_headline and link_title and link_title not in full_headline:
+                    title = f"{full_headline} | {link_title}"
+                elif link_title:
                     title = link_title
+                else:
+                    title = full_headline
 
                 # 獲取發布日期
                 date_cell = cells[0] if cells else None
@@ -523,9 +611,39 @@ class HKEXDownloader:
 
     def _match_report_type(self, title: str, report_type: str) -> bool:
         """檢查標題是否匹配報告類型"""
-        keywords = self.CATEGORY_MAP.get(report_type, [])
         title_lower = title.lower()
 
+        # 先过滤掉通知类公告（如业绩发布日期、董事会日期）
+        if any(keyword in title_lower for keyword in self.EXCLUDED_NOTICE_KEYWORDS):
+            return False
+
+        if report_type == "quarterly":
+            if "overseas regulatory announcement" in title_lower:
+                return False
+
+            quarter_patterns = [
+                r"\bq[1-4]\b",
+                r"\b[1-4]q\b",
+                r"first quarter",
+                r"second quarter",
+                r"third quarter",
+                r"fourth quarter",
+                r"three months",
+                r"nine months",
+                r"quarterly results",
+                r"quarterly report",
+                r"第一季度",
+                r"第二季度",
+                r"第三季度",
+                r"第四季度",
+                r"一季度",
+                r"二季度",
+                r"三季度",
+                r"四季度",
+            ]
+            return any(re.search(pattern, title_lower, re.IGNORECASE) for pattern in quarter_patterns)
+
+        keywords = self.CATEGORY_MAP.get(report_type, [])
         for keyword in keywords:
             if keyword.lower() in title_lower:
                 return True

@@ -4,7 +4,7 @@ PDF财报内容提取器
 """
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Set
 from dataclasses import dataclass, asdict
 from decimal import Decimal
 import pdfplumber
@@ -106,6 +106,10 @@ class ReportMetadata:
     currency: Optional[str] = None                     # USD/HKD/CNY
     amount_unit: Optional[str] = None                  # million/billion/none
     per_share_currency: Optional[str] = None           # EPS币种
+    doc_type: Optional[str] = None                     # annual_report/interim_report/results_announcement/quarterly_report
+    fiscal_year: Optional[int] = None                  # 财年
+    primary_period_id: Optional[str] = None            # 主期间ID
+    is_audited: Optional[bool] = None                  # 是否审计
     total_pages: int = 0
     file_size: int = 0
 
@@ -506,9 +510,13 @@ class PDFContentExtractor:
 
     def __init__(self):
         self.current_pdf_path: Optional[Path] = None
+        self.current_metadata: Optional[ReportMetadata] = None
+        self.current_periods: List[Dict[str, Any]] = []
         self.full_text: str = ""
         self.tables: List[List[List[str]]] = []
+        self.table_locations: List[Tuple[int, int]] = []
         self.is_english_report: bool = False  # 是否为英文财报
+        self._derived_fact_keys: Set[Tuple[str, str]] = set()
 
     def extract(self, pdf_path: str) -> Dict[str, Any]:
         """提取PDF财报的全部结构化数据"""
@@ -521,12 +529,17 @@ class PDFContentExtractor:
         try:
             # 提取基础内容
             self._extract_content()
+            self._derived_fact_keys = set()
 
             # 检测报告语言
             self._detect_language()
 
             # 提取各类数据
             metadata = self._extract_metadata()
+            periods = self._build_periods(metadata)
+            self.current_metadata = metadata
+            self.current_periods = periods
+            document = self._build_document(metadata, periods)
             income_statement = self._extract_income_statement()
             balance_sheet = self._extract_balance_sheet()
             cash_flow = self._extract_cash_flow()
@@ -535,10 +548,25 @@ class PDFContentExtractor:
 
             # 计算衍生指标
             self._calculate_derived_metrics(balance_sheet, income_statement, cash_flow, metrics)
+            facts, evidence, quality = self._build_facts_evidence_quality(
+                metadata=metadata,
+                periods=periods,
+                income=income_statement,
+                balance=balance_sheet,
+                cash_flow=cash_flow,
+                metrics=metrics,
+            )
 
             result = {
                 "success": True,
+                "schema_version": "v2",
+                "compat_mode": True,
                 "metadata": asdict(metadata),
+                "document": document,
+                "periods": periods,
+                "facts": facts,
+                "evidence": evidence,
+                "quality": quality,
                 "income_statement": asdict(income_statement),
                 "balance_sheet": asdict(balance_sheet),
                 "cash_flow_statement": asdict(cash_flow),
@@ -562,11 +590,14 @@ class PDFContentExtractor:
 
     def _extract_content(self):
         """提取PDF的文本和表格"""
+        self.current_metadata = None
+        self.current_periods = []
         self.full_text = ""
         self.tables = []
+        self.table_locations = []
 
         with pdfplumber.open(self.current_pdf_path) as pdf:
-            for page in pdf.pages:
+            for page_index, page in enumerate(pdf.pages, start=1):
                 # 提取文本
                 text = page.extract_text()
                 if text:
@@ -575,7 +606,9 @@ class PDFContentExtractor:
                 # 提取表格
                 page_tables = page.extract_tables()
                 if page_tables:
-                    self.tables.extend(page_tables)
+                    for table_index, table in enumerate(page_tables, start=1):
+                        self.tables.append(table)
+                        self.table_locations.append((page_index, table_index))
 
     def _detect_language(self):
         """检测报告语言（中文/英文）"""
@@ -600,6 +633,1235 @@ class PDFContentExtractor:
         else:
             self.is_english_report = False
             logger.info(f"检测到中文财报: cn={cn_count}, en={en_count}")
+
+    @staticmethod
+    def _extract_quarter_number(text: str) -> Optional[int]:
+        """从文本中识别季度编号"""
+        patterns: List[Tuple[int, List[str]]] = [
+            (1, [r"\bq1\b", r"\b1q\b", r"first quarter", r"第一季度", r"一季度"]),
+            (2, [r"\bq2\b", r"\b2q\b", r"second quarter", r"第二季度", r"二季度"]),
+            (3, [r"\bq3\b", r"\b3q\b", r"third quarter", r"第三季度", r"三季度"]),
+            (4, [r"\bq4\b", r"\b4q\b", r"fourth quarter", r"第四季度", r"四季度"]),
+        ]
+        text_lower = text.lower()
+        for quarter, regex_list in patterns:
+            if any(re.search(pattern, text_lower, re.IGNORECASE) for pattern in regex_list):
+                return quarter
+        return None
+
+    @staticmethod
+    def _date_range_for_period(fiscal_year: int, period_name: str) -> Tuple[Optional[str], Optional[str]]:
+        """根据期间名称返回日期区间"""
+        if period_name == "q1":
+            return f"{fiscal_year}-01-01", f"{fiscal_year}-03-31"
+        if period_name == "q2":
+            return f"{fiscal_year}-04-01", f"{fiscal_year}-06-30"
+        if period_name == "q3":
+            return f"{fiscal_year}-07-01", f"{fiscal_year}-09-30"
+        if period_name == "q4":
+            return f"{fiscal_year}-10-01", f"{fiscal_year}-12-31"
+        if period_name == "h1":
+            return f"{fiscal_year}-01-01", f"{fiscal_year}-06-30"
+        if period_name == "fy":
+            return f"{fiscal_year}-01-01", f"{fiscal_year}-12-31"
+        return None, None
+
+    def _is_audited_report(self) -> Optional[bool]:
+        """根据文本估算是否审计"""
+        text_lower = self.full_text[:10000].lower()
+        if "unaudited" in text_lower or "未經審核" in text_lower or "未经审计" in text_lower:
+            return False
+        if "audited" in text_lower or "經審核" in text_lower or "经审计" in text_lower:
+            return True
+        return None
+
+    def _extract_fiscal_year(self, report_period: Optional[str] = None) -> Optional[int]:
+        """提取财年，优先匹配与期间关键字相邻的年份"""
+        title_text = self.full_text[:4000]
+        patterns = [
+            r'(20\d{2})\s*(?:q[1-4]|first quarter|second quarter|third quarter|fourth quarter|interim|annual|full year)',
+            r'(?:year|period)\s+ended?\s+.*?(20\d{2})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, title_text, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+
+        if report_period:
+            match = re.search(r'(20\d{2})', report_period)
+            if match:
+                return int(match.group(1))
+
+        # 文件名兜底：2025_quarterly_xxx.pdf
+        file_match = re.search(r'(20\d{2})', self.current_pdf_path.name)
+        if file_match:
+            return int(file_match.group(1))
+
+        return None
+
+    def _classify_report_identity(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """识别 report_type/doc_type/period_type，优先避免Q4+全年误判为annual"""
+        text = self.full_text[:10000]
+        text_lower = text.lower()
+
+        has_results_announcement = (
+            "results announcement" in text_lower
+            or "業績公告" in text
+            or "业绩公告" in text
+        )
+        has_full_year = (
+            "full year" in text_lower
+            or "全年" in text
+            or "年度" in text
+            or "year ended" in text_lower
+        )
+        quarter_num = self._extract_quarter_number(text)
+        has_quarter_signal = (
+            quarter_num is not None
+            or "quarterly" in text_lower
+            or "季度报告" in text
+            or "季度業績" in text
+            or "季报" in text
+        )
+        has_interim_signal = (
+            "interim report" in text_lower
+            or "interim results" in text_lower
+            or "half-year" in text_lower
+            or "half year" in text_lower
+            or "six months" in text_lower
+            or "中期報告" in text
+            or "半年度报告" in text
+            or "中期业绩" in text
+        )
+        has_annual_report_signal = (
+            "annual report" in text_lower
+            or "年度报告" in text
+            or "年報" in text
+            or "年报" in text
+        )
+        has_annual_results_signal = "annual results" in text_lower or "全年業績" in text or "全年业绩" in text
+
+        if has_interim_signal:
+            return "semi_annual", "interim_report", "semi_annual"
+
+        if has_quarter_signal:
+            if quarter_num == 4 and has_full_year:
+                return "quarterly", "results_announcement", "full_year_in_quarterly_announcement"
+            if has_results_announcement:
+                return "quarterly", "results_announcement", "quarter"
+            return "quarterly", "quarterly_report", "quarter"
+
+        if has_annual_report_signal:
+            return "annual", "annual_report", "annual"
+
+        if has_annual_results_signal:
+            return "annual", "results_announcement", "annual"
+
+        return None, None, None
+
+    def _build_periods(self, metadata: ReportMetadata) -> List[Dict[str, Any]]:
+        """构建标准化期间列表（V2骨架）"""
+        periods: List[Dict[str, Any]] = []
+        fiscal_year = metadata.fiscal_year
+        if fiscal_year is None:
+            return periods
+
+        def add_period(
+            period_id: str,
+            scope: str,
+            *,
+            fiscal_quarter: Optional[int] = None,
+            ytd_through_quarter: Optional[int] = None,
+            start_date: Optional[str] = None,
+            end_date: Optional[str] = None,
+            as_of_date: Optional[str] = None,
+            is_primary: bool = False,
+            is_comparison: bool = False,
+        ) -> None:
+            periods.append(
+                {
+                    "period_id": period_id,
+                    "scope": scope,
+                    "fiscal_quarter": fiscal_quarter,
+                    "ytd_through_quarter": ytd_through_quarter,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "as_of_date": as_of_date,
+                    "is_primary": is_primary,
+                    "is_comparison": is_comparison,
+                }
+            )
+
+        def add_balance_as_of_period(
+            date_str: Optional[str],
+            *,
+            is_primary: bool = False,
+            is_comparison: bool = False,
+        ) -> None:
+            if not date_str:
+                return
+            add_period(
+                period_id=f"BS_{date_str}",
+                scope="point_in_time",
+                fiscal_quarter=None,
+                ytd_through_quarter=None,
+                start_date=None,
+                end_date=None,
+                as_of_date=date_str,
+                is_primary=is_primary,
+                is_comparison=is_comparison,
+            )
+
+        quarter_num = self._extract_quarter_number(self.full_text[:10000])
+
+        if metadata.report_type == "semi_annual":
+            start_date, end_date = self._date_range_for_period(fiscal_year, "h1")
+            add_period(
+                period_id=f"{fiscal_year}H1_YTD",
+                scope="year_to_date",
+                ytd_through_quarter=2,
+                start_date=start_date,
+                end_date=end_date,
+                is_primary=True,
+            )
+            add_balance_as_of_period(end_date, is_primary=True)
+            metadata.primary_period_id = f"{fiscal_year}H1_YTD"
+            return periods
+
+        if metadata.report_type == "quarterly":
+            if metadata.period_type == "full_year_in_quarterly_announcement":
+                q4_start, q4_end = self._date_range_for_period(fiscal_year, "q4")
+                fy_start, fy_end = self._date_range_for_period(fiscal_year, "fy")
+                add_period(
+                    period_id=f"{fiscal_year}Q4_SINGLE",
+                    scope="single_quarter",
+                    fiscal_quarter=4,
+                    start_date=q4_start,
+                    end_date=q4_end,
+                )
+                add_period(
+                    period_id=f"{fiscal_year}FY",
+                    scope="full_year",
+                    ytd_through_quarter=4,
+                    start_date=fy_start,
+                    end_date=fy_end,
+                    is_primary=True,
+                )
+                add_period(
+                    period_id=f"{fiscal_year - 1}FY",
+                    scope="full_year",
+                    ytd_through_quarter=4,
+                    start_date=f"{fiscal_year - 1}-01-01",
+                    end_date=f"{fiscal_year - 1}-12-31",
+                    is_comparison=True,
+                )
+                add_balance_as_of_period(f"{fiscal_year}-12-31", is_primary=True)
+                add_balance_as_of_period(
+                    f"{fiscal_year - 1}-12-31", is_comparison=True
+                )
+                metadata.primary_period_id = f"{fiscal_year}FY"
+                return periods
+
+            if quarter_num == 1:
+                q1_start, q1_end = self._date_range_for_period(fiscal_year, "q1")
+                add_period(
+                    period_id=f"{fiscal_year}Q1_YTD",
+                    scope="year_to_date",
+                    ytd_through_quarter=1,
+                    start_date=q1_start,
+                    end_date=q1_end,
+                    is_primary=True,
+                )
+                add_balance_as_of_period(q1_end, is_primary=True)
+                metadata.primary_period_id = f"{fiscal_year}Q1_YTD"
+                return periods
+
+            if quarter_num == 2:
+                h1_start, h1_end = self._date_range_for_period(fiscal_year, "h1")
+                q2_start, q2_end = self._date_range_for_period(fiscal_year, "q2")
+                add_period(
+                    period_id=f"{fiscal_year}H1_YTD",
+                    scope="year_to_date",
+                    ytd_through_quarter=2,
+                    start_date=h1_start,
+                    end_date=h1_end,
+                    is_primary=True,
+                )
+                add_period(
+                    period_id=f"{fiscal_year}Q2_SINGLE",
+                    scope="single_quarter",
+                    fiscal_quarter=2,
+                    start_date=q2_start,
+                    end_date=q2_end,
+                )
+                add_balance_as_of_period(h1_end, is_primary=True)
+                metadata.primary_period_id = f"{fiscal_year}H1_YTD"
+                return periods
+
+            if quarter_num == 3:
+                q3_ytd_start = f"{fiscal_year}-01-01"
+                q3_ytd_end = f"{fiscal_year}-09-30"
+                q3_start, q3_end = self._date_range_for_period(fiscal_year, "q3")
+                add_period(
+                    period_id=f"{fiscal_year}Q3_YTD",
+                    scope="year_to_date",
+                    ytd_through_quarter=3,
+                    start_date=q3_ytd_start,
+                    end_date=q3_ytd_end,
+                    is_primary=True,
+                )
+                add_period(
+                    period_id=f"{fiscal_year}Q3_SINGLE",
+                    scope="single_quarter",
+                    fiscal_quarter=3,
+                    start_date=q3_start,
+                    end_date=q3_end,
+                )
+                add_balance_as_of_period(q3_ytd_end, is_primary=True)
+                metadata.primary_period_id = f"{fiscal_year}Q3_YTD"
+                return periods
+
+            if quarter_num == 4:
+                q4_ytd_start = f"{fiscal_year}-01-01"
+                q4_ytd_end = f"{fiscal_year}-12-31"
+                q4_start, q4_end = self._date_range_for_period(fiscal_year, "q4")
+                add_period(
+                    period_id=f"{fiscal_year}Q4_YTD",
+                    scope="year_to_date",
+                    ytd_through_quarter=4,
+                    start_date=q4_ytd_start,
+                    end_date=q4_ytd_end,
+                    is_primary=True,
+                )
+                add_period(
+                    period_id=f"{fiscal_year}Q4_SINGLE",
+                    scope="single_quarter",
+                    fiscal_quarter=4,
+                    start_date=q4_start,
+                    end_date=q4_end,
+                )
+                add_balance_as_of_period(q4_ytd_end, is_primary=True)
+                metadata.primary_period_id = f"{fiscal_year}Q4_YTD"
+                return periods
+
+        if metadata.report_type == "annual":
+            fy_start, fy_end = self._date_range_for_period(fiscal_year, "fy")
+            add_period(
+                period_id=f"{fiscal_year}FY",
+                scope="full_year",
+                ytd_through_quarter=4,
+                start_date=fy_start,
+                end_date=fy_end,
+                is_primary=True,
+            )
+            add_period(
+                period_id=f"{fiscal_year - 1}FY",
+                scope="full_year",
+                ytd_through_quarter=4,
+                start_date=f"{fiscal_year - 1}-01-01",
+                end_date=f"{fiscal_year - 1}-12-31",
+                is_comparison=True,
+            )
+            add_balance_as_of_period(f"{fiscal_year}-12-31", is_primary=True)
+            add_balance_as_of_period(f"{fiscal_year - 1}-12-31", is_comparison=True)
+            metadata.primary_period_id = f"{fiscal_year}FY"
+
+        return periods
+
+    @staticmethod
+    def _build_document(metadata: ReportMetadata, periods: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """构建统一文档层结构"""
+        primary_period_id = metadata.primary_period_id
+        if not primary_period_id:
+            primary = next((period for period in periods if period.get("is_primary")), None)
+            primary_period_id = primary.get("period_id") if primary else None
+
+        return {
+            "stock_code": metadata.stock_code,
+            "stock_name": metadata.stock_name,
+            "market": "HK" if metadata.stock_code and len(metadata.stock_code) <= 5 else None,
+            "doc_type": metadata.doc_type,
+            "fiscal_year": metadata.fiscal_year,
+            "report_type": metadata.report_type,
+            "period_type": metadata.period_type,
+            "report_period": metadata.report_period,
+            "primary_period_id": primary_period_id,
+            "is_audited": metadata.is_audited,
+        }
+
+    def _build_facts_evidence_quality(
+        self,
+        metadata: ReportMetadata,
+        periods: List[Dict[str, Any]],
+        income: IncomeStatement,
+        balance: BalanceSheet,
+        cash_flow: CashFlowStatement,
+        metrics: FinancialMetrics,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+        """构建 facts/evidence/quality（V2）"""
+        self.current_metadata = metadata
+        self.current_periods = periods
+        primary_period_id = metadata.primary_period_id
+        comparison_period_ids = [
+            p["period_id"] for p in periods if p.get("is_comparison") and p.get("period_id")
+        ]
+        balance_period_id = self._resolve_balance_period_id(periods, primary_period_id)
+        observations = self._collect_table_metric_observations()
+        evidence: List[Dict[str, Any]] = []
+        evidence_key_to_id: Dict[Tuple[Any, ...], str] = {}
+        fact_evidence_map: Dict[Tuple[str, str, str], List[str]] = {}
+        facts: List[Dict[str, Any]] = []
+
+        def to_fact_ref(statement: str, metric: str, period_id: str) -> str:
+            return f"{statement}.{metric}@{period_id}"
+
+        def ensure_evidence(obs: Dict[str, Any]) -> str:
+            key = (
+                obs["page"],
+                obs["table_index"],
+                obs["row_label"],
+                obs.get("column_header"),
+                obs.get("raw_value"),
+            )
+            existing_id = evidence_key_to_id.get(key)
+            if existing_id:
+                return existing_id
+
+            evidence_id = f"ev_{len(evidence_key_to_id) + 1:04d}"
+            evidence_key_to_id[key] = evidence_id
+            evidence.append(
+                {
+                    "evidence_id": evidence_id,
+                    "page": obs["page"],
+                    "table_index": obs["table_index"],
+                    "row_label": obs["row_label"],
+                    "column_header": obs.get("column_header"),
+                    "column_role": obs.get("column_role"),
+                    "raw_value": obs.get("raw_value"),
+                    "snippet": obs.get("snippet"),
+                }
+            )
+            return evidence_id
+
+        def select_primary_and_comparison_obs(
+            metric_obs: List[Dict[str, Any]], target_value: float
+        ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+            if not metric_obs:
+                return None, None
+            primary_candidates = [
+                item for item in metric_obs if not item.get("is_comparison_col", False)
+            ]
+            if not primary_candidates:
+                primary_candidates = metric_obs
+            sorted_primary = sorted(
+                primary_candidates,
+                key=lambda item: abs(item["value"] - target_value),
+            )
+            primary_obs = sorted_primary[0]
+
+            comparison_candidates = [
+                item for item in metric_obs if item.get("is_comparison_col", False)
+            ]
+            if comparison_candidates:
+                comparison_obs = sorted(
+                    comparison_candidates,
+                    key=lambda item: abs(item["value"] - primary_obs["value"]),
+                    reverse=True,
+                )[0]
+            else:
+                comparison_obs = None
+                for candidate in sorted_primary[1:]:
+                    if abs(candidate["value"] - primary_obs["value"]) > 1e-9:
+                        comparison_obs = candidate
+                        break
+            return primary_obs, comparison_obs
+
+        metric_specs: List[Tuple[str, str, Optional[float], str]] = [
+            ("income_statement", "revenue", income.revenue, primary_period_id),
+            ("income_statement", "operating_cost", income.operating_cost, primary_period_id),
+            ("income_statement", "gross_profit", income.gross_profit, primary_period_id),
+            ("income_statement", "operating_profit", income.operating_profit, primary_period_id),
+            ("income_statement", "total_profit", income.total_profit, primary_period_id),
+            ("income_statement", "net_profit", income.net_profit, primary_period_id),
+            (
+                "income_statement",
+                "net_profit_attributable_to_parent",
+                income.net_profit_attributable_to_parent,
+                primary_period_id,
+            ),
+            ("income_statement", "net_profit_deducted", income.net_profit_deducted, primary_period_id),
+            ("income_statement", "interest_expense", income.interest_expense, primary_period_id),
+            ("income_statement", "rd_expense", income.rd_expense, primary_period_id),
+            ("income_statement", "gross_margin", income.gross_margin, primary_period_id),
+            ("income_statement", "net_margin", income.net_margin, primary_period_id),
+            ("balance_sheet", "total_assets", balance.total_assets, balance_period_id),
+            ("balance_sheet", "current_assets", balance.current_assets, balance_period_id),
+            (
+                "balance_sheet",
+                "cash_and_equivalents",
+                balance.cash_and_equivalents,
+                balance_period_id,
+            ),
+            (
+                "balance_sheet",
+                "accounts_receivable",
+                balance.accounts_receivable,
+                balance_period_id,
+            ),
+            ("balance_sheet", "inventory", balance.inventory, balance_period_id),
+            ("balance_sheet", "fixed_assets", balance.fixed_assets, balance_period_id),
+            ("balance_sheet", "goodwill", balance.goodwill, balance_period_id),
+            ("balance_sheet", "intangible_assets", balance.intangible_assets, balance_period_id),
+            ("balance_sheet", "total_liabilities", balance.total_liabilities, balance_period_id),
+            (
+                "balance_sheet",
+                "current_liabilities",
+                balance.current_liabilities,
+                balance_period_id,
+            ),
+            ("balance_sheet", "short_term_debt", balance.short_term_debt, balance_period_id),
+            ("balance_sheet", "long_term_debt", balance.long_term_debt, balance_period_id),
+            ("balance_sheet", "bonds_payable", balance.bonds_payable, balance_period_id),
+            ("balance_sheet", "total_equity", balance.total_equity, balance_period_id),
+            (
+                "balance_sheet",
+                "equity_attributable_to_parent",
+                balance.equity_attributable_to_parent,
+                balance_period_id,
+            ),
+            (
+                "cash_flow_statement",
+                "operating_cash_flow",
+                cash_flow.operating_cash_flow,
+                primary_period_id,
+            ),
+            (
+                "cash_flow_statement",
+                "investing_cash_flow",
+                cash_flow.investing_cash_flow,
+                primary_period_id,
+            ),
+            (
+                "cash_flow_statement",
+                "financing_cash_flow",
+                cash_flow.financing_cash_flow,
+                primary_period_id,
+            ),
+            (
+                "cash_flow_statement",
+                "capital_expenditure",
+                cash_flow.capital_expenditure,
+                primary_period_id,
+            ),
+            ("cash_flow_statement", "free_cash_flow", cash_flow.free_cash_flow, primary_period_id),
+            ("financial_metrics", "eps", metrics.eps, primary_period_id),
+            ("financial_metrics", "eps_diluted", metrics.eps_diluted, primary_period_id),
+            ("financial_metrics", "bps", metrics.bps, primary_period_id),
+            (
+                "financial_metrics",
+                "dividend_per_share",
+                metrics.dividend_per_share,
+                primary_period_id,
+            ),
+            ("financial_metrics", "roe", metrics.roe, primary_period_id),
+            ("financial_metrics", "roa", metrics.roa, primary_period_id),
+            ("financial_metrics", "debt_ratio", metrics.debt_ratio, primary_period_id),
+            ("financial_metrics", "current_ratio", metrics.current_ratio, primary_period_id),
+            ("financial_metrics", "quick_ratio", metrics.quick_ratio, primary_period_id),
+            ("financial_metrics", "total_shares", metrics.total_shares, primary_period_id),
+        ]
+
+        for statement, metric, value, period_id in metric_specs:
+            if value is None or not period_id:
+                continue
+
+            metric_obs_all = observations.get((statement, metric), [])
+            allowed_roles = self._allowed_column_roles_for_period(
+                periods=periods,
+                period_id=period_id,
+                statement=statement,
+            )
+            metric_obs = [
+                obs
+                for obs in metric_obs_all
+                if obs.get("column_role", "unknown") in allowed_roles
+            ]
+            if not metric_obs:
+                metric_obs = metric_obs_all
+            primary_obs, comparison_obs = select_primary_and_comparison_obs(
+                metric_obs, value
+            )
+
+            evidence_ids: List[str] = []
+            if primary_obs:
+                evidence_ids.append(ensure_evidence(primary_obs))
+            fact_key = (statement, metric, period_id)
+            fact_evidence_map[fact_key] = evidence_ids
+
+            is_derived = (statement, metric) in self._derived_fact_keys
+            derivation_formula = self._get_derivation_formula(statement, metric)
+            if is_derived:
+                dependencies = self._get_derivation_dependencies(statement, metric)
+                inherited: List[str] = []
+                for dep_statement, dep_metric in dependencies:
+                    dep_key = (dep_statement, dep_metric, period_id)
+                    inherited.extend(fact_evidence_map.get(dep_key, []))
+                evidence_ids = list(dict.fromkeys(evidence_ids + inherited))
+                fact_evidence_map[fact_key] = evidence_ids
+
+            fact_currency, fact_unit = self._get_fact_currency_unit(metadata, metric)
+            source_method = (
+                "derived" if is_derived else ("table" if evidence_ids else "text_regex")
+            )
+            if is_derived:
+                confidence = 1.0
+            elif evidence_ids:
+                confidence = 0.96
+                if primary_obs and primary_obs.get("column_role") not in allowed_roles:
+                    confidence = 0.85
+            else:
+                confidence = 0.75
+            facts.append(
+                {
+                    "statement": statement,
+                    "metric": metric,
+                    "period_id": period_id,
+                    "value": value,
+                    "currency": fact_currency,
+                    "unit": fact_unit,
+                    "source_method": source_method,
+                    "confidence": confidence,
+                    "evidence_ids": evidence_ids,
+                    "is_derived": is_derived,
+                    "derivation_formula": derivation_formula,
+                }
+            )
+
+            # 对同比列追加 comparison facts（仅核心指标）
+            if comparison_period_ids and comparison_obs and metric in {
+                "revenue",
+                "net_profit",
+                "operating_cash_flow",
+            }:
+                comparison_period_id = comparison_period_ids[0]
+                comparison_fact_key = (statement, metric, comparison_period_id)
+                if comparison_fact_key not in fact_evidence_map:
+                    comparison_evidence_id = ensure_evidence(comparison_obs)
+                    fact_evidence_map[comparison_fact_key] = [comparison_evidence_id]
+                    facts.append(
+                        {
+                            "statement": statement,
+                            "metric": metric,
+                            "period_id": comparison_period_id,
+                            "value": comparison_obs["value"],
+                            "currency": fact_currency,
+                            "unit": fact_unit,
+                            "source_method": "table",
+                            "confidence": 0.95 if comparison_obs.get("is_comparison_col", False) else 0.85,
+                            "evidence_ids": [comparison_evidence_id],
+                            "is_derived": False,
+                            "derivation_formula": None,
+                        }
+                    )
+
+        issues: List[Dict[str, Any]] = []
+        for fact in facts:
+            if not fact["is_derived"] and not fact["evidence_ids"]:
+                issues.append(
+                    {
+                        "type": "unit_inferred",
+                        "severity": "warning",
+                        "message": (
+                            f"{fact['statement']}.{fact['metric']} 使用文本回退提取，缺少表格证据。"
+                        ),
+                        "affected_facts": [
+                            to_fact_ref(
+                                fact["statement"],
+                                fact["metric"],
+                                fact["period_id"],
+                            )
+                        ],
+                    }
+                )
+            if (
+                not fact["is_derived"]
+                and fact["evidence_ids"]
+                and fact["confidence"] < 0.9
+            ):
+                issues.append(
+                    {
+                        "type": "period_ambiguous",
+                        "severity": "warning",
+                        "message": (
+                            f"{fact['statement']}.{fact['metric']} 列定位不够明确，已降置信度。"
+                        ),
+                        "affected_facts": [
+                            to_fact_ref(
+                                fact["statement"],
+                                fact["metric"],
+                                fact["period_id"],
+                            )
+                        ],
+                    }
+                )
+
+        if comparison_period_ids:
+            comparison_period_id = comparison_period_ids[0]
+            required_comparison = [
+                ("income_statement", "revenue"),
+                ("income_statement", "net_profit"),
+                ("cash_flow_statement", "operating_cash_flow"),
+            ]
+            missing = []
+            for statement, metric in required_comparison:
+                matched = any(
+                    fact["statement"] == statement
+                    and fact["metric"] == metric
+                    and fact["period_id"] == comparison_period_id
+                    for fact in facts
+                )
+                if not matched:
+                    missing.append(f"{statement}.{metric}@{comparison_period_id}")
+            if missing:
+                issues.append(
+                    {
+                        "type": "period_ambiguous",
+                        "severity": "warning",
+                        "message": "未完整提取同比列核心指标。",
+                        "affected_facts": missing,
+                    }
+                )
+
+        quality_status = "ok"
+        if any(issue["severity"] == "error" for issue in issues):
+            quality_status = "review"
+        elif issues:
+            quality_status = "partial"
+
+        quality = {
+            "status": quality_status,
+            "issues": issues,
+        }
+        return facts, evidence, quality
+
+    def _resolve_balance_period_id(
+        self, periods: List[Dict[str, Any]], fallback_period_id: Optional[str]
+    ) -> Optional[str]:
+        """资产负债表优先绑定时点期间"""
+        primary_point = next(
+            (
+                p
+                for p in periods
+                if p.get("scope") == "point_in_time" and p.get("is_primary")
+            ),
+            None,
+        )
+        if primary_point:
+            return primary_point.get("period_id")
+        any_point = next((p for p in periods if p.get("scope") == "point_in_time"), None)
+        if any_point:
+            return any_point.get("period_id")
+        return fallback_period_id
+
+    def _get_fact_currency_unit(
+        self, metadata: ReportMetadata, metric: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """根据指标类型返回 currency / unit"""
+        percent_metrics = {"gross_margin", "net_margin", "roe", "roa", "debt_ratio"}
+        ratio_metrics = {"current_ratio", "quick_ratio"}
+        per_share_metrics = {"eps", "eps_diluted", "bps", "dividend_per_share"}
+        share_metrics = {"total_shares"}
+
+        if metric in percent_metrics:
+            return None, "percent"
+        if metric in ratio_metrics:
+            return None, "ratio"
+        if metric in per_share_metrics:
+            return metadata.per_share_currency or metadata.currency, "per_share"
+        if metric in share_metrics:
+            return None, "shares"
+        return metadata.currency, metadata.amount_unit
+
+    @staticmethod
+    def _get_derivation_formula(statement: str, metric: str) -> Optional[str]:
+        formulas = {
+            ("income_statement", "operating_cost"): "operating_cost = revenue - gross_profit",
+            ("income_statement", "gross_profit"): "gross_profit = revenue - operating_cost",
+            ("income_statement", "gross_margin"): "gross_margin = gross_profit / revenue * 100",
+            ("income_statement", "net_margin"): "net_margin = net_profit / revenue * 100",
+            ("financial_metrics", "debt_ratio"): "debt_ratio = total_liabilities / total_assets * 100",
+            ("financial_metrics", "current_ratio"): "current_ratio = current_assets / current_liabilities",
+            ("financial_metrics", "quick_ratio"): "quick_ratio = (current_assets - inventory) / current_liabilities",
+            ("financial_metrics", "roa"): "roa = net_profit / total_assets * 100",
+            ("financial_metrics", "roe"): "roe = net_profit / equity * 100",
+            ("cash_flow_statement", "free_cash_flow"): "free_cash_flow = operating_cash_flow - capital_expenditure",
+            ("financial_metrics", "bps"): "bps = total_equity / total_shares",
+            ("financial_metrics", "total_shares"): "total_shares = net_profit / eps",
+        }
+        return formulas.get((statement, metric))
+
+    @staticmethod
+    def _get_derivation_dependencies(
+        statement: str, metric: str
+    ) -> List[Tuple[str, str]]:
+        dependencies = {
+            ("income_statement", "operating_cost"): [
+                ("income_statement", "revenue"),
+                ("income_statement", "gross_profit"),
+            ],
+            ("income_statement", "gross_profit"): [
+                ("income_statement", "revenue"),
+                ("income_statement", "operating_cost"),
+            ],
+            ("income_statement", "gross_margin"): [
+                ("income_statement", "gross_profit"),
+                ("income_statement", "revenue"),
+            ],
+            ("income_statement", "net_margin"): [
+                ("income_statement", "net_profit"),
+                ("income_statement", "revenue"),
+            ],
+            ("financial_metrics", "debt_ratio"): [
+                ("balance_sheet", "total_liabilities"),
+                ("balance_sheet", "total_assets"),
+            ],
+            ("financial_metrics", "current_ratio"): [
+                ("balance_sheet", "current_assets"),
+                ("balance_sheet", "current_liabilities"),
+            ],
+            ("financial_metrics", "quick_ratio"): [
+                ("balance_sheet", "current_assets"),
+                ("balance_sheet", "inventory"),
+                ("balance_sheet", "current_liabilities"),
+            ],
+            ("financial_metrics", "roa"): [
+                ("income_statement", "net_profit"),
+                ("balance_sheet", "total_assets"),
+            ],
+            ("financial_metrics", "roe"): [
+                ("income_statement", "net_profit"),
+                ("balance_sheet", "total_equity"),
+            ],
+            ("cash_flow_statement", "free_cash_flow"): [
+                ("cash_flow_statement", "operating_cash_flow"),
+                ("cash_flow_statement", "capital_expenditure"),
+            ],
+            ("financial_metrics", "bps"): [
+                ("balance_sheet", "total_equity"),
+                ("financial_metrics", "total_shares"),
+            ],
+            ("financial_metrics", "total_shares"): [
+                ("income_statement", "net_profit"),
+                ("financial_metrics", "eps"),
+            ],
+        }
+        return dependencies.get((statement, metric), [])
+
+    def _collect_table_metric_observations(
+        self,
+    ) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+        """扫描表格并采集指标证据候选"""
+        keyword_map = self._get_metric_keyword_map()
+        observations: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+
+        for table_idx, table in enumerate(self.tables):
+            if not table:
+                continue
+            table_statement = self._classify_table_statement(table)
+            page, table_index = self.table_locations[table_idx] if table_idx < len(
+                self.table_locations
+            ) else (None, table_idx + 1)
+            column_profiles = self._build_table_column_profiles(table)
+
+            for row in table:
+                if not row:
+                    continue
+                row_label = str(row[0]).replace("\n", " ").strip() if row[0] else ""
+                if not row_label:
+                    continue
+                snippet = " ".join(
+                    str(cell).replace("\n", " ").strip()
+                    for cell in row[:4]
+                    if cell
+                )[:200]
+
+                for key, keywords in keyword_map.items():
+                    statement, metric = key
+                    if table_statement in {
+                        "income_statement",
+                        "balance_sheet",
+                        "cash_flow_statement",
+                    } and statement != table_statement:
+                        continue
+                    if not self._row_label_matches_metric(metric, row_label, keywords):
+                        continue
+
+                    min_abs = self._get_metric_min_abs(metric)
+                    for col_index in range(1, len(row)):
+                        raw_value = row[col_index]
+                        value = self._parse_number(
+                            str(raw_value).replace("\n", " ").strip() if raw_value else ""
+                        )
+                        if value is None:
+                            continue
+                        if abs(value) < min_abs:
+                            continue
+
+                        profile = column_profiles.get(col_index, {})
+                        column_header = profile.get("column_header")
+                        observation = {
+                            "page": page,
+                            "table_index": table_index,
+                            "row_label": row_label,
+                            "column_header": column_header,
+                            "column_role": profile.get("column_role", "unknown"),
+                            "column_year": profile.get("column_year"),
+                            "is_comparison_col": profile.get("is_comparison_col", False),
+                            "raw_value": str(raw_value).strip() if raw_value is not None else None,
+                            "value": value,
+                            "snippet": snippet,
+                        }
+                        observations.setdefault(key, []).append(observation)
+        return observations
+
+    def _normalize_row_label(self, text: str) -> str:
+        normalized = re.sub(r"\s+", " ", text.strip().lower())
+        return normalized.replace("（", "(").replace("）", ")")
+
+    def _row_label_matches_metric(
+        self, metric: str, row_label: str, keywords: List[str]
+    ) -> bool:
+        normalized = self._normalize_row_label(row_label)
+        blacklist = {
+            "net_profit": [
+                "noncontrolling",
+                "non-controlling",
+                "minority interests",
+                "非控股",
+                "少数股东",
+            ],
+            "net_profit_attributable_to_parent": [
+                "noncontrolling",
+                "non-controlling",
+                "minority interests",
+                "非控股",
+                "少数股东",
+            ],
+            "total_equity": ["net profit", "净利润"],
+            "operating_cost": ["sales and marketing", "selling expenses", "销售费用"],
+        }
+        if any(token in normalized for token in blacklist.get(metric, [])):
+            return False
+
+        for keyword in keywords:
+            normalized_keyword = self._normalize_row_label(keyword)
+            if self.is_english_report:
+                pattern = rf"(^|[^a-z0-9]){re.escape(normalized_keyword)}([^a-z0-9]|$)"
+                if re.search(pattern, normalized):
+                    return True
+            elif normalized_keyword in normalized:
+                return True
+        return False
+
+    def _classify_table_statement(self, table: List[List[Any]]) -> str:
+        table_text = " ".join(
+            str(cell).replace("\n", " ").lower()
+            for row in table[:8]
+            for cell in row
+            if cell
+        )
+
+        cash_keywords = [
+            "cash flow",
+            "cash flows",
+            "现金流量",
+            "現金流量",
+        ]
+        balance_keywords = [
+            "balance sheet",
+            "financial position",
+            "assets and liabilities",
+            "资产负债",
+            "財務狀況",
+        ]
+        income_keywords = [
+            "income statement",
+            "statement of income",
+            "profit or loss",
+            "营收",
+            "损益",
+            "收益",
+            "业绩",
+            "業績",
+        ]
+        metric_keywords = [
+            "financial highlights",
+            "key financial",
+            "主要财务指标",
+            "主要財務指標",
+        ]
+
+        if any(token in table_text for token in cash_keywords):
+            return "cash_flow_statement"
+        if any(token in table_text for token in balance_keywords):
+            return "balance_sheet"
+        if any(token in table_text for token in income_keywords):
+            return "income_statement"
+        if any(token in table_text for token in metric_keywords):
+            return "financial_metrics"
+        return "unknown"
+
+    def _iter_tables_for_statement(
+        self, statement: str
+    ) -> List[Tuple[List[List[Any]], Optional[int]]]:
+        matched: List[Tuple[List[List[Any]], Optional[int]]] = []
+        unknown: List[Tuple[List[List[Any]], Optional[int]]] = []
+        all_tables: List[Tuple[List[List[Any]], Optional[int]]] = []
+        for table_idx, table in enumerate(self.tables):
+            if not table:
+                continue
+            matched_statement = self._classify_table_statement(table)
+            year_end_index = (
+                self._get_table_year_end_index(table) if self.is_english_report else None
+            )
+            all_tables.append((table, year_end_index))
+            if matched_statement == statement:
+                matched.append((table, year_end_index))
+            elif matched_statement == "unknown":
+                unknown.append((table, year_end_index))
+        if matched:
+            return matched
+        if unknown:
+            return unknown
+        return all_tables if statement == "financial_metrics" else []
+
+    def _build_table_column_profiles(
+        self, table: List[List[Any]]
+    ) -> Dict[int, Dict[str, Any]]:
+        profiles: Dict[int, Dict[str, Any]] = {}
+        header_rows = table[: min(3, len(table))]
+        max_col = max((len(row) for row in header_rows if row), default=0)
+        for col_index in range(1, max_col):
+            header_parts: List[str] = []
+            for row in header_rows:
+                if col_index < len(row) and row[col_index]:
+                    header_parts.append(str(row[col_index]).replace("\n", " ").strip())
+            header_text = " ".join(header_parts)
+            column_year = self._infer_column_year(header_text)
+            role = self._infer_column_role(header_text)
+            is_comparison_col = False
+            if "comparative" in header_text.lower() or "corresponding" in header_text.lower():
+                is_comparison_col = True
+            if (
+                column_year is not None
+                and self.current_metadata
+                and self.current_metadata.fiscal_year
+                and column_year < self.current_metadata.fiscal_year
+            ):
+                is_comparison_col = True
+            profiles[col_index] = {
+                "column_header": header_text or None,
+                "column_year": column_year,
+                "column_role": role,
+                "is_comparison_col": is_comparison_col,
+            }
+        return profiles
+
+    @staticmethod
+    def _infer_column_year(header_text: str) -> Optional[int]:
+        match = re.search(r"(20\d{2})", header_text)
+        if match:
+            return int(match.group(1))
+        return None
+
+    def _infer_column_role(self, header_text: str) -> str:
+        text = header_text.lower()
+        if not text.strip():
+            return "unknown"
+        if any(token in text for token in ["as at", "as of"]):
+            return "point_in_time"
+        if any(
+            token in text
+            for token in [
+                "three months",
+                "3 months",
+                "quarter ended",
+                "single quarter",
+                "本季度",
+                "单季",
+                "單季",
+                "三个月",
+                "三個月",
+            ]
+        ):
+            return "single_q"
+        if any(
+            token in text
+            for token in [
+                "nine months",
+                "9 months",
+                "six months",
+                "6 months",
+                "year-to-date",
+                "ytd",
+                "cumulative",
+                "累计",
+                "累計",
+                "年初至今",
+                "九个月",
+                "九個月",
+                "半年",
+                "六个月",
+                "六個月",
+            ]
+        ):
+            return "ytd"
+        if any(
+            token in text
+            for token in [
+                "year ended",
+                "full year",
+                "12 months",
+                "annual",
+                "全年",
+                "年度",
+            ]
+        ):
+            return "full_year"
+        if any(token in text for token in ["截至", "於", "于"]):
+            return "point_in_time"
+        return "unknown"
+
+    def _get_period_by_id(
+        self, periods: List[Dict[str, Any]], period_id: str
+    ) -> Optional[Dict[str, Any]]:
+        for period in periods:
+            if period.get("period_id") == period_id:
+                return period
+        return None
+
+    def _allowed_column_roles_for_period(
+        self,
+        periods: List[Dict[str, Any]],
+        period_id: Optional[str],
+        statement: str,
+    ) -> Set[str]:
+        if not period_id:
+            return {"unknown", "full_year", "ytd", "single_q", "point_in_time"}
+        period = self._get_period_by_id(periods, period_id)
+        if not period:
+            return {"unknown", "full_year", "ytd", "single_q", "point_in_time"}
+        scope = period.get("scope")
+        if statement == "balance_sheet":
+            return {"point_in_time", "unknown"}
+        if scope == "single_quarter":
+            return {"single_q", "unknown"}
+        if scope == "year_to_date":
+            return {"ytd", "unknown"}
+        if scope == "full_year":
+            return {"full_year", "unknown"}
+        if scope == "point_in_time":
+            return {"point_in_time", "unknown"}
+        return {"unknown", "full_year", "ytd", "single_q", "point_in_time"}
+
+    def _get_metric_keyword_map(self) -> Dict[Tuple[str, str], List[str]]:
+        """statement.metric 到表格关键字映射"""
+        if self.is_english_report:
+            return {
+                ("income_statement", "revenue"): self.TABLE_KEYWORDS_EN.get("revenue", []),
+                ("income_statement", "operating_cost"): self.TABLE_KEYWORDS_EN.get("operating_cost", []),
+                ("income_statement", "gross_profit"): self.TABLE_KEYWORDS_EN.get("gross_profit", []),
+                ("income_statement", "operating_profit"): self.TABLE_KEYWORDS_EN.get("operating_profit", []),
+                ("income_statement", "total_profit"): self.TABLE_KEYWORDS_EN.get("total_profit", []),
+                ("income_statement", "net_profit"): self.TABLE_KEYWORDS_EN.get("net_profit", []),
+                ("income_statement", "net_profit_attributable_to_parent"): [
+                    "Profit attributable to",
+                    "Net income attributable to",
+                ],
+                ("income_statement", "interest_expense"): self.TABLE_KEYWORDS_EN.get("interest_expense", []),
+                ("income_statement", "rd_expense"): self.TABLE_KEYWORDS_EN.get("rd_expense", []),
+                ("cash_flow_statement", "operating_cash_flow"): self.TABLE_KEYWORDS_EN.get("operating_cash_flow", []),
+                ("cash_flow_statement", "investing_cash_flow"): self.TABLE_KEYWORDS_EN.get("investing_cash_flow", []),
+                ("cash_flow_statement", "financing_cash_flow"): self.TABLE_KEYWORDS_EN.get("financing_cash_flow", []),
+                ("cash_flow_statement", "capital_expenditure"): self.TABLE_KEYWORDS_EN.get("capital_expenditure", []),
+                ("balance_sheet", "total_assets"): self.TABLE_KEYWORDS_EN.get("total_assets", []),
+                ("balance_sheet", "current_assets"): self.TABLE_KEYWORDS_EN.get("current_assets", []),
+                ("balance_sheet", "cash_and_equivalents"): self.TABLE_KEYWORDS_EN.get("cash_and_equivalents", []),
+                ("balance_sheet", "accounts_receivable"): self.TABLE_KEYWORDS_EN.get("accounts_receivable", []),
+                ("balance_sheet", "inventory"): self.TABLE_KEYWORDS_EN.get("inventory", []),
+                ("balance_sheet", "fixed_assets"): self.TABLE_KEYWORDS_EN.get("fixed_assets", []),
+                ("balance_sheet", "goodwill"): self.TABLE_KEYWORDS_EN.get("goodwill", []),
+                ("balance_sheet", "intangible_assets"): self.TABLE_KEYWORDS_EN.get("intangible_assets", []),
+                ("balance_sheet", "total_liabilities"): self.TABLE_KEYWORDS_EN.get("total_liabilities", []),
+                ("balance_sheet", "current_liabilities"): self.TABLE_KEYWORDS_EN.get("current_liabilities", []),
+                ("balance_sheet", "short_term_debt"): self.TABLE_KEYWORDS_EN.get("short_term_debt", []),
+                ("balance_sheet", "long_term_debt"): self.TABLE_KEYWORDS_EN.get("long_term_debt", []),
+                ("balance_sheet", "bonds_payable"): self.TABLE_KEYWORDS_EN.get("bonds_payable", []),
+                ("balance_sheet", "total_equity"): self.TABLE_KEYWORDS_EN.get("total_equity", []),
+                ("financial_metrics", "eps"): self.TABLE_KEYWORDS_EN.get("eps", []),
+                ("financial_metrics", "eps_diluted"): self.TABLE_KEYWORDS_EN.get("eps_diluted", []),
+                ("financial_metrics", "bps"): self.TABLE_KEYWORDS_EN.get("bps", []),
+                ("financial_metrics", "dividend_per_share"): self.TABLE_KEYWORDS_EN.get("dividend_per_share", []),
+                ("financial_metrics", "roe"): self.TABLE_KEYWORDS_EN.get("roe", []),
+                ("financial_metrics", "current_ratio"): self.TABLE_KEYWORDS_EN.get("current_ratio", []),
+                ("financial_metrics", "quick_ratio"): self.TABLE_KEYWORDS_EN.get("quick_ratio", []),
+            }
+
+        return {
+            ("income_statement", "revenue"): ["营业收入", "营业总收入"],
+            ("income_statement", "operating_cost"): ["营业成本", "营业总成本"],
+            ("income_statement", "gross_profit"): ["毛利", "毛利润"],
+            ("income_statement", "operating_profit"): ["营业利润"],
+            ("income_statement", "total_profit"): ["利润总额", "税前利润"],
+            ("income_statement", "net_profit"): ["净利润", "归属于母公司股东的净利润"],
+            ("income_statement", "net_profit_attributable_to_parent"): ["归属于母公司股东的净利润"],
+            ("income_statement", "net_profit_deducted"): ["扣非净利润", "扣除非经常性损益后的净利润"],
+            ("income_statement", "interest_expense"): ["财务费用", "利息支出"],
+            ("income_statement", "rd_expense"): ["研发费用", "研发支出"],
+            ("cash_flow_statement", "operating_cash_flow"): ["经营活动产生的现金流量净额"],
+            ("cash_flow_statement", "investing_cash_flow"): ["投资活动产生的现金流量净额"],
+            ("cash_flow_statement", "financing_cash_flow"): ["筹资活动产生的现金流量净额"],
+            ("cash_flow_statement", "capital_expenditure"): ["购建固定资产、无形资产和其他长期资产支付的现金"],
+            ("balance_sheet", "total_assets"): ["资产总计", "总资产"],
+            ("balance_sheet", "current_assets"): ["流动资产合计"],
+            ("balance_sheet", "cash_and_equivalents"): ["货币资金"],
+            ("balance_sheet", "accounts_receivable"): ["应收账款"],
+            ("balance_sheet", "inventory"): ["存货"],
+            ("balance_sheet", "fixed_assets"): ["固定资产"],
+            ("balance_sheet", "goodwill"): ["商誉"],
+            ("balance_sheet", "intangible_assets"): ["无形资产"],
+            ("balance_sheet", "total_liabilities"): ["负债合计", "总负债"],
+            ("balance_sheet", "current_liabilities"): ["流动负债合计"],
+            ("balance_sheet", "short_term_debt"): ["短期借款"],
+            ("balance_sheet", "long_term_debt"): ["长期借款"],
+            ("balance_sheet", "bonds_payable"): ["应付债券"],
+            ("balance_sheet", "total_equity"): ["所有者权益合计", "股东权益合计"],
+            ("balance_sheet", "equity_attributable_to_parent"): ["归属于母公司所有者权益"],
+            ("financial_metrics", "eps"): ["基本每股收益"],
+            ("financial_metrics", "eps_diluted"): ["稀释每股收益"],
+            ("financial_metrics", "bps"): ["每股净资产"],
+            ("financial_metrics", "dividend_per_share"): ["每股股利", "每股派息"],
+            ("financial_metrics", "roe"): ["净资产收益率"],
+            ("financial_metrics", "current_ratio"): ["流动比率"],
+            ("financial_metrics", "quick_ratio"): ["速动比率"],
+        }
+
+    @staticmethod
+    def _get_metric_min_abs(metric: str) -> float:
+        per_share_or_ratio = {
+            "eps",
+            "eps_diluted",
+            "bps",
+            "dividend_per_share",
+            "roe",
+            "roa",
+            "debt_ratio",
+            "gross_margin",
+            "net_margin",
+            "current_ratio",
+            "quick_ratio",
+        }
+        return 0.0 if metric in per_share_or_ratio else 1.0
 
     def _extract_metadata(self) -> ReportMetadata:
         """提取报告元数据"""
@@ -634,39 +1896,11 @@ class PDFContentExtractor:
         if name_match:
             metadata.stock_name = name_match.group(1).strip()
 
-        # 判断报告类型
-        if self.is_english_report:
-            text_lower = self.full_text.lower()
-            if 'annual report' in text_lower or 'annual results' in text_lower:
-                metadata.report_type = 'annual'
-            elif 'interim report' in text_lower or 'interim results' in text_lower or 'half-year' in text_lower:
-                metadata.report_type = 'semi_annual'
-            elif 'quarterly' in text_lower:
-                metadata.report_type = 'quarterly'
-        else:
-            if '年度报告' in self.full_text or '年报' in self.full_text:
-                if '半年度' in self.full_text or '中期' in self.full_text:
-                    metadata.report_type = 'semi_annual'
-                else:
-                    metadata.report_type = 'annual'
-            elif '季度报告' in self.full_text or '季报' in self.full_text:
-                metadata.report_type = 'quarterly'
-                if '第一季度' in self.full_text or '一季度' in self.full_text:
-                    metadata.report_type = 'quarterly_1'
-                elif '第三季度' in self.full_text or '三季度' in self.full_text:
-                    metadata.report_type = 'quarterly_3'
-
-        # 推断期间类型
-        text_lower = self.full_text.lower()
-        if metadata.report_type in ('quarterly', 'quarterly_1', 'quarterly_3'):
-            if 'full year' in text_lower and ('quarter' in text_lower or 'q4' in text_lower or 'fourth quarter' in text_lower):
-                metadata.period_type = 'full_year_in_quarterly_announcement'
-            else:
-                metadata.period_type = 'quarter'
-        elif metadata.report_type == 'semi_annual':
-            metadata.period_type = 'semi_annual'
-        elif metadata.report_type == 'annual':
-            metadata.period_type = 'annual'
+        # 判断报告类型与文档类型（优先避免Q4+全年误判）
+        report_type, doc_type, period_type = self._classify_report_identity()
+        metadata.report_type = report_type
+        metadata.doc_type = doc_type
+        metadata.period_type = period_type
 
         # 提取币种与单位
         currency_map = {
@@ -709,10 +1943,15 @@ class PDFContentExtractor:
             period_match = re.search(r'(?:year|period)\s+ended?\s+.*?(20\d{2})', self.full_text, re.IGNORECASE)
             if not period_match:
                 period_match = re.search(r'(20\d{2})\s+(?:Annual|Interim)', self.full_text, re.IGNORECASE)
+            if not period_match:
+                period_match = re.search(r'(20\d{2})\s*Q([1-4])', self.full_text, re.IGNORECASE)
         else:
             period_match = re.search(r'(20\d{2})[年\s]*(?:年度|第[一二三四]季度|半年度)', self.full_text)
         if period_match:
             metadata.report_period = period_match.group(0)
+
+        metadata.fiscal_year = self._extract_fiscal_year(metadata.report_period)
+        metadata.is_audited = self._is_audited_report()
 
         return metadata
 
@@ -1048,7 +2287,7 @@ class PDFContentExtractor:
 
         min_value = 1 if self.is_english_report else 10000
 
-        for table in self.tables:
+        for table, year_end_index in self._iter_tables_for_statement("income_statement"):
             if self.is_english_report:
                 table_text = " ".join(
                     str(cell) for row in table for cell in row if cell
@@ -1058,10 +2297,6 @@ class PDFContentExtractor:
                     for keyword in ("segment results", "kfc operating results", "pizza hut operating results")
                 ):
                     continue
-
-                year_end_index = self._get_table_year_end_index(table)
-            else:
-                year_end_index = None
 
             for row in table:
                 if not row or len(row) < 2:
@@ -1073,47 +2308,45 @@ class PDFContentExtractor:
 
                 for field, keywords in keywords_map.items():
                     current_value = getattr(income, field)
-                    for keyword in keywords:
-                        keyword_lower = keyword.lower()
-                        if keyword_lower in row_text_lower:
-                            # 排除"扣除非经常性损益后的基本每股收益"误匹配
-                            if field == 'net_profit_deducted' and '每股' in row_text:
-                                continue
-                            # 排除"归属于母公司所有者的权益"误匹配净利润
-                            if field == 'net_profit' and '权益' in row_text:
-                                continue
-                            # 获取第一个大于阈值的数值（跳过注释编号等）
+                    if not self._row_label_matches_metric(field, row_text, keywords):
+                        continue
+                    # 排除"扣除非经常性损益后的基本每股收益"误匹配
+                    if field == 'net_profit_deducted' and '每股' in row_text:
+                        continue
+                    # 排除"归属于母公司所有者的权益"误匹配净利润
+                    if field == 'net_profit' and '权益' in row_text:
+                        continue
+                    # 获取第一个大于阈值的数值（跳过注释编号等）
+                    if self.is_english_report and field in (
+                        'net_profit',
+                        'net_profit_attributable_to_parent',
+                        'operating_profit',
+                        'total_profit',
+                    ):
+                        value = self._get_row_value_by_index(row, year_end_index)
+                        if value is None:
+                            value = self._get_first_large_value(row[1:], min_value=1)
+                    else:
+                        value = self._get_row_value_by_index(row, year_end_index)
+                        if value is None:
+                            value = self._get_first_large_value(row[1:], min_value=min_value)
+                    if value is not None:
+                        # 如果当前值太小（可能是EPS等），用表格值覆盖
+                        if current_value is None or abs(current_value) < 10000:
                             if self.is_english_report and field in (
                                 'net_profit',
                                 'net_profit_attributable_to_parent',
-                                'operating_profit',
-                                'total_profit',
                             ):
-                                value = self._get_row_value_by_index(row, year_end_index)
-                                if value is None:
-                                    value = self._get_first_large_value(row[1:], min_value=1)
+                                if 'including noncontrolling' in row_text_lower:
+                                    income.net_profit = value
+                                elif 'noncontrolling' in row_text_lower:
+                                    continue
+                                elif 'attributable' in row_text_lower or 'holdings' in row_text_lower or 'inc.' in row_text_lower:
+                                    income.net_profit_attributable_to_parent = value
+                                else:
+                                    setattr(income, field, value)
                             else:
-                                value = self._get_row_value_by_index(row, year_end_index)
-                                if value is None:
-                                    value = self._get_first_large_value(row[1:], min_value=min_value)
-                            if value is not None:
-                                # 如果当前值太小（可能是EPS等），用表格值覆盖
-                                if current_value is None or abs(current_value) < 10000:
-                                    if self.is_english_report and field in (
-                                        'net_profit',
-                                        'net_profit_attributable_to_parent',
-                                    ):
-                                        if 'including noncontrolling' in row_text_lower:
-                                            income.net_profit = value
-                                        elif 'noncontrolling' in row_text_lower:
-                                            continue
-                                        elif 'attributable' in row_text_lower or 'holdings' in row_text_lower or 'inc.' in row_text_lower:
-                                            income.net_profit_attributable_to_parent = value
-                                        else:
-                                            setattr(income, field, value)
-                                    else:
-                                        setattr(income, field, value)
-                            break
+                                setattr(income, field, value)
 
     def _extract_from_tables_balance(self, balance: BalanceSheet):
         """从表格中提取资产负债表数据"""
@@ -1154,8 +2387,7 @@ class PDFContentExtractor:
 
         min_value = 1 if self.is_english_report else 10000
 
-        for table in self.tables:
-            year_end_index = self._get_table_year_end_index(table) if self.is_english_report else None
+        for table, year_end_index in self._iter_tables_for_statement("balance_sheet"):
 
             for row in table:
                 if not row or len(row) < 2:
@@ -1163,26 +2395,22 @@ class PDFContentExtractor:
 
                 # 清理换行符
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
-                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     current_value = getattr(balance, field)
-                    for keyword in keywords:
-                        keyword_lower = keyword.lower()
-                        # 精确匹配或前缀匹配（避免"购建固定资产"匹配"固定资产"）
-                        if row_text_lower.strip() == keyword_lower or row_text_lower.startswith(keyword_lower):
-                            # 排除净利润行误匹配权益
-                            if field == 'total_equity' and '净利润' in row_text:
-                                continue
-                            # 跳过注释编号列，获取真实数值
-                            value = self._get_row_value_by_index(row, year_end_index)
-                            if value is None:
-                                value = self._get_first_large_value(row[1:], min_value=min_value)
-                            if value is not None:
-                                # 如果当前值太小或为空，用表格值覆盖
-                                if current_value is None or abs(current_value) < min_value:
-                                    setattr(balance, field, value)
-                            break
+                    if not self._row_label_matches_metric(field, row_text, keywords):
+                        continue
+                    # 排除净利润行误匹配权益
+                    if field == 'total_equity' and '净利润' in row_text:
+                        continue
+                    # 跳过注释编号列，获取真实数值
+                    value = self._get_row_value_by_index(row, year_end_index)
+                    if value is None:
+                        value = self._get_first_large_value(row[1:], min_value=min_value)
+                    if value is not None:
+                        # 如果当前值太小或为空，用表格值覆盖
+                        if current_value is None or abs(current_value) < min_value:
+                            setattr(balance, field, value)
 
     def _extract_from_tables_cashflow(self, cash_flow: CashFlowStatement):
         """从表格中提取现金流量表数据"""
@@ -1200,29 +2428,26 @@ class PDFContentExtractor:
                 'capital_expenditure': ['购建固定资产、无形资产和其他长期资产支付的现金', '购建固定资产', '购置固定资产'],
             }
 
-        for table in self.tables:
-            year_end_index = self._get_table_year_end_index(table) if self.is_english_report else None
+        for table, year_end_index in self._iter_tables_for_statement("cash_flow_statement"):
             for row in table:
                 if not row or len(row) < 2:
                     continue
 
                 # 清理换行符
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
-                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     if getattr(cash_flow, field) is None:
-                        for keyword in keywords:
-                            if keyword.lower() in row_text_lower:
-                                value = self._get_row_value_by_index(row, year_end_index)
-                                if value is None:
-                                    for cell in row[1:]:
-                                        value = self._parse_number(str(cell).replace('\n', '') if cell else "")
-                                        if value is not None and abs(value) > 1:
-                                            break
+                        if not self._row_label_matches_metric(field, row_text, keywords):
+                            continue
+                        value = self._get_row_value_by_index(row, year_end_index)
+                        if value is None:
+                            for cell in row[1:]:
+                                value = self._parse_number(str(cell).replace('\n', '') if cell else "")
                                 if value is not None and abs(value) > 1:
-                                    setattr(cash_flow, field, value)
-                                break
+                                    break
+                        if value is not None and abs(value) > 1:
+                            setattr(cash_flow, field, value)
 
     def _extract_from_tables_metrics(self, metrics: FinancialMetrics):
         """从表格中提取财务指标"""
@@ -1248,71 +2473,79 @@ class PDFContentExtractor:
                 'total_shares': ['股份总数', '股本总额', '普通股股份总数', '总股本'],
             }
 
-        for table in self.tables:
-            year_end_index = self._get_table_year_end_index(table) if self.is_english_report else None
+        for table, year_end_index in self._iter_tables_for_statement("financial_metrics"):
             for row in table:
                 if not row or len(row) < 2:
                     continue
 
                 # 清理换行符
                 row_text = str(row[0]).replace('\n', '') if row[0] else ""
-                row_text_lower = row_text.lower()
 
                 for field, keywords in keywords_map.items():
                     if getattr(metrics, field) is None:
-                        for keyword in keywords:
-                            if keyword.lower() in row_text_lower:
-                                # 排除"扣除非经常性损益后"的每股收益
-                                if field == 'eps' and '扣除' in row_text:
-                                    continue
-                                value = self._get_row_value_by_index(row, year_end_index)
-                                if value is None:
-                                    for cell in row[1:]:
-                                        value = self._parse_number(str(cell).replace('\n', '') if cell else "")
-                                        if value is not None:
-                                            break
+                        if not self._row_label_matches_metric(field, row_text, keywords):
+                            continue
+                        # 排除"扣除非经常性损益后"的每股收益
+                        if field == 'eps' and '扣除' in row_text:
+                            continue
+                        value = self._get_row_value_by_index(row, year_end_index)
+                        if value is None:
+                            for cell in row[1:]:
+                                value = self._parse_number(str(cell).replace('\n', '') if cell else "")
                                 if value is not None:
-                                    setattr(metrics, field, value)
-                                break
+                                    break
+                        if value is not None:
+                            setattr(metrics, field, value)
 
     def _calculate_derived_metrics(self, balance: BalanceSheet, income: IncomeStatement,
                                    cash_flow: CashFlowStatement, metrics: FinancialMetrics):
         """计算衍生财务指标"""
+        def mark(statement: str, metric: str) -> None:
+            self._derived_fact_keys.add((statement, metric))
+
         # 计算营业成本 = 营业收入 - 毛利润（当直接提取的成本单位不一致时）
         if income.revenue and income.gross_profit:
             calculated_cost = income.revenue - income.gross_profit
             # 如果提取的成本与计算的成本差距过大（单位不一致），使用计算值
             if income.operating_cost is None or abs(income.operating_cost - calculated_cost) > calculated_cost * 0.1:
                 income.operating_cost = calculated_cost
+                mark("income_statement", "operating_cost")
 
         # 计算毛利润 = 营业收入 - 营业成本
         if income.gross_profit is None and income.revenue and income.operating_cost:
             income.gross_profit = income.revenue - income.operating_cost
+            mark("income_statement", "gross_profit")
 
         # 计算毛利率(%) = 毛利润 / 营业收入 * 100
         if income.gross_margin is None and income.gross_profit and income.revenue:
             income.gross_margin = round(income.gross_profit / income.revenue * 100, 2)
+            mark("income_statement", "gross_margin")
 
         # 计算净利率(%) = 净利润 / 营业收入 * 100
         if income.net_margin is None and income.net_profit and income.revenue:
             income.net_margin = round(income.net_profit / income.revenue * 100, 2)
+            mark("income_statement", "net_margin")
 
         # 计算资产负债率
         if balance.total_assets and balance.total_liabilities:
             metrics.debt_ratio = round(balance.total_liabilities / balance.total_assets * 100, 2)
+            mark("financial_metrics", "debt_ratio")
 
         # 计算流动比率 = 流动资产 / 流动负债
         if metrics.current_ratio is None and balance.current_assets and balance.current_liabilities:
             metrics.current_ratio = round(balance.current_assets / balance.current_liabilities, 2)
+            mark("financial_metrics", "current_ratio")
 
         # 计算速动比率 = (流动资产 - 存货) / 流动负债
         if metrics.quick_ratio is None and balance.current_assets and balance.current_liabilities:
             inventory = balance.inventory or 0
             metrics.quick_ratio = round((balance.current_assets - inventory) / balance.current_liabilities, 2)
+            mark("financial_metrics", "quick_ratio")
 
         # 计算ROA (需要年化处理，这里简化)
         if balance.total_assets and income.net_profit:
             metrics.roa = round(income.net_profit / balance.total_assets * 100, 2)
+            mark("financial_metrics", "roa")
 
         # 计算ROE (净资产收益率) = 净利润 / 净资产 * 100
         # 优先使用归母数据（更精准）：归属于母公司股东的净利润 / 归属于母公司股东的净资产
@@ -1320,15 +2553,19 @@ class PDFContentExtractor:
             # 最优：归母净利润 / 归母净资产
             if income.net_profit_attributable_to_parent and balance.equity_attributable_to_parent:
                 metrics.roe = round(income.net_profit_attributable_to_parent / balance.equity_attributable_to_parent * 100, 2)
+                mark("financial_metrics", "roe")
             # 次优：归母净利润 / 总净资产（如果只有归母净利润）
             elif income.net_profit_attributable_to_parent and balance.total_equity:
                 metrics.roe = round(income.net_profit_attributable_to_parent / balance.total_equity * 100, 2)
+                mark("financial_metrics", "roe")
             # 再次：净利润 / 归母净资产（如果只有归母净资产）
             elif income.net_profit and balance.equity_attributable_to_parent:
                 metrics.roe = round(income.net_profit / balance.equity_attributable_to_parent * 100, 2)
+                mark("financial_metrics", "roe")
             # 备选：净利润 / 总净资产
             elif income.net_profit and balance.total_equity:
                 metrics.roe = round(income.net_profit / balance.total_equity * 100, 2)
+                mark("financial_metrics", "roe")
             # 最后：如果没有净资产，尝试用总资产-总负债计算净资产
             elif income.net_profit and balance.total_assets and balance.total_liabilities:
                 calculated_equity = balance.total_assets - balance.total_liabilities
@@ -1336,22 +2573,27 @@ class PDFContentExtractor:
                     # 优先使用归母净利润
                     net_profit_for_roe = income.net_profit_attributable_to_parent or income.net_profit
                     metrics.roe = round(net_profit_for_roe / calculated_equity * 100, 2)
+                    mark("financial_metrics", "roe")
 
         # 计算自由现金流 = 经营现金流 - 资本支出
         if cash_flow.operating_cash_flow is not None and cash_flow.capital_expenditure is not None:
             cash_flow.free_cash_flow = cash_flow.operating_cash_flow - cash_flow.capital_expenditure
+            mark("cash_flow_statement", "free_cash_flow")
 
         # 计算每股净资产 = 归属于母公司股东权益 / 总股本
         if metrics.bps is None and balance.total_equity and metrics.total_shares:
             metrics.bps = round(balance.total_equity / metrics.total_shares, 2)
+            mark("financial_metrics", "bps")
 
         # 如果有每股收益和净利润，可以反推总股本
         if metrics.total_shares is None and metrics.eps and income.net_profit:
             metrics.total_shares = income.net_profit / metrics.eps
+            mark("financial_metrics", "total_shares")
 
         # 用反推的总股本计算每股净资产
         if metrics.bps is None and balance.total_equity and metrics.total_shares:
             metrics.bps = round(balance.total_equity / metrics.total_shares, 2)
+            mark("financial_metrics", "bps")
 
     def _count_extracted_fields(self, *dataclasses) -> int:
         """统计成功提取的字段数量"""

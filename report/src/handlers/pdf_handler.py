@@ -557,7 +557,9 @@ class PDFHandler:
 
     async def extract_pdf_content(self, pdf_path: str = None,
                                   pdf_id: int = None,
-                                  force_refresh: bool = False) -> Dict[str, Any]:
+                                  force_refresh: bool = False,
+                                  schema_version: str = "v2",
+                                  min_confidence: Optional[float] = None) -> Dict[str, Any]:
         """
         提取PDF财报内容（支持缓存）
 
@@ -589,11 +591,14 @@ class PDFHandler:
 
             # 检查缓存（除非强制刷新）
             if not force_refresh:
-                cached_result = await self.pdf_manager.get_cached_extraction(file_hash)
+                cached_result = await self.pdf_manager.get_cached_extraction(
+                    file_hash,
+                    schema_version=schema_version,
+                )
                 if cached_result:
                     logger.info(f"缓存命中: {file_path.name}")
                     cached_result['file_path'] = str(file_path)
-                    return cached_result
+                    return self._apply_min_confidence_filter(cached_result, min_confidence)
 
             # 缓存未命中，执行提取
             logger.info(f"缓存未命中，开始提取: {file_path.name}")
@@ -608,25 +613,79 @@ class PDFHandler:
                 await self.pdf_manager.save_extraction_cache(
                     file_hash=file_hash,
                     result=result,
-                    extraction_duration_ms=extraction_duration_ms
+                    extraction_duration_ms=extraction_duration_ms,
+                    schema_version=result.get("schema_version", schema_version),
                 )
 
                 # 添加缓存信息
                 result['_cache_info'] = {
                     'from_cache': False,
+                    'schema_version': result.get("schema_version", schema_version),
                     'extracted_at': datetime.now().isoformat(),
                     'extraction_duration_ms': extraction_duration_ms,
                     'file_hash': file_hash
                 }
                 result['file_path'] = str(file_path)
 
-                return result
+                return self._apply_min_confidence_filter(result, min_confidence)
             else:
                 return result
 
         except Exception as e:
             logger.error(f"提取PDF内容失败: {e}")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _apply_min_confidence_filter(
+        result: Dict[str, Any], min_confidence: Optional[float]
+    ) -> Dict[str, Any]:
+        if min_confidence is None:
+            return result
+        if not result.get("success"):
+            return result
+        if result.get("schema_version") != "v2":
+            return result
+
+        facts = result.get("facts")
+        if not isinstance(facts, list):
+            return result
+
+        kept_facts = []
+        removed_fact_refs = []
+        for fact in facts:
+            confidence = fact.get("confidence")
+            if isinstance(confidence, (int, float)) and confidence >= min_confidence:
+                kept_facts.append(fact)
+            else:
+                removed_fact_refs.append(
+                    f"{fact.get('statement')}.{fact.get('metric')}@{fact.get('period_id')}"
+                )
+
+        if len(kept_facts) == len(facts):
+            return result
+
+        result["facts"] = kept_facts
+        quality = result.get("quality")
+        if not isinstance(quality, dict):
+            quality = {"status": "partial", "issues": []}
+            result["quality"] = quality
+        issues = quality.get("issues")
+        if not isinstance(issues, list):
+            issues = []
+            quality["issues"] = issues
+
+        issues.append(
+            {
+                "type": "confidence_filtered",
+                "severity": "warning",
+                "message": f"已按 min_confidence={min_confidence} 过滤低置信度事实。",
+                "affected_facts": removed_fact_refs,
+            }
+        )
+        if quality.get("status") == "ok":
+            quality["status"] = "partial"
+
+        return result
 
     async def extract_tables(self, pdf_path: str = None,
                             pdf_id: int = None) -> Dict[str, Any]:
@@ -764,7 +823,8 @@ class PDFHandler:
             uncached_pdfs = await self.pdf_manager.get_uncached_pdfs(
                 stock_code=stock_code,
                 market=market,
-                limit=limit
+                limit=limit,
+                schema_version="v2",
             )
 
             if not uncached_pdfs:

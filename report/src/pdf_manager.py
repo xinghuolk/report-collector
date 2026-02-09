@@ -10,7 +10,18 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, DateTime, Text, Boolean, Float, select, and_, or_
+from sqlalchemy import (
+    String,
+    Integer,
+    DateTime,
+    Text,
+    Boolean,
+    Float,
+    select,
+    and_,
+    or_,
+    UniqueConstraint,
+)
 from loguru import logger
 
 from .config import Config
@@ -39,6 +50,36 @@ class ExtractedFinancialData(Base):
     cash_flow_statement: Mapped[Optional[str]] = mapped_column(Text)
     financial_metrics: Mapped[Optional[str]] = mapped_column(Text)
     related_party_transactions: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    extraction_summary: Mapped[Optional[str]] = mapped_column(Text)
+
+    # 缓存管理
+    extracted_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.now)
+    extractor_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    extraction_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    fields_extracted: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ExtractedFinancialDataV2(Base):
+    """财务数据提取缓存模型（V2结构）"""
+    __tablename__ = "extracted_financial_data_v2"
+    __table_args__ = (
+        UniqueConstraint("file_hash", "schema_version", name="uq_extracted_financial_data_v2_hash_schema"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    file_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v2")
+
+    # V2 主结构
+    document_json: Mapped[Optional[str]] = mapped_column(Text)
+    periods_json: Mapped[Optional[str]] = mapped_column(Text)
+    facts_json: Mapped[Optional[str]] = mapped_column(Text)
+    evidence_json: Mapped[Optional[str]] = mapped_column(Text)
+    quality_json: Mapped[Optional[str]] = mapped_column(Text)
+
+    # 兼容层字段（V1 payload）
+    compat_payload_json: Mapped[Optional[str]] = mapped_column(Text)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text)
     extraction_summary: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -345,7 +386,9 @@ class PDFManager:
 
     # ==================== 财务数据提取缓存管理 ====================
 
-    async def get_cached_extraction(self, file_hash: str) -> Optional[Dict[str, Any]]:
+    async def get_cached_extraction(
+        self, file_hash: str, schema_version: str = "v1"
+    ) -> Optional[Dict[str, Any]]:
         """
         根据文件哈希获取缓存的提取结果
 
@@ -353,44 +396,96 @@ class PDFManager:
             缓存的提取结果字典，如果不存在或版本不匹配则返回 None
         """
         try:
+            import json
+
             async with self.async_session() as session:
+                if schema_version == "v2":
+                    result = await session.execute(
+                        select(ExtractedFinancialDataV2).where(
+                            and_(
+                                ExtractedFinancialDataV2.file_hash == file_hash,
+                                ExtractedFinancialDataV2.schema_version == "v2",
+                                ExtractedFinancialDataV2.extractor_version == EXTRACTOR_VERSION,
+                            )
+                        )
+                    )
+                    cache_v2 = result.scalar_one_or_none()
+                    if not cache_v2:
+                        return None
+
+                    payload = json.loads(cache_v2.compat_payload_json) if cache_v2.compat_payload_json else {}
+                    response = {
+                        "success": True,
+                        "schema_version": "v2",
+                        "compat_mode": payload.get("compat_mode", True),
+                        "document": json.loads(cache_v2.document_json) if cache_v2.document_json else {},
+                        "periods": json.loads(cache_v2.periods_json) if cache_v2.periods_json else [],
+                        "facts": json.loads(cache_v2.facts_json) if cache_v2.facts_json else [],
+                        "evidence": json.loads(cache_v2.evidence_json) if cache_v2.evidence_json else [],
+                        "quality": json.loads(cache_v2.quality_json) if cache_v2.quality_json else {
+                            "status": "partial",
+                            "issues": [],
+                        },
+                        "income_statement": payload.get("income_statement", {}),
+                        "balance_sheet": payload.get("balance_sheet", {}),
+                        "cash_flow_statement": payload.get("cash_flow_statement", {}),
+                        "financial_metrics": payload.get("financial_metrics", {}),
+                        "related_party_transactions": payload.get("related_party_transactions", []),
+                        "metadata": json.loads(cache_v2.metadata_json) if cache_v2.metadata_json else {},
+                        "extraction_summary": json.loads(cache_v2.extraction_summary) if cache_v2.extraction_summary else {},
+                        "_cache_info": {
+                            "from_cache": True,
+                            "schema_version": "v2",
+                            "extracted_at": cache_v2.extracted_at.isoformat(),
+                            "extraction_duration_ms": cache_v2.extraction_duration_ms,
+                            "extractor_version": cache_v2.extractor_version,
+                            "fields_extracted": cache_v2.fields_extracted,
+                        },
+                    }
+                    return response
+
                 result = await session.execute(
                     select(ExtractedFinancialData).where(
                         and_(
                             ExtractedFinancialData.file_hash == file_hash,
-                            ExtractedFinancialData.extractor_version == EXTRACTOR_VERSION
+                            ExtractedFinancialData.extractor_version == EXTRACTOR_VERSION,
                         )
                     )
                 )
                 cache = result.scalar_one_or_none()
+                if not cache:
+                    return None
 
-                if cache:
-                    import json
-                    return {
-                        'success': True,
-                        'income_statement': json.loads(cache.income_statement) if cache.income_statement else {},
-                        'balance_sheet': json.loads(cache.balance_sheet) if cache.balance_sheet else {},
-                        'cash_flow_statement': json.loads(cache.cash_flow_statement) if cache.cash_flow_statement else {},
-                        'financial_metrics': json.loads(cache.financial_metrics) if cache.financial_metrics else {},
-                        'related_party_transactions': json.loads(cache.related_party_transactions) if cache.related_party_transactions else [],
-                        'metadata': json.loads(cache.metadata_json) if cache.metadata_json else {},
-                        'extraction_summary': json.loads(cache.extraction_summary) if cache.extraction_summary else {},
-                        '_cache_info': {
-                            'from_cache': True,
-                            'extracted_at': cache.extracted_at.isoformat(),
-                            'extraction_duration_ms': cache.extraction_duration_ms,
-                            'extractor_version': cache.extractor_version,
-                            'fields_extracted': cache.fields_extracted
-                        }
-                    }
-                return None
+                return {
+                    "success": True,
+                    "income_statement": json.loads(cache.income_statement) if cache.income_statement else {},
+                    "balance_sheet": json.loads(cache.balance_sheet) if cache.balance_sheet else {},
+                    "cash_flow_statement": json.loads(cache.cash_flow_statement) if cache.cash_flow_statement else {},
+                    "financial_metrics": json.loads(cache.financial_metrics) if cache.financial_metrics else {},
+                    "related_party_transactions": json.loads(cache.related_party_transactions) if cache.related_party_transactions else [],
+                    "metadata": json.loads(cache.metadata_json) if cache.metadata_json else {},
+                    "extraction_summary": json.loads(cache.extraction_summary) if cache.extraction_summary else {},
+                    "_cache_info": {
+                        "from_cache": True,
+                        "schema_version": "v1",
+                        "extracted_at": cache.extracted_at.isoformat(),
+                        "extraction_duration_ms": cache.extraction_duration_ms,
+                        "extractor_version": cache.extractor_version,
+                        "fields_extracted": cache.fields_extracted,
+                    },
+                }
 
         except Exception as e:
             logger.error(f"获取缓存失败: {e}")
             return None
 
-    async def save_extraction_cache(self, file_hash: str, result: Dict[str, Any],
-                                   extraction_duration_ms: int = 0) -> bool:
+    async def save_extraction_cache(
+        self,
+        file_hash: str,
+        result: Dict[str, Any],
+        extraction_duration_ms: int = 0,
+        schema_version: Optional[str] = None,
+    ) -> bool:
         """
         保存提取结果到缓存
 
@@ -405,65 +500,131 @@ class PDFManager:
         try:
             import json
 
+            target_schema = schema_version or result.get("schema_version", "v1")
+
             # 计算提取的字段数
             fields_count = 0
-            for key in ['income_statement', 'balance_sheet', 'cash_flow_statement',
-                       'financial_metrics', 'related_party_transactions']:
+            for key in [
+                "income_statement",
+                "balance_sheet",
+                "cash_flow_statement",
+                "financial_metrics",
+                "related_party_transactions",
+            ]:
                 data = result.get(key, {})
                 if isinstance(data, dict):
                     fields_count += sum(1 for v in data.values() if v is not None)
                 elif isinstance(data, list):
                     fields_count += len(data)
+            if target_schema == "v2":
+                fields_count += len(result.get("facts", []))
 
             async with self.async_session() as session:
-                # 检查是否已存在
-                existing = await session.execute(
-                    select(ExtractedFinancialData).where(
-                        ExtractedFinancialData.file_hash == file_hash
+                if target_schema == "v2":
+                    existing = await session.execute(
+                        select(ExtractedFinancialDataV2).where(
+                            and_(
+                                ExtractedFinancialDataV2.file_hash == file_hash,
+                                ExtractedFinancialDataV2.schema_version == "v2",
+                            )
+                        )
                     )
-                )
-                cache = existing.scalar_one_or_none()
-
-                if cache:
-                    # 更新现有记录
-                    cache.income_statement = json.dumps(result.get('income_statement', {}), ensure_ascii=False)
-                    cache.balance_sheet = json.dumps(result.get('balance_sheet', {}), ensure_ascii=False)
-                    cache.cash_flow_statement = json.dumps(result.get('cash_flow_statement', {}), ensure_ascii=False)
-                    cache.financial_metrics = json.dumps(result.get('financial_metrics', {}), ensure_ascii=False)
-                    cache.related_party_transactions = json.dumps(result.get('related_party_transactions', []), ensure_ascii=False)
-                    cache.metadata_json = json.dumps(result.get('metadata', {}), ensure_ascii=False)
-                    cache.extraction_summary = json.dumps(result.get('extraction_summary', {}), ensure_ascii=False)
-                    cache.extracted_at = datetime.now()
-                    cache.extractor_version = EXTRACTOR_VERSION
-                    cache.extraction_duration_ms = extraction_duration_ms
-                    cache.fields_extracted = fields_count
+                    cache_v2 = existing.scalar_one_or_none()
+                    compat_payload = {
+                        "compat_mode": result.get("compat_mode", True),
+                        "income_statement": result.get("income_statement", {}),
+                        "balance_sheet": result.get("balance_sheet", {}),
+                        "cash_flow_statement": result.get("cash_flow_statement", {}),
+                        "financial_metrics": result.get("financial_metrics", {}),
+                        "related_party_transactions": result.get("related_party_transactions", []),
+                    }
+                    if cache_v2:
+                        cache_v2.document_json = json.dumps(result.get("document", {}), ensure_ascii=False)
+                        cache_v2.periods_json = json.dumps(result.get("periods", []), ensure_ascii=False)
+                        cache_v2.facts_json = json.dumps(result.get("facts", []), ensure_ascii=False)
+                        cache_v2.evidence_json = json.dumps(result.get("evidence", []), ensure_ascii=False)
+                        cache_v2.quality_json = json.dumps(
+                            result.get("quality", {"status": "partial", "issues": []}),
+                            ensure_ascii=False,
+                        )
+                        cache_v2.compat_payload_json = json.dumps(compat_payload, ensure_ascii=False)
+                        cache_v2.metadata_json = json.dumps(result.get("metadata", {}), ensure_ascii=False)
+                        cache_v2.extraction_summary = json.dumps(result.get("extraction_summary", {}), ensure_ascii=False)
+                        cache_v2.extracted_at = datetime.now()
+                        cache_v2.extractor_version = EXTRACTOR_VERSION
+                        cache_v2.extraction_duration_ms = extraction_duration_ms
+                        cache_v2.fields_extracted = fields_count
+                    else:
+                        cache_v2 = ExtractedFinancialDataV2(
+                            file_hash=file_hash,
+                            schema_version="v2",
+                            document_json=json.dumps(result.get("document", {}), ensure_ascii=False),
+                            periods_json=json.dumps(result.get("periods", []), ensure_ascii=False),
+                            facts_json=json.dumps(result.get("facts", []), ensure_ascii=False),
+                            evidence_json=json.dumps(result.get("evidence", []), ensure_ascii=False),
+                            quality_json=json.dumps(
+                                result.get("quality", {"status": "partial", "issues": []}),
+                                ensure_ascii=False,
+                            ),
+                            compat_payload_json=json.dumps(compat_payload, ensure_ascii=False),
+                            metadata_json=json.dumps(result.get("metadata", {}), ensure_ascii=False),
+                            extraction_summary=json.dumps(result.get("extraction_summary", {}), ensure_ascii=False),
+                            extracted_at=datetime.now(),
+                            extractor_version=EXTRACTOR_VERSION,
+                            extraction_duration_ms=extraction_duration_ms,
+                            fields_extracted=fields_count,
+                        )
+                        session.add(cache_v2)
                 else:
-                    # 创建新记录
-                    cache = ExtractedFinancialData(
-                        file_hash=file_hash,
-                        income_statement=json.dumps(result.get('income_statement', {}), ensure_ascii=False),
-                        balance_sheet=json.dumps(result.get('balance_sheet', {}), ensure_ascii=False),
-                        cash_flow_statement=json.dumps(result.get('cash_flow_statement', {}), ensure_ascii=False),
-                        financial_metrics=json.dumps(result.get('financial_metrics', {}), ensure_ascii=False),
-                        related_party_transactions=json.dumps(result.get('related_party_transactions', []), ensure_ascii=False),
-                        metadata_json=json.dumps(result.get('metadata', {}), ensure_ascii=False),
-                        extraction_summary=json.dumps(result.get('extraction_summary', {}), ensure_ascii=False),
-                        extracted_at=datetime.now(),
-                        extractor_version=EXTRACTOR_VERSION,
-                        extraction_duration_ms=extraction_duration_ms,
-                        fields_extracted=fields_count
+                    existing = await session.execute(
+                        select(ExtractedFinancialData).where(
+                            ExtractedFinancialData.file_hash == file_hash
+                        )
                     )
-                    session.add(cache)
+                    cache = existing.scalar_one_or_none()
+                    if cache:
+                        cache.income_statement = json.dumps(result.get("income_statement", {}), ensure_ascii=False)
+                        cache.balance_sheet = json.dumps(result.get("balance_sheet", {}), ensure_ascii=False)
+                        cache.cash_flow_statement = json.dumps(result.get("cash_flow_statement", {}), ensure_ascii=False)
+                        cache.financial_metrics = json.dumps(result.get("financial_metrics", {}), ensure_ascii=False)
+                        cache.related_party_transactions = json.dumps(result.get("related_party_transactions", []), ensure_ascii=False)
+                        cache.metadata_json = json.dumps(result.get("metadata", {}), ensure_ascii=False)
+                        cache.extraction_summary = json.dumps(result.get("extraction_summary", {}), ensure_ascii=False)
+                        cache.extracted_at = datetime.now()
+                        cache.extractor_version = EXTRACTOR_VERSION
+                        cache.extraction_duration_ms = extraction_duration_ms
+                        cache.fields_extracted = fields_count
+                    else:
+                        cache = ExtractedFinancialData(
+                            file_hash=file_hash,
+                            income_statement=json.dumps(result.get("income_statement", {}), ensure_ascii=False),
+                            balance_sheet=json.dumps(result.get("balance_sheet", {}), ensure_ascii=False),
+                            cash_flow_statement=json.dumps(result.get("cash_flow_statement", {}), ensure_ascii=False),
+                            financial_metrics=json.dumps(result.get("financial_metrics", {}), ensure_ascii=False),
+                            related_party_transactions=json.dumps(result.get("related_party_transactions", []), ensure_ascii=False),
+                            metadata_json=json.dumps(result.get("metadata", {}), ensure_ascii=False),
+                            extraction_summary=json.dumps(result.get("extraction_summary", {}), ensure_ascii=False),
+                            extracted_at=datetime.now(),
+                            extractor_version=EXTRACTOR_VERSION,
+                            extraction_duration_ms=extraction_duration_ms,
+                            fields_extracted=fields_count,
+                        )
+                        session.add(cache)
 
                 await session.commit()
-                logger.info(f"缓存保存成功: {file_hash[:16]}... ({fields_count} 字段, {extraction_duration_ms}ms)")
+                logger.info(
+                    f"缓存保存成功: {file_hash[:16]}... ({fields_count} 字段, "
+                    f"{extraction_duration_ms}ms, schema={target_schema})"
+                )
                 return True
 
         except Exception as e:
             logger.error(f"保存缓存失败: {e}")
             return False
 
-    async def invalidate_cache(self, file_hash: str) -> bool:
+    async def invalidate_cache(
+        self, file_hash: str, schema_version: Optional[str] = None
+    ) -> bool:
         """
         使缓存失效
 
@@ -475,19 +636,36 @@ class PDFManager:
         """
         try:
             async with self.async_session() as session:
-                result = await session.execute(
-                    select(ExtractedFinancialData).where(
-                        ExtractedFinancialData.file_hash == file_hash
+                deleted = False
+                if schema_version in (None, "v1"):
+                    result = await session.execute(
+                        select(ExtractedFinancialData).where(
+                            ExtractedFinancialData.file_hash == file_hash
+                        )
                     )
-                )
-                cache = result.scalar_one_or_none()
+                    cache = result.scalar_one_or_none()
+                    if cache:
+                        await session.delete(cache)
+                        deleted = True
 
-                if cache:
-                    await session.delete(cache)
+                if schema_version in (None, "v2"):
+                    result_v2 = await session.execute(
+                        select(ExtractedFinancialDataV2).where(
+                            and_(
+                                ExtractedFinancialDataV2.file_hash == file_hash,
+                                ExtractedFinancialDataV2.schema_version == "v2",
+                            )
+                        )
+                    )
+                    cache_v2 = result_v2.scalar_one_or_none()
+                    if cache_v2:
+                        await session.delete(cache_v2)
+                        deleted = True
+
+                if deleted:
                     await session.commit()
-                    logger.info(f"缓存已失效: {file_hash[:16]}...")
-                    return True
-                return False
+                    logger.info(f"缓存已失效: {file_hash[:16]}..., schema={schema_version or 'all'}")
+                return deleted
 
         except Exception as e:
             logger.error(f"使缓存失效失败: {e}")
@@ -509,38 +687,47 @@ class PDFManager:
 
         try:
             async with self.async_session() as session:
-                # 1. 删除旧版本缓存
-                old_version_result = await session.execute(
+                # 1. 删除旧版本/过期缓存（V1）
+                old_v1_result = await session.execute(
                     select(ExtractedFinancialData).where(
-                        ExtractedFinancialData.extractor_version != EXTRACTOR_VERSION
+                        or_(
+                            ExtractedFinancialData.extractor_version != EXTRACTOR_VERSION,
+                            ExtractedFinancialData.extracted_at < cutoff_time,
+                        )
                     )
                 )
-                old_version_caches = old_version_result.scalars().all()
-                for cache in old_version_caches:
+                for cache in old_v1_result.scalars().all():
                     await session.delete(cache)
                     deleted_count += 1
 
-                # 2. 删除超时缓存
-                old_result = await session.execute(
-                    select(ExtractedFinancialData).where(
-                        ExtractedFinancialData.extracted_at < cutoff_time
+                # 2. 删除旧版本/过期缓存（V2）
+                old_v2_result = await session.execute(
+                    select(ExtractedFinancialDataV2).where(
+                        or_(
+                            ExtractedFinancialDataV2.extractor_version != EXTRACTOR_VERSION,
+                            ExtractedFinancialDataV2.extracted_at < cutoff_time,
+                        )
                     )
                 )
-                old_caches = old_result.scalars().all()
-                for cache in old_caches:
+                for cache in old_v2_result.scalars().all():
                     await session.delete(cache)
                     deleted_count += 1
-
-                # 3. 删除孤立缓存（对应PDF已删除）
-                all_caches_result = await session.execute(select(ExtractedFinancialData))
-                all_caches = all_caches_result.scalars().all()
 
                 all_pdf_hashes_result = await session.execute(
                     select(ReportPDF.file_hash).where(ReportPDF.is_available == True)
                 )
                 valid_hashes = set(h for h in all_pdf_hashes_result.scalars().all() if h)
 
-                for cache in all_caches:
+                # 3. 删除孤立缓存（V1）
+                all_v1_caches_result = await session.execute(select(ExtractedFinancialData))
+                for cache in all_v1_caches_result.scalars().all():
+                    if cache.file_hash not in valid_hashes:
+                        await session.delete(cache)
+                        orphaned_count += 1
+
+                # 4. 删除孤立缓存（V2）
+                all_v2_caches_result = await session.execute(select(ExtractedFinancialDataV2))
+                for cache in all_v2_caches_result.scalars().all():
                     if cache.file_hash not in valid_hashes:
                         await session.delete(cache)
                         orphaned_count += 1
@@ -563,9 +750,12 @@ class PDFManager:
         """
         try:
             async with self.async_session() as session:
-                # 总缓存数
-                total_result = await session.execute(select(ExtractedFinancialData))
-                all_caches = total_result.scalars().all()
+                # 总缓存数（V1 + V2）
+                total_v1_result = await session.execute(select(ExtractedFinancialData))
+                all_v1 = total_v1_result.scalars().all()
+                total_v2_result = await session.execute(select(ExtractedFinancialDataV2))
+                all_v2 = total_v2_result.scalars().all()
+                all_caches = list(all_v1) + list(all_v2)
 
                 if not all_caches:
                     return {
@@ -589,11 +779,30 @@ class PDFManager:
                 newest = None
 
                 for cache in all_caches:
-                    # 大小统计（估算JSON大小）
-                    for field in [cache.income_statement, cache.balance_sheet,
-                                 cache.cash_flow_statement, cache.financial_metrics,
-                                 cache.related_party_transactions, cache.metadata_json,
-                                 cache.extraction_summary]:
+                    # 大小统计（估算JSON大小，兼容 V1/V2）
+                    fields = []
+                    if isinstance(cache, ExtractedFinancialData):
+                        fields = [
+                            cache.income_statement,
+                            cache.balance_sheet,
+                            cache.cash_flow_statement,
+                            cache.financial_metrics,
+                            cache.related_party_transactions,
+                            cache.metadata_json,
+                            cache.extraction_summary,
+                        ]
+                    else:
+                        fields = [
+                            cache.document_json,
+                            cache.periods_json,
+                            cache.facts_json,
+                            cache.evidence_json,
+                            cache.quality_json,
+                            cache.compat_payload_json,
+                            cache.metadata_json,
+                            cache.extraction_summary,
+                        ]
+                    for field in fields:
                         if field:
                             total_size += len(field.encode('utf-8'))
 
@@ -630,9 +839,13 @@ class PDFManager:
             logger.error(f"获取缓存统计失败: {e}")
             return {'error': str(e)}
 
-    async def get_uncached_pdfs(self, stock_code: Optional[str] = None,
-                                market: Optional[str] = None,
-                                limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_uncached_pdfs(
+        self,
+        stock_code: Optional[str] = None,
+        market: Optional[str] = None,
+        limit: int = 100,
+        schema_version: str = "v2",
+    ) -> List[Dict[str, Any]]:
         """
         获取未缓存的PDF列表（用于缓存预热）
 
@@ -647,11 +860,21 @@ class PDFManager:
         try:
             async with self.async_session() as session:
                 # 获取所有已缓存的哈希
-                cached_result = await session.execute(
-                    select(ExtractedFinancialData.file_hash).where(
-                        ExtractedFinancialData.extractor_version == EXTRACTOR_VERSION
+                if schema_version == "v2":
+                    cached_result = await session.execute(
+                        select(ExtractedFinancialDataV2.file_hash).where(
+                            and_(
+                                ExtractedFinancialDataV2.extractor_version == EXTRACTOR_VERSION,
+                                ExtractedFinancialDataV2.schema_version == "v2",
+                            )
+                        )
                     )
-                )
+                else:
+                    cached_result = await session.execute(
+                        select(ExtractedFinancialData.file_hash).where(
+                            ExtractedFinancialData.extractor_version == EXTRACTOR_VERSION
+                        )
+                    )
                 cached_hashes = set(cached_result.scalars().all())
 
                 # 查询未缓存的PDF

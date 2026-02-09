@@ -112,6 +112,41 @@ class TestReportTypeMatching:
         assert downloader._match_report_type("公司公告", "annual") is False
         assert downloader._match_report_type("Something else", "annual") is False
 
+    def test_quarterly_notice_to_investors_excluded(self, downloader):
+        """测试“业绩发布日期通知”不应匹配为季报正文"""
+        title = "Notice to Investors - Third Quarter 2025 Financial Results Announcement Date"
+        assert downloader._match_report_type(title, "quarterly") is False
+
+    def test_quarterly_board_meeting_date_excluded(self, downloader):
+        """测试“董事会日期公告”不应匹配为季报正文"""
+        title = "Announcements and Notices - [Date of Board Meeting]"
+        assert downloader._match_report_type(title, "quarterly") is False
+
+    def test_quarterly_q1_results_announcement_match(self, downloader):
+        """测试Q1结果公告应匹配为季报"""
+        title = "Announcements and Notices - [Quarterly Results] | Announcement of the 2025 Q1 Financial Results"
+        assert downloader._match_report_type(title, "quarterly") is True
+
+    def test_quarterly_three_months_match(self, downloader):
+        """测试Three Months表达应匹配季报"""
+        title = "Results Announcement for the Three Months Ended March 31, 2025"
+        assert downloader._match_report_type(title, "quarterly") is True
+
+    def test_quarterly_interim_results_excluded(self, downloader):
+        """测试中期业绩不应匹配为季报"""
+        title = "Interim Results Announcement for the Six Months Ended June 30, 2025"
+        assert downloader._match_report_type(title, "quarterly") is False
+
+    def test_quarterly_final_results_excluded(self, downloader):
+        """测试全年业绩（无Q4信号）不应匹配为季报"""
+        title = "Annual Results Announcement for the Year Ended December 31, 2024"
+        assert downloader._match_report_type(title, "quarterly") is False
+
+    def test_quarterly_overseas_regulatory_excluded(self, downloader):
+        """测试海外监管公告不应匹配为季报"""
+        title = "Overseas Regulatory Announcement - Form 8-K - 2025 Q2 Financial Results"
+        assert downloader._match_report_type(title, "quarterly") is False
+
 
 class TestLanguageDetection:
     """语言检测测试"""
@@ -350,6 +385,31 @@ class TestParseSearchHtml:
         assert results[0]["stock_code"] == "00700"
         assert "Annual Report 2023" in results[0]["title"]
         assert results[0]["pdf_url"].endswith(".pdf")
+
+    def test_parse_html_prefers_link_title_for_quarter_label(self, downloader):
+        """测试保留链接标题，避免丢失Q3/Q4等期间关键词"""
+        html = """
+        <html>
+        <body>
+        <table class="table">
+            <tr>
+                <td>2026-02-04</td>
+                <td>
+                    <div class="headline">Announcements and Notices - [Quarterly Results / Dividend or Distribution]</div>
+                    <a href="/listedco/listconews/sehk/2026/0204/2026020401950.pdf">Announcement of the 2025 Q4 and Full Year Financial Results</a>
+                </td>
+                <td>10MB</td>
+            </tr>
+        </table>
+        </body>
+        </html>
+        """
+        results = downloader._parse_search_html(html, "09987", "quarterly")
+
+        assert len(results) == 1
+        title = results[0]["title"]
+        assert "Announcement of the 2025 Q4 and Full Year Financial Results" in title
+        assert "Quarterly Results" in title
 
 
 class TestSearchReports:

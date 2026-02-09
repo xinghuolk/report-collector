@@ -245,6 +245,318 @@ class TestMetadataExtraction:
 
         assert metadata.report_type == "annual"
 
+    def test_extract_q4_full_year_results_as_quarterly(self):
+        """测试 Q4+全年业绩公告优先识别为季度结果公告"""
+        self.extractor.full_text = (
+            "ANNOUNCEMENT OF THE 2025 Q4 AND FULL YEAR FINANCIAL RESULTS "
+            "unaudited results for the fourth quarter and full year ended December 31, 2025"
+        )
+        self.extractor.is_english_report = True
+        self.extractor.current_pdf_path = Path("/test/2026_quarterly_en.pdf")
+
+        with patch.object(self.extractor, 'current_pdf_path') as mock_path:
+            mock_path.stat.return_value.st_size = 1024
+            mock_path.name = "2026_quarterly_en.pdf"
+
+            with patch('src.pdf_parser.content_extractor.PdfReader') as mock_reader:
+                mock_reader.return_value.metadata = None
+                mock_reader.return_value.pages = [1]
+
+                metadata = self.extractor._extract_metadata()
+                periods = self.extractor._build_periods(metadata)
+
+        period_ids = {period["period_id"] for period in periods}
+        assert metadata.report_type == "quarterly"
+        assert metadata.doc_type == "results_announcement"
+        assert metadata.period_type == "full_year_in_quarterly_announcement"
+        assert metadata.fiscal_year == 2025
+        assert metadata.is_audited is False
+        assert metadata.primary_period_id == "2025FY"
+        assert "2025FY" in period_ids
+        assert "2025Q4_SINGLE" in period_ids
+        assert "2024FY" in period_ids
+
+    def test_build_periods_for_q3_results(self):
+        """测试Q3公告构建Q3累计与单季期间"""
+        self.extractor.full_text = (
+            "ANNOUNCEMENT OF THE 2025 Q3 FINANCIAL RESULTS "
+            "results for the third quarter ended September 30, 2025 "
+            "and nine months ended September 30, 2025"
+        )
+        self.extractor.is_english_report = True
+        self.extractor.current_pdf_path = Path("/test/2025_quarterly_en.pdf")
+
+        with patch.object(self.extractor, 'current_pdf_path') as mock_path:
+            mock_path.stat.return_value.st_size = 1024
+            mock_path.name = "2025_quarterly_en.pdf"
+
+            with patch('src.pdf_parser.content_extractor.PdfReader') as mock_reader:
+                mock_reader.return_value.metadata = None
+                mock_reader.return_value.pages = [1]
+
+                metadata = self.extractor._extract_metadata()
+                periods = self.extractor._build_periods(metadata)
+
+        period_ids = {period["period_id"] for period in periods}
+        assert metadata.report_type == "quarterly"
+        assert metadata.fiscal_year == 2025
+        assert metadata.primary_period_id == "2025Q3_YTD"
+        assert "2025Q3_YTD" in period_ids
+        assert "2025Q3_SINGLE" in period_ids
+
+    def test_build_periods_adds_point_in_time_for_balance_sheet(self):
+        """测试期间包含资产负债表时点语义"""
+        self.extractor.full_text = (
+            "ANNOUNCEMENT OF THE 2025 Q4 AND FULL YEAR FINANCIAL RESULTS "
+            "year ended December 31, 2025"
+        )
+        self.extractor.is_english_report = True
+        self.extractor.current_pdf_path = Path("/test/2026_quarterly_en.pdf")
+
+        with patch.object(self.extractor, "current_pdf_path") as mock_path:
+            mock_path.stat.return_value.st_size = 1024
+            mock_path.name = "2026_quarterly_en.pdf"
+
+            with patch("src.pdf_parser.content_extractor.PdfReader") as mock_reader:
+                mock_reader.return_value.metadata = None
+                mock_reader.return_value.pages = [1]
+
+                metadata = self.extractor._extract_metadata()
+                periods = self.extractor._build_periods(metadata)
+
+        bs_period = next(
+            (period for period in periods if period["period_id"] == "BS_2025-12-31"),
+            None,
+        )
+        assert bs_period is not None
+        assert bs_period["scope"] == "point_in_time"
+        assert bs_period["as_of_date"] == "2025-12-31"
+        assert bs_period["start_date"] is None
+        assert bs_period["end_date"] is None
+
+
+class TestFactEvidenceModel:
+    """facts/evidence 模型测试"""
+
+    def setup_method(self):
+        self.extractor = PDFContentExtractor()
+
+    def test_build_facts_and_evidence_with_comparison_period(self):
+        """测试核心指标生成事实与同比证据"""
+        self.extractor.is_english_report = True
+        self.extractor.tables = [
+            [
+                ["Item", "Year ended Dec 31, 2025", "Year ended Dec 31, 2024"],
+                ["Total Revenue", "11,300", "10,820"],
+                ["Net Income", "900", "850"],
+                [
+                    "Net cash provided by operating activities",
+                    "1,200",
+                    "1,100",
+                ],
+            ]
+        ]
+        self.extractor.table_locations = [(2, 1)]
+
+        metadata = ReportMetadata(
+            stock_code="09987",
+            report_type="quarterly",
+            period_type="full_year_in_quarterly_announcement",
+            fiscal_year=2025,
+            primary_period_id="2025FY",
+            currency="USD",
+            amount_unit="million",
+            per_share_currency="USD",
+        )
+        periods = [
+            {
+                "period_id": "2025FY",
+                "scope": "full_year",
+                "fiscal_quarter": None,
+                "ytd_through_quarter": 4,
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "as_of_date": None,
+                "is_primary": True,
+                "is_comparison": False,
+            },
+            {
+                "period_id": "2024FY",
+                "scope": "full_year",
+                "fiscal_quarter": None,
+                "ytd_through_quarter": 4,
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "as_of_date": None,
+                "is_primary": False,
+                "is_comparison": True,
+            },
+            {
+                "period_id": "BS_2025-12-31",
+                "scope": "point_in_time",
+                "fiscal_quarter": None,
+                "ytd_through_quarter": None,
+                "start_date": None,
+                "end_date": None,
+                "as_of_date": "2025-12-31",
+                "is_primary": True,
+                "is_comparison": False,
+            },
+        ]
+
+        income = IncomeStatement(revenue=11300, net_profit=900)
+        balance = BalanceSheet()
+        cash_flow = CashFlowStatement(operating_cash_flow=1200)
+        metrics = FinancialMetrics()
+
+        facts, evidence, quality = self.extractor._build_facts_evidence_quality(
+            metadata=metadata,
+            periods=periods,
+            income=income,
+            balance=balance,
+            cash_flow=cash_flow,
+            metrics=metrics,
+        )
+
+        fact_map = {
+            (fact["statement"], fact["metric"], fact["period_id"]): fact for fact in facts
+        }
+
+        revenue_primary = fact_map[("income_statement", "revenue", "2025FY")]
+        revenue_comparison = fact_map[("income_statement", "revenue", "2024FY")]
+        net_profit_comparison = fact_map[("income_statement", "net_profit", "2024FY")]
+        cashflow_comparison = fact_map[("cash_flow_statement", "operating_cash_flow", "2024FY")]
+
+        assert revenue_primary["evidence_ids"]
+        assert revenue_comparison["value"] == 10820.0
+        assert net_profit_comparison["value"] == 850.0
+        assert cashflow_comparison["value"] == 1100.0
+        assert len(evidence) >= 6
+        assert quality["status"] == "ok"
+
+    def test_prefers_ytd_column_for_q3_ytd_period(self):
+        """测试列级约束：Q3_YTD 优先命中 nine months 列"""
+        self.extractor.is_english_report = True
+        self.extractor.current_metadata = ReportMetadata(fiscal_year=2025)
+        self.extractor.tables = [
+            [
+                [
+                    "Item",
+                    "Three months ended Sep 30, 2025",
+                    "Nine months ended Sep 30, 2025",
+                ],
+                ["Total Revenue", "3000", "9000"],
+            ]
+        ]
+        self.extractor.table_locations = [(1, 1)]
+
+        metadata = ReportMetadata(
+            report_type="quarterly",
+            fiscal_year=2025,
+            primary_period_id="2025Q3_YTD",
+            currency="USD",
+            amount_unit="million",
+        )
+        periods = [
+            {
+                "period_id": "2025Q3_YTD",
+                "scope": "year_to_date",
+                "fiscal_quarter": None,
+                "ytd_through_quarter": 3,
+                "start_date": "2025-01-01",
+                "end_date": "2025-09-30",
+                "as_of_date": None,
+                "is_primary": True,
+                "is_comparison": False,
+            }
+        ]
+        facts, evidence, _ = self.extractor._build_facts_evidence_quality(
+            metadata=metadata,
+            periods=periods,
+            income=IncomeStatement(revenue=9000),
+            balance=BalanceSheet(),
+            cash_flow=CashFlowStatement(),
+            metrics=FinancialMetrics(),
+        )
+
+        revenue_fact = next(
+            (
+                fact
+                for fact in facts
+                if fact["statement"] == "income_statement"
+                and fact["metric"] == "revenue"
+                and fact["period_id"] == "2025Q3_YTD"
+            ),
+            None,
+        )
+        assert revenue_fact is not None
+        assert revenue_fact["evidence_ids"]
+        ev = next(
+            item for item in evidence if item["evidence_id"] == revenue_fact["evidence_ids"][0]
+        )
+        assert ev["column_role"] == "ytd"
+        assert "Nine months ended" in (ev["column_header"] or "")
+
+    def test_avoids_noncontrolling_row_for_net_profit(self):
+        """测试行级约束：不命中 noncontrolling interests 行"""
+        self.extractor.is_english_report = True
+        self.extractor.current_metadata = ReportMetadata(fiscal_year=2025)
+        self.extractor.tables = [
+            [
+                ["Item", "Year ended Dec 31, 2025"],
+                ["Net income attributable to noncontrolling interests", "100"],
+                ["Net income attributable to shareholders", "900"],
+            ]
+        ]
+        self.extractor.table_locations = [(1, 1)]
+
+        metadata = ReportMetadata(
+            report_type="annual",
+            fiscal_year=2025,
+            primary_period_id="2025FY",
+            currency="USD",
+            amount_unit="million",
+        )
+        periods = [
+            {
+                "period_id": "2025FY",
+                "scope": "full_year",
+                "fiscal_quarter": None,
+                "ytd_through_quarter": 4,
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "as_of_date": None,
+                "is_primary": True,
+                "is_comparison": False,
+            }
+        ]
+        facts, evidence, _ = self.extractor._build_facts_evidence_quality(
+            metadata=metadata,
+            periods=periods,
+            income=IncomeStatement(net_profit=900),
+            balance=BalanceSheet(),
+            cash_flow=CashFlowStatement(),
+            metrics=FinancialMetrics(),
+        )
+
+        net_profit_fact = next(
+            (
+                fact
+                for fact in facts
+                if fact["statement"] == "income_statement"
+                and fact["metric"] == "net_profit"
+                and fact["period_id"] == "2025FY"
+            ),
+            None,
+        )
+        assert net_profit_fact is not None
+        assert net_profit_fact["evidence_ids"]
+        ev = next(
+            item for item in evidence if item["evidence_id"] == net_profit_fact["evidence_ids"][0]
+        )
+        assert "noncontrolling" not in (ev["row_label"] or "").lower()
+        assert ev["raw_value"] == "900"
+
 
 class TestPatternMatching:
     """正则匹配测试"""
@@ -601,4 +913,6 @@ class TestDataclasses:
         """测试报告元数据数据类默认值"""
         metadata = ReportMetadata()
         assert metadata.stock_code is None
+        assert metadata.doc_type is None
+        assert metadata.fiscal_year is None
         assert metadata.total_pages == 0

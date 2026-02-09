@@ -511,6 +511,41 @@ class TestCacheManagement:
         assert "所有PDF都已缓存" in result["message"]
 
 
+class TestConfidenceFilter:
+    """低置信度过滤测试"""
+
+    def test_apply_min_confidence_filter_for_v2(self):
+        result = {
+            "success": True,
+            "schema_version": "v2",
+            "facts": [
+                {
+                    "statement": "income_statement",
+                    "metric": "revenue",
+                    "period_id": "2025FY",
+                    "confidence": 0.96,
+                },
+                {
+                    "statement": "income_statement",
+                    "metric": "net_profit",
+                    "period_id": "2025FY",
+                    "confidence": 0.75,
+                },
+            ],
+            "quality": {"status": "ok", "issues": []},
+        }
+
+        filtered = PDFHandler._apply_min_confidence_filter(result, 0.9)
+
+        assert len(filtered["facts"]) == 1
+        assert filtered["facts"][0]["metric"] == "revenue"
+        assert filtered["quality"]["status"] == "partial"
+        assert any(
+            issue.get("type") == "confidence_filtered"
+            for issue in filtered["quality"]["issues"]
+        )
+
+
 class TestCleanupOldFiles:
     """清理旧文件测试"""
 
