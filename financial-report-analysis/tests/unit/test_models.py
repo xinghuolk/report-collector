@@ -2,8 +2,12 @@ from datetime import date
 
 import pytest
 
+<<<<<<< HEAD
 from financial_report_analysis import CandidateFact as RootCandidateFact
 from financial_report_analysis import CanonicalFact as RootCanonicalFact
+=======
+from financial_report_analysis.models import DocumentBlock, DerivedFact
+>>>>>>> 6c60bf7 (feat: expand task 1 model surface)
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 from financial_report_analysis.models.period import Period
@@ -42,6 +46,44 @@ def test_canonical_fact_business_key_is_stable_string() -> None:
     )
 
     assert fact.business_key == "revenue|period-2024-fy|consolidated|current|reported|CNY"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("statement_type", "invalid"),
+        ("entity_scope", "invalid"),
+        ("comparison_axis", "invalid"),
+        ("adjustment_basis", "invalid"),
+    ],
+)
+def test_fact_enum_values_are_rejected(field_name: str, value: str) -> None:
+    kwargs = {
+        "fact_id": "cand-1",
+        "fact_kind": "candidate",
+        "metric_id": "revenue",
+        "metric_label_raw": "Revenue",
+        "statement_type": "income_statement",
+        "period_id": "period-2024-fy",
+        "entity_scope": "consolidated",
+        "comparison_axis": "current",
+        "adjustment_basis": "reported",
+        "currency": "CNY",
+        "raw_value": "1000",
+        "numeric_value": 1000.0,
+        "raw_unit": "CNY",
+        "normalized_unit": "CNY",
+        "precision": 0,
+        "confidence": 0.91,
+        "document_id": "doc-1",
+        "block_id": "block-1",
+        "page_index": 3,
+        "evidence_bundle_id": "bundle-1",
+    }
+    kwargs[field_name] = value
+
+    with pytest.raises(ValueError, match="supported fact enum value"):
+        CandidateFact(**kwargs)
 
 
 def test_candidate_fact_supports_richer_constructor_shape() -> None:
@@ -130,6 +172,54 @@ def test_canonical_fact_rejects_incompatible_fact_kind() -> None:
         )
 
 
+def test_canonical_fact_rejects_empty_sources() -> None:
+    with pytest.raises(ValueError, match="source_candidate_fact_ids"):
+        CanonicalFact(
+            fact_id="fact-1",
+            fact_kind="canonical",
+            metric_id="revenue",
+            metric_label_raw="Revenue",
+            statement_type="income_statement",
+            period_id="period-2024-fy",
+            entity_scope="consolidated",
+            comparison_axis="current",
+            adjustment_basis="reported",
+            currency="CNY",
+            raw_value="1000",
+            numeric_value=1000.0,
+            raw_unit="CNY",
+            normalized_unit="CNY",
+            precision=0,
+            confidence=0.99,
+            source_candidate_fact_ids=[],
+            evidence_bundle_id="bundle-1",
+        )
+
+
+def test_canonical_fact_rejects_missing_evidence_bundle_id() -> None:
+    with pytest.raises(ValueError, match="evidence_bundle_id"):
+        CanonicalFact(
+            fact_id="fact-1",
+            fact_kind="canonical",
+            metric_id="revenue",
+            metric_label_raw="Revenue",
+            statement_type="income_statement",
+            period_id="period-2024-fy",
+            entity_scope="consolidated",
+            comparison_axis="current",
+            adjustment_basis="reported",
+            currency="CNY",
+            raw_value="1000",
+            numeric_value=1000.0,
+            raw_unit="CNY",
+            normalized_unit="CNY",
+            precision=0,
+            confidence=0.99,
+            source_candidate_fact_ids=["cand-1"],
+            evidence_bundle_id=None,
+        )
+
+
 def test_evidence_bundle_supports_richer_constructor_shape() -> None:
     item = EvidenceItem(
         evidence_item_id="item-1",
@@ -161,6 +251,24 @@ def test_evidence_bundle_supports_richer_constructor_shape() -> None:
     assert bundle.evidence_bundle_id == "bundle-1"
     assert bundle.primary_evidence_item_id == "item-1"
     assert bundle.evidence_items[0].document_id == "doc-1"
+
+
+def test_document_block_supports_richer_constructor_shape() -> None:
+    block = DocumentBlock(
+        block_id="block-1",
+        document_id="doc-1",
+        page_no=3,
+        bbox=(0.0, 0.0, 10.0, 10.0),
+        block_type="table",
+        text="Revenue row",
+        structured_repr={"kind": "table"},
+        table_cells=[["Revenue", "1000"]],
+        reading_order=1,
+    )
+
+    assert block.block_id == "block-1"
+    assert block.page_no == 3
+    assert block.table_cells == [["Revenue", "1000"]]
 
 
 def test_evidence_bundle_rejects_primary_item_when_items_empty() -> None:
@@ -237,9 +345,60 @@ def test_period_exposes_richer_domain_fields() -> None:
     assert period.accounting_standard == "IFRS"
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("reporting_scope", "INVALID"),
+        ("adjusted_status", "INVALID"),
+        ("accounting_standard", "INVALID"),
+    ],
+)
+def test_period_enum_values_are_rejected(field_name: str, value: str) -> None:
+    kwargs = {
+        "period_id": "period-2024-fy",
+        "period_type": Period.POINT,
+        "as_of_date": date(2024, 12, 31),
+    }
+    kwargs[field_name] = value
+
+    with pytest.raises(ValueError, match="supported period enum value"):
+        Period(**kwargs)
+
+
 def test_point_period_requires_as_of_date() -> None:
     with pytest.raises(ValueError, match="as_of_date"):
         Period(period_id="period-1", period_type=Period.POINT)
+
+
+def test_derived_fact_supports_minimal_constructor_shape() -> None:
+    fact = DerivedFact(
+        fact_id="derived-1",
+        fact_kind="derived",
+        metric_id="revenue",
+        metric_label_raw="Revenue",
+        statement_type="income_statement",
+        period_id="period-2024-fy",
+        entity_scope="consolidated",
+        comparison_axis="current",
+        adjustment_basis="reported",
+        currency="CNY",
+        raw_value="1000",
+        numeric_value=1000.0,
+        raw_unit="CNY",
+        normalized_unit="CNY",
+        precision=0,
+        confidence=0.9,
+        source_canonical_fact_ids=["fact-1"],
+        derivation_type="ttm",
+        derivation_formula="sum",
+        derivation_version="1.0",
+        validation_status="validated",
+        consistency_check_against_fact_id="fact-2",
+        evidence_bundle_id="bundle-1",
+    )
+
+    assert fact.fact_kind == "derived"
+    assert fact.source_canonical_fact_ids == ["fact-1"]
 
 
 def test_period_rejects_invalid_period_type() -> None:

@@ -21,6 +21,23 @@ AdjustmentBasis = Literal[
     "parent_attributable",
     "other",
 ]
+FactFieldValue = str | int | float | None
+
+_STATEMENT_TYPES = {
+    "income_statement",
+    "balance_sheet",
+    "cash_flow_statement",
+    "metrics",
+}
+_ENTITY_SCOPES = {"consolidated", "parent", "segment", "other"}
+_COMPARISON_AXES = {"current", "prior", "period_end", "period_begin"}
+_ADJUSTMENT_BASES = {
+    "reported",
+    "adjusted",
+    "deducted",
+    "parent_attributable",
+    "other",
+}
 
 
 @dataclass(kw_only=True)
@@ -35,13 +52,23 @@ class BaseFact:
     adjustment_basis: AdjustmentBasis
     period_id: str
     currency: str
-    raw_value: str | int | float | None
+    raw_value: FactFieldValue
     numeric_value: int | float | None
     raw_unit: str | None
     normalized_unit: str | None
     precision: int | None
     confidence: float | None
     extensions: Extensions = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.statement_type not in _STATEMENT_TYPES:
+            raise ValueError("statement_type is not a supported fact enum value")
+        if self.entity_scope not in _ENTITY_SCOPES:
+            raise ValueError("entity_scope is not a supported fact enum value")
+        if self.comparison_axis not in _COMPARISON_AXES:
+            raise ValueError("comparison_axis is not a supported fact enum value")
+        if self.adjustment_basis not in _ADJUSTMENT_BASES:
+            raise ValueError("adjustment_basis is not a supported fact enum value")
 
 
 @dataclass(kw_only=True)
@@ -60,6 +87,7 @@ class CandidateFact(BaseFact):
     source_rank_hint: int | None = None
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.fact_kind != "candidate":
             raise ValueError("fact_kind must be candidate for CandidateFact")
 
@@ -76,8 +104,13 @@ class CanonicalFact(BaseFact):
     evidence_bundle_id: str | None = None
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.fact_kind != "canonical":
             raise ValueError("fact_kind must be canonical for CanonicalFact")
+        if not self.source_candidate_fact_ids:
+            raise ValueError("source_candidate_fact_ids must not be empty")
+        if self.evidence_bundle_id is None:
+            raise ValueError("evidence_bundle_id is required for CanonicalFact")
 
     @property
     def business_key(self) -> str:
@@ -91,3 +124,20 @@ class CanonicalFact(BaseFact):
                 self.currency,
             ]
         )
+
+
+@dataclass(kw_only=True)
+class DerivedFact(BaseFact):
+    fact_kind: Literal["derived"] = "derived"
+    source_canonical_fact_ids: list[str] = field(default_factory=list)
+    derivation_type: str | None = None
+    derivation_formula: str | None = None
+    derivation_version: str | None = None
+    validation_status: str | None = None
+    consistency_check_against_fact_id: str | None = None
+    evidence_bundle_id: str | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.fact_kind != "derived":
+            raise ValueError("fact_kind must be derived for DerivedFact")
