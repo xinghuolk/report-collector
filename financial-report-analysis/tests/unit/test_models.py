@@ -2,9 +2,16 @@ from datetime import date
 
 import pytest
 
+from financial_report_analysis import CandidateFact as RootCandidateFact
+from financial_report_analysis import CanonicalFact as RootCanonicalFact
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 from financial_report_analysis.models.period import Period
+
+
+def test_package_root_exports_core_fact_models() -> None:
+    assert RootCandidateFact is CandidateFact
+    assert RootCanonicalFact is CanonicalFact
 
 
 def test_canonical_fact_business_key_is_stable_string() -> None:
