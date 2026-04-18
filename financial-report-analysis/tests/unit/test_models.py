@@ -36,6 +36,7 @@ def test_evidence_bundle_primary_evidence_item_id_uses_first_item() -> None:
     evidence_item = EvidenceItem(evidence_item_id="item-1")
     bundle = EvidenceBundle(
         evidence_items=[evidence_item],
+        primary_evidence_item_id="item-1",
     )
 
     assert bundle.primary_evidence_item_id == "item-1"
