@@ -1,6 +1,6 @@
 from datetime import date
 
-from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
+from financial_report_analysis.models.evidence import EvidenceBundle
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 from financial_report_analysis.models.period import Period
 
@@ -32,12 +32,8 @@ def test_candidate_fact_inherits_common_fact_contract() -> None:
     assert fact.extensions == {}
 
 
-def test_evidence_bundle_primary_evidence_item_id_uses_first_item() -> None:
-    evidence_item = EvidenceItem(evidence_item_id="item-1")
-    bundle = EvidenceBundle(
-        evidence_items=[evidence_item],
-        primary_evidence_item_id="item-1",
-    )
+def test_evidence_bundle_preserves_primary_evidence_item_id() -> None:
+    bundle = EvidenceBundle(primary_evidence_item_id="item-1")
 
     assert bundle.primary_evidence_item_id == "item-1"
 
