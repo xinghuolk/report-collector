@@ -211,8 +211,11 @@ def test_period_exposes_richer_domain_fields() -> None:
         start_date=date(2024, 1, 1),
         end_date=date(2024, 12, 31),
         as_of_date=date(2024, 12, 31),
+        calendar_year=2024,
         adjusted_status="ORIGINAL",
         disclosure_label_raw="FY2024",
+        fiscal_label="FY2024",
+        accounting_standard="IFRS",
         is_stub_period=False,
         period_metadata={"source": "annual_report"},
     )
@@ -222,6 +225,14 @@ def test_period_exposes_richer_domain_fields() -> None:
     assert period.reporting_scope == "FY"
     assert period.as_of_date == date(2024, 12, 31)
     assert period.period_metadata == {"source": "annual_report"}
+    assert period.calendar_year == 2024
+    assert period.fiscal_label == "FY2024"
+    assert period.accounting_standard == "IFRS"
+
+
+def test_point_period_requires_as_of_date() -> None:
+    with pytest.raises(ValueError, match="as_of_date"):
+        Period(period_id="period-1", period_type=Period.POINT)
 
 
 def test_period_rejects_invalid_period_type() -> None:
