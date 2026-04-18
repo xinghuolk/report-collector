@@ -141,3 +141,5 @@ class DerivedFact(BaseFact):
         super().__post_init__()
         if self.fact_kind != "derived":
             raise ValueError("fact_kind must be derived for DerivedFact")
+        if not self.source_canonical_fact_ids:
+            raise ValueError("source_canonical_fact_ids must not be empty")

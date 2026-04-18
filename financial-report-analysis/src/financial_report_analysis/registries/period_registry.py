@@ -19,10 +19,12 @@ class PeriodRegistry:
         disclosure_label_raw: str,
     ) -> Period:
         normalized_reporting_scope = self._normalize_reporting_scope(reporting_scope)
-        normalized_accounting_standard = accounting_standard.casefold()
+        normalized_accounting_standard = self._normalize_accounting_standard(
+            accounting_standard
+        )
         key = (
             fiscal_year,
-            normalized_reporting_scope.casefold(),
+            normalized_reporting_scope,
             start_date,
             end_date,
             normalized_accounting_standard,
@@ -87,3 +89,7 @@ class PeriodRegistry:
     @staticmethod
     def _normalize_reporting_scope(reporting_scope: str) -> str:
         return reporting_scope.upper()
+
+    @staticmethod
+    def _normalize_accounting_standard(accounting_standard: str) -> str:
+        return accounting_standard.strip().upper()

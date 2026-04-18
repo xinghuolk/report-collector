@@ -2,12 +2,9 @@ from datetime import date
 
 import pytest
 
-<<<<<<< HEAD
 from financial_report_analysis import CandidateFact as RootCandidateFact
 from financial_report_analysis import CanonicalFact as RootCanonicalFact
-=======
 from financial_report_analysis.models import DocumentBlock, DerivedFact
->>>>>>> 6c60bf7 (feat: expand task 1 model surface)
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 from financial_report_analysis.models.period import Period
@@ -399,6 +396,31 @@ def test_derived_fact_supports_minimal_constructor_shape() -> None:
 
     assert fact.fact_kind == "derived"
     assert fact.source_canonical_fact_ids == ["fact-1"]
+
+
+def test_derived_fact_rejects_empty_sources() -> None:
+    with pytest.raises(ValueError, match="source_canonical_fact_ids"):
+        DerivedFact(
+            fact_id="derived-1",
+            fact_kind="derived",
+            metric_id="revenue",
+            metric_label_raw="Revenue",
+            statement_type="income_statement",
+            period_id="period-2024-fy",
+            entity_scope="consolidated",
+            comparison_axis="current",
+            adjustment_basis="reported",
+            currency="CNY",
+            raw_value="1000",
+            numeric_value=1000.0,
+            raw_unit="CNY",
+            normalized_unit="CNY",
+            precision=0,
+            confidence=0.9,
+            source_canonical_fact_ids=[],
+            derivation_type="ttm",
+            evidence_bundle_id="bundle-1",
+        )
 
 
 def test_period_rejects_invalid_period_type() -> None:
