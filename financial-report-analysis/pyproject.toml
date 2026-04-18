@@ -1,0 +1,24 @@
+[project]
+name = "financial-report-analysis"
+version = "0.1.0"
+description = "Financial report analysis domain models and utilities"
+requires-python = ">=3.10"
+
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/financial_report_analysis"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = ["-v"]
