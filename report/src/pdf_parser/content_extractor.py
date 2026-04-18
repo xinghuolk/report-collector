@@ -276,6 +276,8 @@ class PDFContentExtractor:
     PATTERNS_EN = {
         # Income Statement
         'revenue': [
+            # 双语主报表行优先（例如 "Revenue 收入 20,703,294 21,490,903"）
+            r'(?:^|\n)\s*(?:Total\s+)?Revenue\s+(?:收入|總收入)\s+([0-9,]+(?:\.[0-9]+)?)',
             # 优先匹配Total Revenue/Total revenues（带单位识别）
             r'Total\s+Revenues?[:\s]+\$?\s*([0-9,]+(?:\.[0-9]+)?)',
             r'Total\s+Revenues?\s+\$?\s*([0-9,]+(?:\.[0-9]+)?)',
@@ -305,10 +307,15 @@ class PDFContentExtractor:
             r'Profit\s+from\s+Operations[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
         ],
         'total_profit': [
+            r'(?:^|\n)\s*Profit\s+before\s+tax\s+除稅前溢利\s+([0-9,\-]+(?:\.[0-9]+)?)',
             r'Profit\s+Before\s+(?:Income\s+)?Tax(?:ation)?[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
             r'Pre[\s-]?tax\s+Profit[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
         ],
         'net_profit': [
+            (
+                r'(?:^|\n)\s*Profit\s+for\s+the\s+(?:year|period)\s+'
+                r'(?:年內溢利|期內溢利)\s+(?:\d{1,3}\s+)?([0-9,]+(?:\.[0-9]+)?)'
+            ),
             r'Net\s+Income\s+[–-]\s+including\s+noncontrolling\s+interests[:\s]+\$?\s*([0-9,\-]+(?:\.[0-9]+)?)',
             r'(?:Net\s+)?Profit\s+(?:for\s+the\s+year|attributable\s+to\s+(?:owners|shareholders))[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
             r'Profit\s+(?:for\s+the\s+(?:year|period))[:\s]+([0-9,\-]+(?:\.[0-9]+)?)',
@@ -1070,7 +1077,10 @@ class PDFContentExtractor:
             return evidence_id
 
         def select_primary_and_comparison_obs(
-            metric_obs: List[Dict[str, Any]], target_value: float
+            metric_obs: List[Dict[str, Any]],
+            target_value: float,
+            *,
+            prefer_max_abs: bool = False,
         ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
             if not metric_obs:
                 return None, None
@@ -1079,11 +1089,42 @@ class PDFContentExtractor:
             ]
             if not primary_candidates:
                 primary_candidates = metric_obs
-            sorted_primary = sorted(
-                primary_candidates,
-                key=lambda item: abs(item["value"] - target_value),
-            )
+            if prefer_max_abs:
+                sorted_primary = sorted(
+                    primary_candidates,
+                    key=lambda item: abs(item["value"]),
+                    reverse=True,
+                )
+            else:
+                sorted_primary = sorted(
+                    primary_candidates,
+                    key=lambda item: abs(item["value"] - target_value),
+                )
             primary_obs = sorted_primary[0]
+
+            primary_row_label = self._normalize_row_label(primary_obs.get("row_label", ""))
+            same_row_candidates = [
+                item
+                for item in metric_obs
+                if item is not primary_obs
+                and self._normalize_row_label(item.get("row_label", "")) == primary_row_label
+                and abs(item["value"] - primary_obs["value"]) > 1e-9
+            ]
+            if same_row_candidates:
+                primary_page = primary_obs.get("page")
+                primary_table = primary_obs.get("table_index")
+                comparison_obs = sorted(
+                    same_row_candidates,
+                    key=lambda item: (
+                        0
+                        if item.get("page") == primary_page
+                        and item.get("table_index") == primary_table
+                        else 1,
+                        abs(item["value"] - primary_obs["value"]),
+                        0 if item.get("is_comparison_col", False) else 1,
+                    ),
+                )[0]
+                return primary_obs, comparison_obs
 
             comparison_candidates = [
                 item for item in metric_obs if item.get("is_comparison_col", False)
@@ -1091,8 +1132,10 @@ class PDFContentExtractor:
             if comparison_candidates:
                 comparison_obs = sorted(
                     comparison_candidates,
-                    key=lambda item: abs(item["value"] - primary_obs["value"]),
-                    reverse=True,
+                    key=lambda item: (
+                        abs(item["value"] - primary_obs["value"]),
+                        0 if item.get("is_comparison_col", False) else 1,
+                    ),
                 )[0]
             else:
                 comparison_obs = None
@@ -1207,15 +1250,32 @@ class PDFContentExtractor:
                 period_id=period_id,
                 statement=statement,
             )
-            metric_obs = [
+            strict_allowed_roles = {role for role in allowed_roles if role != "unknown"}
+            strict_metric_obs = [
                 obs
                 for obs in metric_obs_all
-                if obs.get("column_role", "unknown") in allowed_roles
+                if obs.get("column_role", "unknown") in strict_allowed_roles
             ]
-            if not metric_obs:
-                metric_obs = metric_obs_all
+            if strict_metric_obs:
+                # 保留严格角色列作为主值候选，同时补入 unknown 且标记为对比列的候选，
+                # 以处理英文表格中“日期列有角色、相邻数据列为 unknown”的常见结构。
+                supplemental_comparison_obs = [
+                    obs
+                    for obs in metric_obs_all
+                    if obs.get("column_role", "unknown") == "unknown"
+                    and obs.get("is_comparison_col", False)
+                ]
+                metric_obs = strict_metric_obs + supplemental_comparison_obs
+            else:
+                metric_obs = [
+                    obs
+                    for obs in metric_obs_all
+                    if obs.get("column_role", "unknown") in allowed_roles
+                ]
+                if not metric_obs:
+                    metric_obs = metric_obs_all
             primary_obs, comparison_obs = select_primary_and_comparison_obs(
-                metric_obs, value
+                metric_obs, value, prefer_max_abs=bool(strict_metric_obs)
             )
 
             evidence_ids: List[str] = []
@@ -1226,6 +1286,10 @@ class PDFContentExtractor:
 
             is_derived = (statement, metric) in self._derived_fact_keys
             derivation_formula = self._get_derivation_formula(statement, metric)
+            selected_value = value
+            # 当列角色可明确识别时，优先使用表格主列值，避免文本/兜底路径误取。
+            if not is_derived and primary_obs and strict_metric_obs:
+                selected_value = primary_obs["value"]
             if is_derived:
                 dependencies = self._get_derivation_dependencies(statement, metric)
                 inherited: List[str] = []
@@ -1252,7 +1316,7 @@ class PDFContentExtractor:
                     "statement": statement,
                     "metric": metric,
                     "period_id": period_id,
-                    "value": value,
+                    "value": selected_value,
                     "currency": fact_currency,
                     "unit": fact_unit,
                     "source_method": source_method,
@@ -1285,6 +1349,78 @@ class PDFContentExtractor:
                             "source_method": "table",
                             "confidence": 0.95 if comparison_obs.get("is_comparison_col", False) else 0.85,
                             "evidence_ids": [comparison_evidence_id],
+                            "is_derived": False,
+                            "derivation_formula": None,
+                        }
+                    )
+
+        # 若期间定义包含单季度，补充 single_quarter 指标（例如 Q3_SINGLE / Q4_SINGLE）
+        single_period = next(
+            (
+                p
+                for p in periods
+                if p.get("scope") == "single_quarter" and not p.get("is_comparison")
+            ),
+            None,
+        )
+        if single_period:
+            single_period_id = single_period.get("period_id")
+            if single_period_id:
+                existing_fact_keys = {
+                    (fact.get("statement"), fact.get("metric"), fact.get("period_id"))
+                    for fact in facts
+                }
+                single_metric_keys: List[Tuple[str, str]] = [
+                    ("income_statement", "revenue"),
+                    ("income_statement", "operating_cost"),
+                    ("income_statement", "gross_profit"),
+                    ("income_statement", "operating_profit"),
+                    ("income_statement", "total_profit"),
+                    ("income_statement", "net_profit"),
+                    ("income_statement", "net_profit_attributable_to_parent"),
+                    ("income_statement", "net_profit_deducted"),
+                    ("income_statement", "interest_expense"),
+                    ("income_statement", "rd_expense"),
+                    ("financial_metrics", "eps"),
+                    ("financial_metrics", "eps_diluted"),
+                ]
+
+                for statement, metric in single_metric_keys:
+                    fact_key = (statement, metric, single_period_id)
+                    if fact_key in existing_fact_keys:
+                        continue
+
+                    metric_obs = [
+                        obs
+                        for obs in observations.get((statement, metric), [])
+                        if obs.get("column_role") == "single_q"
+                    ]
+                    if not metric_obs:
+                        continue
+
+                    metric_obs_sorted = sorted(
+                        metric_obs,
+                        key=lambda item: (
+                            1 if item.get("is_comparison_col", False) else 0,
+                            -abs(item["value"]),
+                        ),
+                    )
+                    chosen_obs = metric_obs_sorted[0]
+                    evidence_id = ensure_evidence(chosen_obs)
+                    fact_evidence_map[fact_key] = [evidence_id]
+                    existing_fact_keys.add(fact_key)
+                    fact_currency, fact_unit = self._get_fact_currency_unit(metadata, metric)
+                    facts.append(
+                        {
+                            "statement": statement,
+                            "metric": metric,
+                            "period_id": single_period_id,
+                            "value": chosen_obs["value"],
+                            "currency": fact_currency,
+                            "unit": fact_unit,
+                            "source_method": "table",
+                            "confidence": 0.9,
+                            "evidence_ids": [evidence_id],
                             "is_derived": False,
                             "derivation_formula": None,
                         }
@@ -1596,6 +1732,22 @@ class PDFContentExtractor:
             if not table:
                 continue
             table_statement = self._classify_table_statement(table)
+            if self.is_english_report and self._is_segment_operating_table(table):
+                page, tb_idx = (
+                    self.table_locations[table_idx]
+                    if table_idx < len(self.table_locations)
+                    else (None, table_idx + 1)
+                )
+                self._add_runtime_issue(
+                    issue_type="segment_table_skipped",
+                    severity="warning",
+                    message=(
+                        "检测到分部经营表，已跳过以避免误提取。"
+                        f" page={page}, table={tb_idx}"
+                    ),
+                    dedupe_key=f"segment:{page}:{tb_idx}",
+                )
+                continue
             page, table_index = self.table_locations[table_idx] if table_idx < len(
                 self.table_locations
             ) else (None, table_idx + 1)
@@ -1620,6 +1772,8 @@ class PDFContentExtractor:
                         "balance_sheet",
                         "cash_flow_statement",
                     } and statement != table_statement:
+                        continue
+                    if table_statement == "financial_metrics" and statement != "financial_metrics":
                         continue
                     if not self._row_label_matches_metric(metric, row_label, keywords):
                         continue
@@ -1664,26 +1818,21 @@ class PDFContentExtractor:
         normalized = self._normalize_row_label(row_label)
         blacklist = {
             "revenue": [
+                "company sales",
                 "other revenue",
                 "other revenues",
                 "other operating revenue",
+                "excluding the impact of f/x",
                 "deferred revenue",
                 "unearned revenue",
                 "interest revenue",
                 "investment revenue",
+                "franchise fees",
+                "franchisee",
                 "其他收益",
                 "其他业务收入",
                 "递延收入",
                 "利息收入",
-            ],
-            "net_profit": [
-                "noncontrolling",
-                "non-controlling",
-                "minority interests",
-                "非控股",
-                "少数股东",
-                "net profit margin",
-                "profit ratio",
             ],
             "net_profit_attributable_to_parent": [
                 "noncontrolling",
@@ -1717,6 +1866,20 @@ class PDFContentExtractor:
             ],
             "total_equity": ["net profit", "净利润"],
             "operating_cost": ["sales and marketing", "selling expenses", "销售费用"],
+            "operating_profit": [
+                "core operating profit",
+                "adjusted operating profit",
+            ],
+            "net_profit": [
+                "noncontrolling",
+                "non-controlling",
+                "minority interests",
+                "非控股",
+                "少数股东",
+                "net profit margin",
+                "profit ratio",
+                "adjusted net income",
+            ],
         }
         if any(token in normalized for token in blacklist.get(metric, [])):
             return False
@@ -1729,6 +1892,28 @@ class PDFContentExtractor:
                     return True
             elif normalized_keyword in normalized:
                 return True
+        return False
+
+    def _is_segment_operating_table(self, table: List[List[Any]]) -> bool:
+        """识别英文报告中的分部经营表（如 KFC/Pizza Hut 分部列）"""
+        if not self.is_english_report:
+            return False
+
+        header_text = " ".join(
+            str(cell).replace("\n", " ").lower()
+            for row in table[:6]
+            for cell in row
+            if cell
+        )
+
+        if "segment results" in header_text:
+            return True
+        if "kfc operating results" in header_text or "pizza hut operating results" in header_text:
+            return True
+        if "kfc" in header_text and "pizza hut" in header_text:
+            return True
+        if "all other segments" in header_text:
+            return True
         return False
 
     def _classify_table_statement(self, table: List[List[Any]]) -> str:
@@ -1809,12 +1994,17 @@ class PDFContentExtractor:
         profiles: Dict[int, Dict[str, Any]] = {}
         header_rows = table[: min(3, len(table))]
         max_col = max((len(row) for row in header_rows if row), default=0)
+        last_non_empty_header = ""
         for col_index in range(1, max_col):
             header_parts: List[str] = []
             for row in header_rows:
                 if col_index < len(row) and row[col_index]:
                     header_parts.append(str(row[col_index]).replace("\n", " ").strip())
-            header_text = " ".join(header_parts)
+            header_text = " ".join(part for part in header_parts if part).strip()
+            if not header_text and last_non_empty_header:
+                header_text = last_non_empty_header
+            if header_text:
+                last_non_empty_header = header_text
             column_year = self._infer_column_year(header_text)
             role = self._infer_column_role(header_text)
             is_comparison_col = False
@@ -1870,6 +2060,8 @@ class PDFContentExtractor:
                 "9 months",
                 "six months",
                 "6 months",
+                "year to date",
+                "year to date ended",
                 "year-to-date",
                 "ytd",
                 "cumulative",
@@ -2046,14 +2238,32 @@ class PDFContentExtractor:
 
         metadata.file_size = self.current_pdf_path.stat().st_size
 
+        def extract_stock_code_from_path(pdf_path: Path) -> Optional[str]:
+            normalized = str(pdf_path).replace("\\", "/")
+            # 兼容 downloads/{hk_stocks|cn_stocks}/{stock_code}/... 目录结构
+            path_match = re.search(r"/(?:hk_stocks|cn_stocks)/(\d{5,6})(?:/|$)", normalized)
+            if path_match:
+                return path_match.group(1)
+            return None
+
         # 从文本提取股票代码
         if self.is_english_report:
-            # 港股代码格式：Stock Code: 00700 或 Stock Codes: 1810 (HKD counter)
-            code_match = re.search(r'Stock\s+Codes?[：:\s]*(\d{4,5})', self.full_text, re.IGNORECASE)
+            # 仅在文档前部查找，避免命中董事履历中的其他公司股票代码。
+            leading_text = self.full_text[:20000]
+            code_match = (
+                re.search(r'\bHKEX\s*[:：]\s*0?(\d{4,5})\b', leading_text, re.IGNORECASE)
+                or re.search(r'\bStock\s+Codes?\s*[:：]\s*0?(\d{4,5})\b', leading_text, re.IGNORECASE)
+            )
+            if code_match:
+                metadata.stock_code = code_match.group(1).zfill(5)
         else:
             code_match = re.search(r'证券代码[：:\s]*(\d{6})', self.full_text)
-        if code_match:
-            metadata.stock_code = code_match.group(1)
+            if code_match:
+                metadata.stock_code = code_match.group(1)
+
+        # 兜底：从标准下载路径回填股票代码（避免英文报告提取失败/误命中）
+        if not metadata.stock_code:
+            metadata.stock_code = extract_stock_code_from_path(self.current_pdf_path)
 
         # 从文本提取股票简称/公司名称
         if self.is_english_report:
@@ -2091,17 +2301,29 @@ class PDFContentExtractor:
             '亿': 'billion',
         }
 
-        currency_match = re.search(r'(US\$|HK\$|USD|HKD|RMB|CNY|人民币|港元|美元)', self.full_text, re.IGNORECASE)
-        if currency_match:
-            key = currency_match.group(1).lower()
-            metadata.currency = currency_map.get(key, currency_match.group(1).upper())
-
-        unit_match = re.search(r'(million|mn|billion|百万|亿|千)', self.full_text, re.IGNORECASE)
-        if unit_match:
-            unit_key = unit_match.group(1).lower()
-            metadata.amount_unit = unit_map.get(unit_key, 'none')
+        # 优先识别“币种+千元”口径（如 RMB’000 / HK$'000），统一按 million 存储
+        thousand_currency_match = re.search(
+            r'(US\$|HK\$|USD|HKD|RMB|CNY)[’\'` ]?0{3}|(人民币|港元|美元)\s*(?:千元|千)',
+            self.full_text,
+            re.IGNORECASE,
+        )
+        if thousand_currency_match:
+            token = (thousand_currency_match.group(1) or thousand_currency_match.group(2) or "").lower()
+            if token:
+                metadata.currency = currency_map.get(token, token.upper())
+            metadata.amount_unit = 'million'
         else:
-            metadata.amount_unit = 'none'
+            currency_match = re.search(r'(US\$|HK\$|USD|HKD|RMB|CNY|人民币|港元|美元)', self.full_text, re.IGNORECASE)
+            if currency_match:
+                key = currency_match.group(1).lower()
+                metadata.currency = currency_map.get(key, currency_match.group(1).upper())
+
+            unit_match = re.search(r'(million|mn|billion|百万|亿|千)', self.full_text, re.IGNORECASE)
+            if unit_match:
+                unit_key = unit_match.group(1).lower()
+                metadata.amount_unit = unit_map.get(unit_key, 'none')
+            else:
+                metadata.amount_unit = 'none'
 
         if metadata.currency:
             metadata.per_share_currency = metadata.currency
@@ -2281,6 +2503,102 @@ class PDFContentExtractor:
 
         return transactions if transactions else None
 
+    @staticmethod
+    def _extract_text_line(full_text: str, start: int, end: int) -> str:
+        """提取匹配所在行文本"""
+        line_start = full_text.rfind("\n", 0, start)
+        if line_start < 0:
+            line_start = 0
+        else:
+            line_start += 1
+        line_end = full_text.find("\n", end)
+        if line_end < 0:
+            line_end = len(full_text)
+        return full_text[line_start:line_end]
+
+    @staticmethod
+    def _infer_unit_multiplier(match_text_lower: str, context_lower: str) -> float:
+        """根据命中片段与上下文推断单位倍率（统一换算至 million）"""
+        if re.search(r"(?:rmb|cny|usd|hkd|hk\$|us\$)[’'` ]?0{3}", context_lower):
+            return 0.001
+        if "billion" in match_text_lower or "billion" in context_lower:
+            return 1000.0
+        if "thousand" in context_lower:
+            return 0.001
+        if " million " in context_lower or "mn" in context_lower:
+            return 1.0
+        return 1.0
+
+    @staticmethod
+    def _score_text_match(field_name: str, value_str: str, value: float, context_lower: str) -> int:
+        """为文本回退候选打分，分值更高者优先"""
+        score = 0
+        if "," in value_str or "." in value_str:
+            score += 1
+        if any(token in context_lower for token in ("rmb", "hkd", "usd", "million", "billion", "thousand")):
+            score += 2
+        if field_name in {"revenue", "total_assets", "total_liabilities", "total_equity"} and abs(value) >= 1000:
+            score += 1
+        if field_name in {"eps", "eps_diluted"} and abs(value) <= 20:
+            score += 1
+        if field_name == "revenue" and any(token in context_lower for token in (" revenue 收入", " total revenue ", "總收入")):
+            score += 2
+        if field_name == "net_profit" and any(token in context_lower for token in ("profit for the period", "profit for the year", "期內溢利", "年內溢利")):
+            score += 2
+        if "non-ifrs" in context_lower:
+            score -= 2
+        if "note" in context_lower or "附注" in context_lower:
+            score -= 1
+        return score
+
+    def _is_suspicious_text_match(
+        self,
+        field_name: str,
+        match_text: str,
+        line_text: str,
+        context_lower: str,
+        value: float,
+    ) -> bool:
+        """过滤明显错误的文本命中（章节编号/分部统计等）"""
+        line_lower = " ".join(line_text.lower().split())
+        match_text_lower = match_text.lower()
+
+        # 章节标题（例如 "11. PROFIT FOR THE YEAR 11."）不应作为财务值。
+        if re.match(r"^\d{1,2}\.\s+[a-z].*\s+\d{1,2}\.?$", line_lower):
+            return True
+        if re.search(r"\b\d{1,2}\.\s+(profit|earnings|revenue)\b", line_lower):
+            if abs(value) <= 100:
+                return True
+
+        if field_name in {"revenue", "operating_profit", "net_profit", "total_profit"}:
+            nums = re.findall(r"-?\d[\d,]*(?:\.\d+)?", line_text)
+            parsed = []
+            for num in nums:
+                parsed_val = self._parse_number(num)
+                if parsed_val is not None:
+                    parsed.append(abs(parsed_val))
+            if parsed and max(parsed) >= 1000 and abs(value) < 1000:
+                return True
+
+        if field_name in {"eps", "eps_diluted"} and abs(value) > 100:
+            return True
+
+        if field_name == "revenue":
+            revenue_blacklist = (
+                "gross revenue",
+                "other revenue",
+                "franchise fees",
+                "franchisee",
+                "total number of restaurants",
+                "average spending",
+            )
+            if any(token in match_text_lower for token in revenue_blacklist):
+                return True
+            if any(token in line_lower for token in revenue_blacklist):
+                return True
+
+        return False
+
     def _find_value(self, field_name: str) -> Optional[float]:
         """使用正则从文本中查找数值（支持单位识别）"""
         # 根据语言选择模式
@@ -2289,44 +2607,63 @@ class PDFContentExtractor:
         else:
             patterns = self.PATTERNS.get(field_name, [])
 
+        best_candidate: Optional[Tuple[int, float]] = None
+
         for pattern in patterns:
             # 查找匹配，包括单位信息
             matches = re.finditer(pattern, self.full_text, re.IGNORECASE)
             for match in matches:
                 # 获取匹配的数值
                 value_str = match.group(1) if match.groups() else match.group(0)
-                
+
                 # 获取匹配前后的上下文，查找单位
-                match_start = max(0, match.start() - 30)
-                match_end = min(len(self.full_text), match.end() + 50)
-                context = self.full_text[match_start:match_end].lower()
-                
+                match_start = max(0, match.start() - 240)
+                match_end = min(len(self.full_text), match.end() + 240)
+                context = self.full_text[match_start:match_end]
+                context_lower = context.lower()
+                line_text = self._extract_text_line(self.full_text, match.start(), match.end())
+
                 # 识别单位（检查匹配文本本身和上下文）
-                unit_multiplier = 1.0
                 match_text_lower = match.group(0).lower()
-                
-                # 检查是否在模式中已经包含billion（如"$11.3 billion of revenues"）
-                if 'billion' in match_text_lower or 'billion' in context:
-                    unit_multiplier = 1000.0  # billion = 1000 million
-                elif 'million' in context or 'mn' in context:
-                    unit_multiplier = 1.0  # million = 基准单位
-                elif 'thousand' in context or 'k' in context:
-                    unit_multiplier = 0.001  # thousand = 0.001 million
-                
+                unit_multiplier = self._infer_unit_multiplier(match_text_lower, context_lower)
+
                 value = self._parse_number(value_str)
                 if value is not None:
                     # 应用单位转换（转换为百万单位）
                     converted_value = value * unit_multiplier
-                    
+
                     # 对于revenue等大额字段，如果值很小（<100）且没有识别到单位，可能是billion
                     # 但这种情况要谨慎，避免误判
-                    if field_name == 'revenue' and converted_value < 100 and unit_multiplier == 1.0:
+                    if field_name == "revenue" and converted_value < 100 and unit_multiplier == 1.0:
                         # 检查上下文，如果明确是表格中的数值（通常表格是million单位），保持原值
                         # 如果是在文本描述中（如"$11.3 billion"），可能是billion
-                        if 'billion' in context and value < 20:
+                        if "billion" in context_lower and value < 20:
                             converted_value = value * 1000.0
-                    
-                    return converted_value
+
+                    if self._is_suspicious_text_match(
+                        field_name=field_name,
+                        match_text=match.group(0),
+                        line_text=line_text,
+                        context_lower=context_lower,
+                        value=converted_value,
+                    ):
+                        continue
+
+                    score = self._score_text_match(
+                        field_name=field_name,
+                        value_str=value_str,
+                        value=converted_value,
+                        context_lower=context_lower,
+                    )
+                    if best_candidate is None or score > best_candidate[0]:
+                        best_candidate = (score, converted_value)
+                    elif best_candidate and score == best_candidate[0]:
+                        # 同分时，优先量级更大的值（更可能是主报表口径）
+                        if abs(converted_value) > abs(best_candidate[1]):
+                            best_candidate = (score, converted_value)
+
+        if best_candidate is not None:
+            return best_candidate[1]
 
         # 如果英文模式没找到，尝试中文模式（或反之）
         if self.is_english_report:
@@ -2334,13 +2671,41 @@ class PDFContentExtractor:
         else:
             fallback_patterns = self.PATTERNS_EN.get(field_name, [])
 
+        best_fallback: Optional[Tuple[int, float]] = None
         for pattern in fallback_patterns:
             matches = re.finditer(pattern, self.full_text, re.IGNORECASE)
             for match in matches:
                 value_str = match.group(1) if match.groups() else match.group(0)
                 value = self._parse_number(value_str)
                 if value is not None:
-                    return value
+                    context = self.full_text[
+                        max(0, match.start() - 240):min(len(self.full_text), match.end() + 240)
+                    ]
+                    context_lower = context.lower()
+                    line_text = self._extract_text_line(self.full_text, match.start(), match.end())
+                    if self._is_suspicious_text_match(
+                        field_name=field_name,
+                        match_text=match.group(0),
+                        line_text=line_text,
+                        context_lower=context_lower,
+                        value=value,
+                    ):
+                        continue
+
+                    score = self._score_text_match(
+                        field_name=field_name,
+                        value_str=value_str,
+                        value=value,
+                        context_lower=context_lower,
+                    )
+                    if best_fallback is None or score > best_fallback[0]:
+                        best_fallback = (score, value)
+                    elif best_fallback and score == best_fallback[0]:
+                        if abs(value) > abs(best_fallback[1]):
+                            best_fallback = (score, value)
+
+        if best_fallback is not None:
+            return best_fallback[1]
 
         return None
 
@@ -2418,7 +2783,23 @@ class PDFContentExtractor:
         """按列索引提取数值"""
         if index is None or index >= len(row):
             return None
-        return self._parse_number(str(row[index]).replace('\n', '') if row[index] else "")
+        def parse_cell(cell_index: int) -> Optional[float]:
+            if cell_index < 0 or cell_index >= len(row):
+                return None
+            cell = row[cell_index]
+            text = str(cell).replace('\n', '') if cell else ""
+            return self._parse_number(text)
+
+        value = parse_cell(index)
+        if value is not None:
+            return value
+
+        # 英文报表常见 "$" 与数字拆列，允许小范围探测相邻列
+        for delta in (1, 2, -1):
+            nearby = parse_cell(index + delta)
+            if nearby is not None:
+                return nearby
+        return None
 
     def _extract_from_tables_income(self, income: IncomeStatement):
         """从表格中提取利润表数据"""
@@ -2458,29 +2839,22 @@ class PDFContentExtractor:
         for table_idx, (table, year_end_index) in enumerate(
             self._iter_tables_for_statement("income_statement"), start=1
         ):
-            if self.is_english_report:
-                table_text = " ".join(
-                    str(cell) for row in table for cell in row if cell
-                ).lower()
-                if any(
-                    keyword in table_text
-                    for keyword in ("segment results", "kfc operating results", "pizza hut operating results")
-                ):
-                    page, tb_idx = (
-                        self.table_locations[table_idx - 1]
-                        if table_idx - 1 < len(self.table_locations)
-                        else (None, table_idx)
-                    )
-                    self._add_runtime_issue(
-                        issue_type="segment_table_skipped",
-                        severity="warning",
-                        message=(
-                            "检测到分部经营表，已跳过以避免误提取。"
-                            f" page={page}, table={tb_idx}"
-                        ),
-                        dedupe_key=f"segment:{page}:{tb_idx}",
-                    )
-                    continue
+            if self._is_segment_operating_table(table):
+                page, tb_idx = (
+                    self.table_locations[table_idx - 1]
+                    if table_idx - 1 < len(self.table_locations)
+                    else (None, table_idx)
+                )
+                self._add_runtime_issue(
+                    issue_type="segment_table_skipped",
+                    severity="warning",
+                    message=(
+                        "检测到分部经营表，已跳过以避免误提取。"
+                        f" page={page}, table={tb_idx}"
+                    ),
+                    dedupe_key=f"segment:{page}:{tb_idx}",
+                )
+                continue
 
             for row in table:
                 if not row or len(row) < 2:
@@ -2515,8 +2889,8 @@ class PDFContentExtractor:
                         if value is None:
                             value = self._get_first_large_value(row[1:], min_value=min_value)
                     if value is not None:
-                        # 如果当前值太小（可能是EPS等），用表格值覆盖
-                        if current_value is None or abs(current_value) < 10000:
+                        # 英文报表多期并列时，优先保留量级更大的值（通常对应累计/全年）
+                        if current_value is None or abs(value) >= abs(current_value):
                             if self.is_english_report and field in (
                                 'net_profit',
                                 'net_profit_attributable_to_parent',
@@ -2527,6 +2901,11 @@ class PDFContentExtractor:
                                     continue
                                 elif 'attributable' in row_text_lower or 'holdings' in row_text_lower or 'inc.' in row_text_lower:
                                     income.net_profit_attributable_to_parent = value
+                                    if (
+                                        income.net_profit is None
+                                        or abs(value) >= abs(income.net_profit)
+                                    ):
+                                        income.net_profit = value
                                 else:
                                     setattr(income, field, value)
                             else:

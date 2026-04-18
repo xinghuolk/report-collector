@@ -164,18 +164,46 @@ class PDFManager:
                 existing_record = existing.scalar_one_or_none()
                 if existing_record:
                     updated = False
-                    for field in [
-                        "source_url",
-                        "announcement_date",
+
+                    # 文件重新下载后命中相同 hash：需要恢复可见性并刷新关键字段，
+                    # 否则会出现记录存在但 is_available=False，导致列表看不到最新报告。
+                    if not existing_record.is_available:
+                        existing_record.is_available = True
+                        updated = True
+
+                    incoming_file_path = str(file_path)
+                    incoming_file_name = pdf_info["file_name"]
+                    if existing_record.file_path != incoming_file_path:
+                        existing_record.file_path = incoming_file_path
+                        updated = True
+                    if existing_record.file_name != incoming_file_name:
+                        existing_record.file_name = incoming_file_name
+                        updated = True
+                    if existing_record.file_size != file_size:
+                        existing_record.file_size = file_size
+                        updated = True
+
+                    refresh_fields = [
+                        "stock_code",
+                        "stock_name",
+                        "market",
+                        "report_type",
                         "report_year",
                         "report_quarter",
-                        "stock_name",
+                        "announcement_date",
+                        "original_title",
+                        "source_url",
+                        "source_name",
                         "metadata_json",
-                    ]:
+                    ]
+                    for field in refresh_fields:
                         incoming = pdf_info.get(field)
-                        if incoming is not None and getattr(existing_record, field) in (None, ""):
+                        if incoming is not None and getattr(existing_record, field) != incoming:
                             setattr(existing_record, field, incoming)
                             updated = True
+
+                    existing_record.download_time = datetime.now()
+                    updated = True
 
                     if updated:
                         await session.commit()
@@ -277,6 +305,28 @@ class PDFManager:
         except Exception as e:
             logger.error(f"获取PDF信息失败: {e}")
             return None
+
+    async def mark_pdfs_unavailable(self, pdf_ids: List[int]) -> int:
+        """将指定 PDF 记录标记为不可用"""
+        if not pdf_ids:
+            return 0
+        try:
+            async with self.async_session() as session:
+                result = await session.execute(
+                    select(ReportPDF).where(ReportPDF.id.in_(pdf_ids))
+                )
+                pdfs = result.scalars().all()
+                changed = 0
+                for pdf in pdfs:
+                    if pdf.is_available:
+                        pdf.is_available = False
+                        changed += 1
+                if changed > 0:
+                    await session.commit()
+                return changed
+        except Exception as e:
+            logger.error(f"标记PDF不可用失败: {e}")
+            return 0
             
     async def list_pdfs_by_stock(self, stock_code: str, market: str) -> List[Dict[str, Any]]:
         """获取指定股票的所有PDF"""

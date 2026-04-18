@@ -50,7 +50,7 @@ uv run python -m src.server --mode http --host 0.0.0.0 --port 8000
 - `DELETE /api/v1/pdfs/cleanup` - 清理旧PDF
 
 ### 提取
-- `POST /api/v1/extract/content` - 提取结构化财务数据
+- `POST /api/v1/extract/content` - 提取结构化财务数据（默认 V2）
 - `POST /api/v1/extract/tables` - 提取表格
 - `POST /api/v1/extract/text` - 提取全文本
 
@@ -63,3 +63,88 @@ uv run python -m src.server --mode http --host 0.0.0.0 --port 8000
 
 - **A股**: 巨潮资讯网 (cninfo.com.cn)
 - **港股**: 港交所披露易 (hkexnews.hk)
+
+## 提取接口（V2）
+
+`POST /api/v1/extract/content` 默认返回 V2 结构：
+
+- `document`: 文档层信息（股票、报告类型、primary_period_id、is_audited）
+- `periods`: 标准化期间（`full_year` / `year_to_date` / `single_quarter` / `point_in_time`）
+- `facts`: 指标事实（`statement`、`metric`、`period_id`、`value`、`confidence`、`evidence_ids`）
+- `evidence`: 证据链（页码、表索引、行标签、列头、原始值）
+- `quality`: 质量状态与结构化问题（如 `unit_inferred`、`period_ambiguous`、`cross_check_failed`）
+
+### 版本协商
+
+优先级：`query schema` > `X-Schema-Version` > `Accept`
+
+- Query: `schema=v1|v2`
+- Header: `X-Schema-Version: v1|v2`
+- Header: `Accept: application/vnd.financial-reports.v2+json`
+
+### 提取请求示例
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/extract/content?schema=v2" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pdf_id": 123,
+    "force_refresh": false,
+    "min_confidence": 0.8
+  }'
+```
+
+`min_confidence` 仅对 V2 生效，用于过滤低置信度 `facts`。
+
+## MCP工具返回（最新）
+
+`extract_pdf_content` 工具已更新：
+
+- 新参数：`schema_version`（`v1|v2`，默认 `v2`）
+- 新参数：`min_confidence`（0-1，仅 V2 生效）
+- 返回格式：成功和失败都返回 JSON 文本（不再混用纯文本错误）
+
+### MCP调用参数示例
+
+```json
+{
+  "name": "extract_pdf_content",
+  "arguments": {
+    "pdf_id": 123,
+    "schema_version": "v2",
+    "min_confidence": 0.85
+  }
+}
+```
+
+### MCP返回片段示例（V2）
+
+```json
+{
+  "success": true,
+  "schema_version": "v2",
+  "document": {
+    "stock_code": "09987",
+    "report_type": "quarterly",
+    "primary_period_id": "2025Q3_YTD"
+  },
+  "periods": [
+    {"period_id": "2025Q3_YTD", "scope": "year_to_date"},
+    {"period_id": "2025Q3_SINGLE", "scope": "single_quarter"}
+  ],
+  "facts": [
+    {
+      "statement": "income_statement",
+      "metric": "revenue",
+      "period_id": "2025Q3_YTD",
+      "value": 12345.67,
+      "confidence": 0.96,
+      "evidence_ids": ["ev_0001"]
+    }
+  ],
+  "evidence": [
+    {"evidence_id": "ev_0001", "page": 12, "table_index": 1}
+  ],
+  "quality": {"status": "ok", "issues": []}
+}
+```

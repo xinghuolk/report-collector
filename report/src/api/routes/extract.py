@@ -3,7 +3,7 @@
 """
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, Body, Request
+from fastapi import APIRouter, Depends, Query, Body, Header
 
 from ..dependencies import get_pdf_handler
 from ..schemas.common import APIResponse
@@ -12,16 +12,19 @@ from ...handlers.pdf_handler import PDFHandler
 router = APIRouter()
 
 
-def _resolve_schema_version(request: Request, schema: Optional[str]) -> str:
+def _resolve_schema_version(
+    schema: Optional[str],
+    header_schema: Optional[str],
+    accept_header: Optional[str],
+) -> str:
     """解析 schema 版本（query > X-Schema-Version > Accept）"""
     if schema in {"v1", "v2"}:
         return schema
 
-    header_schema = request.headers.get("X-Schema-Version")
     if header_schema in {"v1", "v2"}:
         return header_schema
 
-    accept = (request.headers.get("Accept") or "").lower()
+    accept = (accept_header or "").lower()
     if "application/vnd.financial-reports.v1+json" in accept:
         return "v1"
     if "application/vnd.financial-reports.v2+json" in accept:
@@ -32,7 +35,6 @@ def _resolve_schema_version(request: Request, schema: Optional[str]) -> str:
 
 @router.post("/extract/content", response_model=APIResponse[Dict[str, Any]])
 async def extract_pdf_content(
-    request: Request,
     pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
     pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
     force_refresh: bool = Body(default=False, description="强制重新提取(忽略缓存)"),
@@ -44,6 +46,19 @@ async def extract_pdf_content(
         pattern=r"^(v1|v2)$",
         description="响应结构版本（query 兼容入口）",
     ),
+    x_schema_version: Optional[str] = Header(
+        default=None,
+        alias="X-Schema-Version",
+        description="响应结构版本（header，优先级低于 query）",
+    ),
+    accept_header: Optional[str] = Header(
+        default=None,
+        alias="Accept",
+        description=(
+            "支持 vendor MIME 版本协商，例如 "
+            "application/vnd.financial-reports.v2+json"
+        ),
+    ),
     handler: PDFHandler = Depends(get_pdf_handler),
 ) -> APIResponse[Dict[str, Any]]:
     """
@@ -54,13 +69,17 @@ async def extract_pdf_content(
     - **pdf_id**: 从列表API获取的PDF记录ID
     - **force_refresh**: 是否强制重新提取(忽略缓存)
 
-    自动识别并提取:
-    - 利润表 (营业收入、净利润等)
-    - 资产负债表 (总资产、负债、权益等)
-    - 现金流量表 (经营、投资、筹资现金流等)
-    - 财务指标 (EPS、ROE、负债率等)
+    默认返回 V2 结构:
+    - document: 文档层元数据
+    - periods: 标准化期间定义（full_year / ytd / single_quarter / point_in_time）
+    - facts: 指标值（含 period_id、置信度、evidence_ids）
+    - evidence: 证据链（页码、表格、行列定位）
+    - quality: 结构化质量问题
 
-    支持缓存，重复提取将直接返回缓存结果
+    版本协商优先级:
+    1. query 参数 schema=v1|v2
+    2. Header: X-Schema-Version
+    3. Header: Accept vendor MIME
     """
     if not pdf_path and not pdf_id:
         return APIResponse(
@@ -68,7 +87,7 @@ async def extract_pdf_content(
             error="请提供 pdf_path 或 pdf_id 参数",
         )
 
-    schema_version = _resolve_schema_version(request, schema)
+    schema_version = _resolve_schema_version(schema, x_schema_version, accept_header)
     result = await handler.extract_pdf_content(
         pdf_path=pdf_path,
         pdf_id=pdf_id,

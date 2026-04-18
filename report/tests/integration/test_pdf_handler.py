@@ -227,6 +227,60 @@ class TestListDownloadedPdfs:
         assert result["count"] == 0
         assert result["data"] == []
 
+    @pytest.mark.asyncio
+    async def test_list_filters_missing_files_and_marks_unavailable(self, handler, tmp_path):
+        """测试列表自动过滤并清理缺失文件记录"""
+        valid_pdf = tmp_path / "downloads" / "cn_stocks" / "000001" / "annual" / "valid.pdf"
+        valid_pdf.parent.mkdir(parents=True, exist_ok=True)
+        valid_pdf.write_bytes(b"%PDF-1.4 valid")
+
+        missing_pdf = (
+            tmp_path / "downloads" / "cn_stocks" / "000001" / "annual" / "missing.pdf"
+        )
+        missing_pdf.parent.mkdir(parents=True, exist_ok=True)
+        missing_pdf.write_bytes(b"%PDF-1.4 missing")
+
+        valid_id = await handler.pdf_manager.add_pdf(
+            {
+                "stock_code": "000001",
+                "stock_name": "平安银行",
+                "market": "CN",
+                "report_type": "annual",
+                "report_year": 2024,
+                "original_title": "2024年年度报告",
+                "file_path": str(valid_pdf),
+                "file_name": valid_pdf.name,
+                "source_name": "巨潮资讯网",
+            }
+        )
+        missing_id = await handler.pdf_manager.add_pdf(
+            {
+                "stock_code": "000001",
+                "stock_name": "平安银行",
+                "market": "CN",
+                "report_type": "annual",
+                "report_year": 2023,
+                "original_title": "2023年年度报告",
+                "file_path": str(missing_pdf),
+                "file_name": missing_pdf.name,
+                "source_name": "巨潮资讯网",
+            }
+        )
+        assert valid_id is not None
+        assert missing_id is not None
+
+        missing_pdf.unlink()
+
+        result = await handler.list_downloaded_pdfs(stock_code="000001", market="CN")
+        assert result["success"] is True
+        assert result["count"] == 1
+        assert result["missing_file_records_cleaned"] == 1
+        assert result["data"][0]["id"] == valid_id
+
+        missing_info = await handler.pdf_manager.get_pdf_by_id(missing_id)
+        assert missing_info is not None
+        assert missing_info["is_available"] is False
+
 
 class TestGetPdfInfo:
     """获取PDF信息测试"""
@@ -359,6 +413,39 @@ class TestExtractPdfContent:
 
         assert result["success"] is False
         assert "未找到" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_extract_by_pdf_id_marks_missing_record_unavailable(self, handler, tmp_path):
+        """测试按ID提取遇到孤儿记录时自动标记不可用"""
+        orphan_pdf = tmp_path / "downloads" / "hk_stocks" / "09987" / "quarterly" / "orphan.pdf"
+        orphan_pdf.parent.mkdir(parents=True, exist_ok=True)
+        orphan_pdf.write_bytes(b"%PDF-1.4 orphan")
+
+        pdf_id = await handler.pdf_manager.add_pdf(
+            {
+                "stock_code": "09987",
+                "stock_name": "XIAOMI-W",
+                "market": "HK",
+                "report_type": "quarterly",
+                "report_year": 2025,
+                "report_quarter": 3,
+                "original_title": "Q3 Results",
+                "file_path": str(orphan_pdf),
+                "file_name": orphan_pdf.name,
+                "source_name": "港交所披露易",
+            }
+        )
+        assert pdf_id is not None
+
+        orphan_pdf.unlink()
+        result = await handler.extract_pdf_content(pdf_id=pdf_id)
+
+        assert result["success"] is False
+        assert "已标记为不可用" in result["error"]
+
+        refreshed = await handler.pdf_manager.get_pdf_by_id(pdf_id)
+        assert refreshed is not None
+        assert refreshed["is_available"] is False
 
 
 class TestExtractTables:
@@ -580,6 +667,20 @@ class TestConfidenceFilter:
         assert metadata_json is not None
         assert "period_hint" in metadata_json
         assert "q4_fy" in metadata_json
+
+    def test_apply_pdf_identity_context_overrides_stock_code(self):
+        handler = PDFHandler()
+        result = {
+            "success": True,
+            "metadata": {"stock_code": "1398"},
+            "document": {"stock_code": "1398"},
+        }
+        pdf_info = {"stock_code": "09987", "stock_name": "YUM CHINA", "market": "HK"}
+
+        handler._apply_pdf_identity_context(result, pdf_info)
+
+        assert result["metadata"]["stock_code"] == "09987"
+        assert result["document"]["stock_code"] == "09987"
 
 
 class TestCleanupOldFiles:

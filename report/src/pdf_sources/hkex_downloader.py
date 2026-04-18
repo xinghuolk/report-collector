@@ -440,6 +440,10 @@ class HKEXDownloader:
                 filtered_results.append(enriched)
 
         logger.info(f"找到 {len(filtered_results)} 個符合條件的財報")
+        for item in filtered_results:
+            logger.debug(
+                f"  [{item.get('language','?')}] {item.get('title','')} | {item.get('web_path','')}"
+            )
         return filtered_results[:limit]
 
     async def _search_via_html(
@@ -451,7 +455,7 @@ class HKEXDownloader:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> List[Dict]:
-        """通過HTML搜索頁面獲取結果（只搜索英文版本）"""
+        """通過HTML搜索頁面獲取結果（同時搜索英文和繁體中文版本）"""
         # 計算日期範圍（過去5年）
         range_end = end_date or datetime.now()
         range_start = start_date or (range_end - timedelta(days=365 * 5))
@@ -468,54 +472,55 @@ class HKEXDownloader:
             t1code = '40000'  # 財務報告類別（年報、中報）
             headline_queries = [""]
 
-        # 只搜索英文界面，獲取英文版本
+        # 同時搜索英文和繁體中文界面
         merged_results: Dict[str, Dict[str, Any]] = {}
 
         try:
             timeout = aiohttp.ClientTimeout(total=60)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                for headline in headline_queries:
-                    form_data = {
-                        'lang': 'EN',  # 使用英文界面獲取英文版本
-                        'category': '0',
-                        'market': 'SEHK',
-                        'searchType': '0',
-                        'documentType': '-1',  # 使用 -1 獲取所有類型，後續過濾
-                        't1code': t1code,
-                        't2Gcode': '-2',
-                        't2code': '-2',
-                        'stockId': stock_id_value,
-                        'from': range_start.strftime('%Y%m%d'),
-                        'to': range_end.strftime('%Y%m%d'),
-                        'headline': headline,
-                        'searchText': '',
-                        'sortDir': '0',
-                        'sortByDate': 'desc',
-                    }
-
-                    async with session.post(
-                        self.search_url,
-                        data=form_data,
-                        headers={
-                            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'Origin': 'https://www1.hkexnews.hk',
-                            'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
+                for lang in ['EN', 'ZH']:
+                    for headline in headline_queries:
+                        form_data = {
+                            'lang': lang,  # 英文或繁體中文界面
+                            'category': '0',
+                            'market': 'SEHK',
+                            'searchType': '0',
+                            'documentType': '-1',  # 使用 -1 獲取所有類型，後續過濾
+                            't1code': t1code,
+                            't2Gcode': '-2',
+                            't2code': '-2',
+                            'stockId': stock_id_value,
+                            'from': range_start.strftime('%Y%m%d'),
+                            'to': range_end.strftime('%Y%m%d'),
+                            'headline': headline,
+                            'searchText': '',
+                            'sortDir': '0',
+                            'sortByDate': 'desc',
                         }
-                    ) as response:
-                        if response.status != 200:
-                            logger.warning(f"搜索請求失敗: {response.status}, headline={headline}")
-                            continue
 
-                        html = await response.text()
-                        results = self._parse_search_html(html, stock_code, report_type)
-                        for item in results:
-                            identity = item.get("web_path") or item.get("pdf_url") or item.get("title")
-                            if identity:
-                                merged_results[identity] = item
+                        async with session.post(
+                            self.search_url,
+                            data=form_data,
+                            headers={
+                                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Origin': 'https://www1.hkexnews.hk',
+                                'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
+                            }
+                        ) as response:
+                            if response.status != 200:
+                                logger.warning(f"搜索請求失敗: {response.status}, lang={lang}, headline={headline}")
+                                continue
 
-            logger.info(f"搜索英文界面找到 {len(merged_results)} 個去重結果")
+                            html = await response.text()
+                            results = self._parse_search_html(html, stock_code, report_type)
+                            for item in results:
+                                identity = item.get("web_path") or item.get("pdf_url") or item.get("title")
+                                if identity:
+                                    merged_results[identity] = item
+
+            logger.info(f"搜索中英文界面共找到 {len(merged_results)} 個去重結果")
 
         except Exception as e:
             logger.error(f"HTML搜索異常: {e}")
@@ -665,6 +670,12 @@ class HKEXDownloader:
                 r"四季度",
             ]
             return any(re.search(pattern, title_lower, re.IGNORECASE) for pattern in quarter_patterns)
+
+        # 年報匹配前，先排除中期/半年度報告（"半年度報告"包含"年度報告"子串會誤判）
+        if report_type == "annual":
+            semi_annual_exclude = ['中期', '半年', 'interim', 'half year', 'half-year', 'six months']
+            if any(kw in title_lower for kw in semi_annual_exclude):
+                return False
 
         keywords = self.CATEGORY_MAP.get(report_type, [])
         for keyword in keywords:
@@ -894,35 +905,39 @@ class HKEXDownloader:
                                    stock_code: str,
                                    report_type: str = 'annual',
                                    max_count: int = 5,
-                                   download_both_languages: bool = False) -> List[str]:
+                                   download_both_languages: bool = True) -> List[Tuple[str, Dict]]:
         """
-        批量下載股票財報（只下載英文版本）
+        批量下載股票財報（同時下載英文和繁體中文版本）
 
         Args:
             stock_code: 股票代碼
             report_type: 報告類型
-            max_count: 最多下載數量
-            download_both_languages: 已廢棄，保留參數以兼容性（現在只下載英文版本）
-        """
-        logger.info(f"開始批量下載 {stock_code} 的 {report_type} 英文報告，最多 {max_count} 個")
+            max_count: 最多下載的報告份數（每份含英文+繁中，共最多 max_count*2 個文件）
+            download_both_languages: 是否下載兩種語言版本（默認 True）
 
-        # 搜索報告（只搜索英文版本）
+        Returns:
+            (filepath, report_data) 元組列表
+        """
+        logger.info(f"開始批量下載 {stock_code} 的 {report_type} 財報（英文+繁中），最多 {max_count} 份")
+
+        # 搜索報告（中英文版本）
         reports = await self.search_reports(
             stock_code=stock_code,
             report_type=report_type,
-            limit=max_count * 2  # 多搜索一些作為備選
+            limit=max_count * 4  # 多搜索，確保中英文各有足夠備選
         )
 
         if not reports:
-            logger.warning(f"未找到 {stock_code} 的 {report_type} 英文報告")
+            logger.warning(f"未找到 {stock_code} 的 {report_type} 財報")
             return []
 
-        # 只保留英文版本
+        # 按語言分組
         english_reports = [r for r in reports if r.get('language') == 'en']
-        
-        logger.info(f"找到 {len(english_reports)} 個英文財報")
+        chinese_reports = [r for r in reports if r.get('language') == 'zh']
 
-        downloaded_files = []
+        logger.info(f"找到英文財報 {len(english_reports)} 個，繁體中文財報 {len(chinese_reports)} 個")
+
+        download_results: List[Tuple[str, Dict]] = []
         downloaded_count = 0
 
         for report in english_reports:
@@ -932,25 +947,41 @@ class HKEXDownloader:
             if not report.get('pdf_url'):
                 continue
 
-            pdf_url = report.get('pdf_url')
-            title = report.get('title', '')
-            
             # 下載英文版本
-            logger.info(f"下載英文財報: {title}")
-            success, message, filepath = await self.download_pdf(pdf_url, report)
-            
+            logger.info(f"下載英文財報: {report.get('title', '')}")
+            success, message, filepath = await self.download_pdf(report.get('pdf_url'), report)
             if success and filepath:
-                downloaded_files.append(filepath)
+                download_results.append((filepath, report))
                 downloaded_count += 1
-                logger.info(f"✓ 下載成功 ({downloaded_count}/{max_count}): {Path(filepath).name}")
+                logger.info(f"✓ 英文下載成功 ({downloaded_count}/{max_count}): {Path(filepath).name}")
             else:
-                logger.warning(f"✗ 下載失敗: {message}")
+                logger.warning(f"✗ 英文下載失敗: {message}")
 
-            # 避免請求過於頻繁
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
-        logger.info(f"批量下載完成，成功下載 {len(downloaded_files)} 個英文財報")
-        return downloaded_files
+        if download_both_languages:
+            zh_count = 0
+            for report in chinese_reports:
+                if zh_count >= max_count:
+                    break
+
+                if not report.get('pdf_url'):
+                    continue
+
+                # 下載繁體中文版本
+                logger.info(f"下載繁體中文財報: {report.get('title', '')}")
+                success, message, filepath = await self.download_pdf(report.get('pdf_url'), report)
+                if success and filepath:
+                    download_results.append((filepath, report))
+                    zh_count += 1
+                    logger.info(f"✓ 繁中下載成功 ({zh_count}/{max_count}): {Path(filepath).name}")
+                else:
+                    logger.warning(f"✗ 繁中下載失敗: {message}")
+
+                await asyncio.sleep(1)
+
+        logger.info(f"批量下載完成，共下載 {len(download_results)} 個文件（英文+繁中）")
+        return download_results
 
     async def search_by_stock_code_web(self, stock_code: str, report_type: str = 'annual',
                                        limit: int = 30) -> List[Dict[str, Any]]:

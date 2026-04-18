@@ -107,6 +107,66 @@ class TestPDFRecordCRUD:
         assert pdf_id2 == pdf_id1
 
     @pytest.mark.asyncio
+    async def test_add_pdf_duplicate_hash_reactivates_unavailable_record(
+        self, pdf_manager, temp_pdf_file, tmp_path
+    ):
+        """测试重复哈希命中旧记录时会恢复可用并刷新关键字段"""
+        old_pdf = tmp_path / "old" / "old_name.pdf"
+        old_pdf.parent.mkdir(parents=True, exist_ok=True)
+        old_pdf.write_bytes(temp_pdf_file.read_bytes())
+
+        first_info = {
+            "stock_code": "09987",
+            "stock_name": "XIAOMI-W",
+            "market": "HK",
+            "report_type": "quarterly",
+            "report_year": 2025,
+            "report_quarter": 3,
+            "announcement_date": datetime(2026, 2, 4, 19, 21),
+            "original_title": "Old title",
+            "file_path": str(old_pdf),
+            "file_name": old_pdf.name,
+            "source_url": "https://old.example/report.pdf",
+            "source_name": "港交所披露易",
+        }
+        pdf_id = await pdf_manager.add_pdf(first_info)
+        assert pdf_id is not None
+
+        async with pdf_manager.async_session() as session:
+            row = await session.get(ReportPDF, pdf_id)
+            assert row is not None
+            row.is_available = False
+            await session.commit()
+
+        new_pdf = tmp_path / "new" / "2025_quarterly_q4_fy_en.pdf"
+        new_pdf.parent.mkdir(parents=True, exist_ok=True)
+        new_pdf.write_bytes(temp_pdf_file.read_bytes())  # 相同内容，保证 hash 一致
+
+        second_info = {
+            "stock_code": "09987",
+            "stock_name": "XIAOMI-W",
+            "market": "HK",
+            "report_type": "quarterly",
+            "report_year": 2025,
+            "report_quarter": 4,
+            "announcement_date": datetime(2026, 2, 4, 19, 21),
+            "original_title": "Announcement of the 2025 Q4 and Full Year Financial Results",
+            "file_path": str(new_pdf),
+            "file_name": new_pdf.name,
+            "source_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0204/2026020401950.pdf",
+            "source_name": "港交所披露易",
+        }
+        same_id = await pdf_manager.add_pdf(second_info)
+        assert same_id == pdf_id
+
+        refreshed = await pdf_manager.get_pdf_by_id(pdf_id)
+        assert refreshed is not None
+        assert refreshed["is_available"] is True
+        assert refreshed["file_path"] == str(new_pdf)
+        assert refreshed["file_name"] == "2025_quarterly_q4_fy_en.pdf"
+        assert refreshed["report_quarter"] == 4
+
+    @pytest.mark.asyncio
     async def test_get_pdf_by_id_exists(self, pdf_manager, temp_pdf_file):
         """测试根据ID获取存在的PDF"""
         pdf_info = {

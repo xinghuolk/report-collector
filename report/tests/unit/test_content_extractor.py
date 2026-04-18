@@ -191,6 +191,29 @@ class TestMetadataExtraction:
 
         assert metadata.stock_code == "00700"
 
+    def test_extract_hk_stock_code_fallback_from_path(self):
+        """测试英文报告中股票代码误命中时，从路径回填代码"""
+        self.extractor.full_text = ("A" * 21000) + " listed on the Hong Kong Stock Exchange (stock code: 1398)"
+        self.extractor.is_english_report = True
+        self.extractor.current_pdf_path = Path(
+            "/tmp/downloads/hk_stocks/09987/semi_annual/2025_semi_annual_en.pdf"
+        )
+
+        with patch.object(self.extractor, 'current_pdf_path') as mock_path:
+            mock_path.stat.return_value.st_size = 1024
+            mock_path.name = "2025_semi_annual_en.pdf"
+            mock_path.__str__.return_value = (
+                "/tmp/downloads/hk_stocks/09987/semi_annual/2025_semi_annual_en.pdf"
+            )
+
+            with patch('src.pdf_parser.content_extractor.PdfReader') as mock_reader:
+                mock_reader.return_value.metadata = None
+                mock_reader.return_value.pages = [1]
+
+                metadata = self.extractor._extract_metadata()
+
+        assert metadata.stock_code == "09987"
+
     def test_extract_report_type_annual_cn(self):
         """测试识别中文年报"""
         self.extractor.full_text = "2023年年度报告"
@@ -244,6 +267,28 @@ class TestMetadataExtraction:
                 metadata = self.extractor._extract_metadata()
 
         assert metadata.report_type == "annual"
+
+    def test_extract_metadata_prefers_rmb_thousand_unit(self):
+        """测试含 RMB'000 时优先识别为 CNY + million 口径"""
+        self.extractor.full_text = (
+            "This report references HK$ for share capital. "
+            "Consolidated statement (RMB’000) and Profit for the year."
+        )
+        self.extractor.is_english_report = True
+        self.extractor.current_pdf_path = Path("/test/2024_annual_en.pdf")
+
+        with patch.object(self.extractor, 'current_pdf_path') as mock_path:
+            mock_path.stat.return_value.st_size = 1024
+            mock_path.name = "2024_annual_en.pdf"
+
+            with patch('src.pdf_parser.content_extractor.PdfReader') as mock_reader:
+                mock_reader.return_value.metadata = None
+                mock_reader.return_value.pages = [1]
+
+                metadata = self.extractor._extract_metadata()
+
+        assert metadata.currency == "CNY"
+        assert metadata.amount_unit == "million"
 
     def test_extract_q4_full_year_results_as_quarterly(self):
         """测试 Q4+全年业绩公告优先识别为季度结果公告"""
@@ -588,6 +633,29 @@ class TestPatternMatching:
         result = self.extractor._find_value('revenue')
         assert result == 1234567890
 
+    def test_find_revenue_en_ignores_gross_revenue_section(self):
+        """测试英文回退时跳过 gross revenue 分部统计文本"""
+        self.extractor.full_text = (
+            "Total number of restaurants / total revenue\n"
+            "gross revenue 1,322 18,570,709 100%\n"
+            "Total Revenues: 18,570,709"
+        )
+        self.extractor.is_english_report = True
+
+        result = self.extractor._find_value('revenue')
+        assert result == 18570709
+
+    def test_find_revenue_en_bilingual_statement_with_rmb_thousand(self):
+        """测试双语主报表收入行 + RMB'000 单位缩放"""
+        self.extractor.full_text = (
+            "RMB’000\n"
+            "Revenue 收入 20,703,294 21,490,903"
+        )
+        self.extractor.is_english_report = True
+
+        result = self.extractor._find_value('revenue')
+        assert result == pytest.approx(20703.294, rel=1e-6)
+
     def test_find_net_profit_cn(self):
         """测试匹配中文净利润"""
         self.extractor.full_text = "归属于母公司股东的净利润：100,000,000"
@@ -603,6 +671,47 @@ class TestPatternMatching:
 
         result = self.extractor._find_value('net_profit')
         assert result == 100000000
+
+    def test_find_net_profit_en_ignores_note_heading_number(self):
+        """测试英文回退时跳过章节标题编号误命中"""
+        self.extractor.full_text = (
+            "11. PROFIT FOR THE YEAR 11. 年內溢利\n"
+            "Net Profit: 4,708,084"
+        )
+        self.extractor.is_english_report = True
+
+        result = self.extractor._find_value('net_profit')
+        assert result == 4708084
+
+    def test_find_net_profit_en_note_heading_only_returns_none(self):
+        """测试仅有章节标题时不返回错误小数字"""
+        self.extractor.full_text = "11. PROFIT FOR THE YEAR 11. 年內溢利"
+        self.extractor.is_english_report = True
+
+        result = self.extractor._find_value('net_profit')
+        assert result is None
+
+    def test_find_net_profit_en_bilingual_skips_note_number_and_scales(self):
+        """测试双语净利行跳过注释编号并按 RMB'000 缩放"""
+        self.extractor.full_text = (
+            "RMB’000\n"
+            "Profit for the year 年內溢利 11 4,700,278 4,495,399"
+        )
+        self.extractor.is_english_report = True
+
+        result = self.extractor._find_value('net_profit')
+        assert result == pytest.approx(4700.278, rel=1e-6)
+
+    def test_find_eps_en_ignores_non_per_share_large_number(self):
+        """测试 EPS 过滤明显非每股口径的大数字"""
+        self.extractor.full_text = (
+            "Earnings for the purpose of basic earnings per share 4,708,084\n"
+            "EPS: 0.87"
+        )
+        self.extractor.is_english_report = True
+
+        result = self.extractor._find_value('eps')
+        assert result == 0.87
 
     def test_find_total_assets_cn(self):
         """测试匹配中文总资产"""

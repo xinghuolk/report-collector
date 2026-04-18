@@ -2,6 +2,7 @@
 财报PDF收集MCP服务器主入口
 """
 import asyncio
+import json
 import sys
 from typing import Dict, List, Optional, Any
 from mcp.server import Server
@@ -279,7 +280,11 @@ class FinancialReportsPDFServer:
                 ),
                 Tool(
                     name="extract_pdf_content",
-                    description="提取财报PDF的结构化财务数据（支持缓存，首次提取约20秒，后续秒级返回）。包括：利润表(营业收入、净利润、扣非净利润、研发费用等)、资产负债表(总资产、应收账款、存货、商誉、无形资产等)、现金流量表、关联交易明细。返回结果包含_cache_info字段标识缓存状态。",
+                    description=(
+                        "提取财报PDF的结构化财务数据（默认返回 V2 三层结构：document/periods/facts，"
+                        "并包含 evidence、quality、_cache_info）。支持 schema_version=v1|v2，"
+                        "以及 min_confidence 过滤低置信度 facts。"
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -295,6 +300,18 @@ class FinancialReportsPDFServer:
                                 "type": "boolean",
                                 "description": "强制重新提取（忽略缓存）",
                                 "default": False
+                            },
+                            "schema_version": {
+                                "type": "string",
+                                "enum": ["v1", "v2"],
+                                "description": "返回结构版本，默认 v2",
+                                "default": "v2"
+                            },
+                            "min_confidence": {
+                                "type": "number",
+                                "description": "仅在 v2 生效，过滤低于阈值的 facts（0-1）",
+                                "minimum": 0,
+                                "maximum": 1
                             }
                         }
                     }
@@ -455,7 +472,9 @@ class FinancialReportsPDFServer:
                     result = await self.pdf_handler.extract_pdf_content(
                         pdf_path=arguments.get("pdf_path"),
                         pdf_id=arguments.get("pdf_id"),
-                        force_refresh=arguments.get("force_refresh", False)
+                        force_refresh=arguments.get("force_refresh", False),
+                        schema_version=arguments.get("schema_version", "v2"),
+                        min_confidence=arguments.get("min_confidence"),
                     )
                 elif name == "extract_pdf_tables":
                     result = await self.pdf_handler.extract_tables(
@@ -482,24 +501,18 @@ class FinancialReportsPDFServer:
                 else:
                     result = {"success": False, "error": f"未知工具: {name}"}
                     
-                # 格式化返回结果
-                if result.get("success"):
-                    import json
-                    return [TextContent(
-                        type="text", 
-                        text=json.dumps(result, ensure_ascii=False, indent=2)
-                    )]
-                else:
-                    return [TextContent(
-                        type="text",
-                        text=f"错误: {result.get('error', '未知错误')}"
-                    )]
+                # 统一返回 JSON 文本，便于 MCP 客户端稳定解析
+                return [TextContent(
+                    type="text",
+                    text=json.dumps(result, ensure_ascii=False, indent=2)
+                )]
                     
             except Exception as e:
                 logger.error(f"工具调用失败 {name}: {e}")
+                error_payload = {"success": False, "error": f"服务器错误: {str(e)}"}
                 return [TextContent(
                     type="text",
-                    text=f"服务器错误: {str(e)}"
+                    text=json.dumps(error_payload, ensure_ascii=False, indent=2)
                 )]
                 
     async def initialize(self):

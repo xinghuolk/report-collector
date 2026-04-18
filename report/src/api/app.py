@@ -51,7 +51,7 @@ def create_app() -> FastAPI:
 * A股: 巨潮资讯网 (cninfo.com.cn)
 * 港股: 港交所披露易 (hkexnews.hk)
         """,
-        version="1.0.0",
+        version="1.1.0",
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
@@ -88,7 +88,7 @@ def create_app() -> FastAPI:
         """根路径"""
         return {
             "service": "财报收集API服务",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "docs": "/docs",
             "health": "/health",
         }

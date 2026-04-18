@@ -502,23 +502,16 @@ class PDFHandler:
                 }
 
             elif market == "HK":
-                # 下载港股财报
-                downloaded_files = await self.hk_downloader.download_stock_reports(
+                # 下载港股财报（英文+繁体中文）
+                download_results = await self.hk_downloader.download_stock_reports(
                     stock_code, report_type, max_count
                 )
 
-                reports = await self.hk_downloader.search_reports(
-                    stock_code=stock_code,
-                    report_type=report_type,
-                    limit=max_count,
-                )
-                english_reports = [r for r in reports if r.get("language") == "en"]
-
                 # 批量添加到数据库
                 pdf_ids = []
-                for idx, file_path in enumerate(downloaded_files):
-                    matched_report = english_reports[idx] if idx < len(english_reports) else None
-
+                downloaded_files = []
+                for file_path, matched_report in download_results:
+                    downloaded_files.append(file_path)
                     announcement_date = (
                         self._parse_hk_release_time(matched_report.get("release_time"))
                         if matched_report
@@ -585,11 +578,27 @@ class PDFHandler:
                 sort_by=sort_by,
                 sort_order=sort_order,
             )
-            
+
+            valid_pdfs: List[Dict[str, Any]] = []
+            missing_ids: List[int] = []
+            for pdf in pdfs:
+                if Path(pdf["file_path"]).exists():
+                    valid_pdfs.append(pdf)
+                else:
+                    missing_ids.append(int(pdf["id"]))
+
+            cleaned_missing = 0
+            if missing_ids:
+                cleaned_missing = await self.pdf_manager.mark_pdfs_unavailable(missing_ids)
+                logger.warning(
+                    f"检测到 {len(missing_ids)} 条孤儿PDF记录，已标记不可用 {cleaned_missing} 条"
+                )
+
             return {
                 "success": True,
-                "data": pdfs,
-                "count": len(pdfs)
+                "data": valid_pdfs,
+                "count": len(valid_pdfs),
+                "missing_file_records_cleaned": cleaned_missing,
             }
             
         except Exception as e:
@@ -630,6 +639,63 @@ class PDFHandler:
             logger.error(f"清理旧文件失败: {e}")
             return {"success": False, "error": str(e)}
 
+    async def _resolve_input_file_path(
+        self, pdf_path: Optional[str], pdf_id: Optional[int]
+    ) -> tuple[Optional[Path], Optional[str]]:
+        """统一解析提取入口的 PDF 路径，并自动清理孤儿记录"""
+        if pdf_path:
+            file_path = Path(pdf_path)
+            if not file_path.exists():
+                return None, f"PDF文件不存在: {file_path}"
+            return file_path, None
+
+        if pdf_id:
+            pdf_info = await self.pdf_manager.get_pdf_by_id(pdf_id)
+            if not pdf_info:
+                return None, f"未找到ID为{pdf_id}的PDF记录"
+
+            file_path = Path(pdf_info["file_path"])
+            if not file_path.exists():
+                await self.pdf_manager.mark_pdfs_unavailable([pdf_id])
+                return (
+                    None,
+                    f"PDF文件不存在: {file_path}；该记录已标记为不可用，请重新下载后再提取",
+                )
+            return file_path, None
+
+        return None, "请提供pdf_path或pdf_id参数"
+
+    @staticmethod
+    def _apply_pdf_identity_context(
+        result: Dict[str, Any],
+        pdf_info: Optional[Dict[str, Any]],
+    ) -> None:
+        """用 PDF 记录上下文纠正提取结果身份字段（特别是 stock_code）。"""
+        if not result.get("success") or not pdf_info:
+            return
+
+        stock_code = pdf_info.get("stock_code")
+        stock_name = pdf_info.get("stock_name")
+        market = pdf_info.get("market")
+
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            if stock_code:
+                metadata["stock_code"] = stock_code
+            if stock_name and not metadata.get("stock_name"):
+                metadata["stock_name"] = stock_name
+            if market and not metadata.get("market"):
+                metadata["market"] = market
+
+        document = result.get("document")
+        if isinstance(document, dict):
+            if stock_code:
+                document["stock_code"] = stock_code
+            if stock_name and not document.get("stock_name"):
+                document["stock_name"] = stock_name
+            if market and not document.get("market"):
+                document["market"] = market
+
     async def extract_pdf_content(self, pdf_path: str = None,
                                   pdf_id: int = None,
                                   force_refresh: bool = False,
@@ -648,20 +714,13 @@ class PDFHandler:
         """
         try:
             schema_version = self._normalize_schema_version(schema_version)
-
-            # 确定PDF路径
-            if pdf_path:
-                file_path = Path(pdf_path)
-            elif pdf_id:
+            pdf_info: Optional[Dict[str, Any]] = None
+            if pdf_id:
                 pdf_info = await self.pdf_manager.get_pdf_by_id(pdf_id)
-                if not pdf_info:
-                    return {"success": False, "error": f"未找到ID为{pdf_id}的PDF记录"}
-                file_path = Path(pdf_info['file_path'])
-            else:
-                return {"success": False, "error": "请提供pdf_path或pdf_id参数"}
-
-            if not file_path.exists():
-                return {"success": False, "error": f"PDF文件不存在: {file_path}"}
+            file_path, resolve_error = await self._resolve_input_file_path(pdf_path, pdf_id)
+            if resolve_error:
+                return {"success": False, "error": resolve_error}
+            assert file_path is not None
 
             # 计算文件哈希
             file_hash = await self.pdf_manager.calculate_file_hash(file_path)
@@ -674,6 +733,7 @@ class PDFHandler:
                 )
                 if cached_result:
                     logger.info(f"缓存命中: {file_path.name}")
+                    self._apply_pdf_identity_context(cached_result, pdf_info)
                     cached_result['file_path'] = str(file_path)
                     return self._apply_min_confidence_filter(cached_result, min_confidence)
 
@@ -686,6 +746,7 @@ class PDFHandler:
             extraction_duration_ms = int((time.time() - start_time) * 1000)
 
             if result.get("success"):
+                self._apply_pdf_identity_context(result, pdf_info)
                 # V2 始终写缓存（主结构）
                 await self.pdf_manager.save_extraction_cache(
                     file_hash=file_hash,
@@ -790,19 +851,10 @@ class PDFHandler:
             包含所有表格数据的字典
         """
         try:
-            # 确定PDF路径
-            if pdf_path:
-                file_path = Path(pdf_path)
-            elif pdf_id:
-                pdf_info = await self.pdf_manager.get_pdf_by_id(pdf_id)
-                if not pdf_info:
-                    return {"success": False, "error": f"未找到ID为{pdf_id}的PDF记录"}
-                file_path = Path(pdf_info['file_path'])
-            else:
-                return {"success": False, "error": "请提供pdf_path或pdf_id参数"}
-
-            if not file_path.exists():
-                return {"success": False, "error": f"PDF文件不存在: {file_path}"}
+            file_path, resolve_error = await self._resolve_input_file_path(pdf_path, pdf_id)
+            if resolve_error:
+                return {"success": False, "error": resolve_error}
+            assert file_path is not None
 
             # 提取表格
             tables = self.content_extractor.extract_tables_raw(str(file_path))
@@ -833,19 +885,10 @@ class PDFHandler:
             包含全部文本的字典
         """
         try:
-            # 确定PDF路径
-            if pdf_path:
-                file_path = Path(pdf_path)
-            elif pdf_id:
-                pdf_info = await self.pdf_manager.get_pdf_by_id(pdf_id)
-                if not pdf_info:
-                    return {"success": False, "error": f"未找到ID为{pdf_id}的PDF记录"}
-                file_path = Path(pdf_info['file_path'])
-            else:
-                return {"success": False, "error": "请提供pdf_path或pdf_id参数"}
-
-            if not file_path.exists():
-                return {"success": False, "error": f"PDF文件不存在: {file_path}"}
+            file_path, resolve_error = await self._resolve_input_file_path(pdf_path, pdf_id)
+            if resolve_error:
+                return {"success": False, "error": resolve_error}
+            assert file_path is not None
 
             # 提取文本
             text = self.content_extractor.extract_text_full(str(file_path))
