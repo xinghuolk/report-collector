@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 `report/` 子项目内落地一个可复用的财报分析 Python 包，支持 A 股与港股英文财报的事实账本、TTM、证据链、校验与对外 adapter。
+**Goal:** 在仓库根目录下落地一个平级的 `financial-report-analysis/` Python 子项目，支持 A 股与港股英文财报的事实账本、TTM、证据链、校验与对外 adapter。
 
-**Architecture:** 新实现不继续堆在 `src/pdf_parser/content_extractor.py` 上，而是在 `report/src/financial_report_analysis/` 下建立独立领域包。该包通过 `models + registries + skills/services + pipeline + adapters` 组织，再由现有 FastAPI 路由和 `PDFHandler` 以兼容方式接入。第一阶段以内存/文件级持久化接口和关系型友好的数据契约为主，先把事实模型、质量闸门和接入边界打稳。
+**Architecture:** 新实现不继续堆在 `report/src/pdf_parser/content_extractor.py` 上，而是在仓库根目录新增独立子项目 `financial-report-analysis/`，其内部使用 `src/financial_report_analysis/` 作为 Python 包根。该包通过 `models + registries + services + pipeline + adapters` 组织，再由现有 `report/` 项目的 FastAPI 路由和 `PDFHandler` 以适配方式接入。第一阶段以内存/文件级持久化接口和关系型友好的数据契约为主，先把事实模型、质量闸门和接入边界打稳。
 
 **Tech Stack:** Python 3.10, Pydantic v2, FastAPI, pytest, Ruff, mypy, existing `report/` project tooling
 
@@ -14,69 +14,70 @@
 
 ### New package layout
 
-- Create: `report/src/financial_report_analysis/__init__.py`
+- Create: `financial-report-analysis/pyproject.toml`
+  - 定义独立 Python 子项目与测试依赖。
+- Create: `financial-report-analysis/src/financial_report_analysis/__init__.py`
   - 对外导出 `analyze_report` 与核心查询入口。
-- Create: `report/src/financial_report_analysis/models/`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/`
   - 放 `DocumentBlock`、`Period`、`MetricRegistryEntry`、`EvidenceItem`、`EvidenceBundle`、`CandidateFact`、`CanonicalFact`、`DerivedFact`、`ValidationIssue`、`ValidationReport`、`AnalysisSnapshot`、`FactSetRef`。
-- Create: `report/src/financial_report_analysis/registries/metric_registry.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/registries/metric_registry.py`
   - 标准 metric 命中、自定义 metric provisional 注册、shadow merge。
-- Create: `report/src/financial_report_analysis/registries/period_registry.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/registries/period_registry.py`
   - `Period` 查找/注册、标准期间归并。
-- Create: `report/src/financial_report_analysis/unit_policy.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/unit_policy.py`
   - 统一原始单位、规范计算单位、展示单位。
-- Create: `report/src/financial_report_analysis/services/`
+- Create: `financial-report-analysis/src/financial_report_analysis/services/`
   - `document_normalizer.py`
   - `fact_normalizer.py`
   - `conflict_resolver.py`
   - `derivation_service.py`
   - `validation_service.py`
   - `analysis_service.py`
-- Create: `report/src/financial_report_analysis/pipeline.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/pipeline.py`
   - 编排主流程：`document -> blocks -> candidate -> normalized -> canonical -> derived -> validation -> snapshot`
-- Create: `report/src/financial_report_analysis/adapters/report_adapter.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/adapters/report_adapter.py`
   - 面向 `TradingAgents-CN` 的受控查询与 `quality_gate` 聚合。
-- Create: `report/src/financial_report_analysis/storage/`
+- Create: `financial-report-analysis/src/financial_report_analysis/storage/`
   - `artifacts.py`：对象存储引用模型
   - `repositories.py`：先定义协议接口和内存实现
 
 ### Existing files to modify
 
 - Modify: `report/src/handlers/pdf_handler.py`
-  - 增加新 pipeline 调用入口，保持旧 extractor 接口兼容。
+  - 增加对独立分析子项目的调用入口，保持旧 extractor 接口兼容。
 - Modify: `report/src/api/routes/extract.py`
   - 增加面向新 pipeline 的分析接口或 schema 版本入口。
 - Modify: `report/src/api/schemas/extract.py`
   - 增加 `AnalysisResult`、`CanonicalFactSet`、`ValidationReport` 等 API schema。
-- Modify: `report/src/__init__.py`
-  - 导出新包入口。
 
 ### Tests
 
-- Create: `report/tests/unit/financial_report_analysis/test_models.py`
-- Create: `report/tests/unit/financial_report_analysis/test_metric_registry.py`
-- Create: `report/tests/unit/financial_report_analysis/test_period_registry.py`
-- Create: `report/tests/unit/financial_report_analysis/test_unit_policy.py`
-- Create: `report/tests/unit/financial_report_analysis/test_fact_pipeline.py`
-- Create: `report/tests/unit/financial_report_analysis/test_report_adapter.py`
+- Create: `financial-report-analysis/tests/unit/test_models.py`
+- Create: `financial-report-analysis/tests/unit/test_metric_registry.py`
+- Create: `financial-report-analysis/tests/unit/test_period_registry.py`
+- Create: `financial-report-analysis/tests/unit/test_unit_policy.py`
+- Create: `financial-report-analysis/tests/unit/test_fact_pipeline.py`
+- Create: `financial-report-analysis/tests/unit/test_report_adapter.py`
 - Create: `report/tests/integration/test_financial_report_analysis_api.py`
 
 ## Task 1: 建立领域包骨架与核心模型
 
 **Files:**
-- Create: `report/src/financial_report_analysis/__init__.py`
-- Create: `report/src/financial_report_analysis/models/__init__.py`
-- Create: `report/src/financial_report_analysis/models/common.py`
-- Create: `report/src/financial_report_analysis/models/document.py`
-- Create: `report/src/financial_report_analysis/models/evidence.py`
-- Create: `report/src/financial_report_analysis/models/facts.py`
-- Create: `report/tests/unit/financial_report_analysis/test_models.py`
+- Create: `financial-report-analysis/pyproject.toml`
+- Create: `financial-report-analysis/src/financial_report_analysis/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/common.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/document.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/evidence.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/facts.py`
+- Create: `financial-report-analysis/tests/unit/test_models.py`
 
 - [ ] **Step 1: 写失败测试，固定 `Period / EvidenceBundle / Fact` 最小契约**
 
 ```python
-from src.financial_report_analysis.models.document import Period
-from src.financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
-from src.financial_report_analysis.models.facts import CandidateFact, CanonicalFact
+from financial_report_analysis.models.document import Period
+from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
+from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 
 
 def test_canonical_fact_business_key_is_stable() -> None:
@@ -163,14 +164,14 @@ def test_period_point_requires_as_of_date() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_models.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_models.py -v`
 
-Expected: FAIL，提示 `ModuleNotFoundError: No module named 'src.financial_report_analysis'`
+Expected: FAIL，提示 `ModuleNotFoundError: No module named 'financial_report_analysis'`
 
 - [ ] **Step 3: 写最小实现，落地模型与导出**
 
 ```python
-# report/src/financial_report_analysis/models/facts.py
+# financial-report-analysis/src/financial_report_analysis/models/facts.py
 from pydantic import BaseModel, computed_field
 
 
@@ -231,7 +232,7 @@ class CanonicalFact(BaseFact):
 ```
 
 ```python
-# report/src/financial_report_analysis/__init__.py
+# financial-report-analysis/src/financial_report_analysis/__init__.py
 from .models.facts import CandidateFact, CanonicalFact
 
 __all__ = ["CandidateFact", "CanonicalFact"]
@@ -239,34 +240,34 @@ __all__ = ["CandidateFact", "CanonicalFact"]
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_models.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_models.py -v`
 
 Expected: PASS，3 passed
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/src/financial_report_analysis report/tests/unit/financial_report_analysis/test_models.py
+git add financial-report-analysis/pyproject.toml financial-report-analysis/src/financial_report_analysis financial-report-analysis/tests/unit/test_models.py
 git commit -m "feat: add financial report analysis domain models"
 ```
 
 ## Task 2: 实现 PeriodRegistry、MetricRegistry 与 UnitPolicy
 
 **Files:**
-- Create: `report/src/financial_report_analysis/registries/__init__.py`
-- Create: `report/src/financial_report_analysis/registries/period_registry.py`
-- Create: `report/src/financial_report_analysis/registries/metric_registry.py`
-- Create: `report/src/financial_report_analysis/unit_policy.py`
-- Create: `report/tests/unit/financial_report_analysis/test_period_registry.py`
-- Create: `report/tests/unit/financial_report_analysis/test_metric_registry.py`
-- Create: `report/tests/unit/financial_report_analysis/test_unit_policy.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/registries/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/registries/period_registry.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/registries/metric_registry.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/unit_policy.py`
+- Create: `financial-report-analysis/tests/unit/test_period_registry.py`
+- Create: `financial-report-analysis/tests/unit/test_metric_registry.py`
+- Create: `financial-report-analysis/tests/unit/test_unit_policy.py`
 
 - [ ] **Step 1: 写失败测试，固定期间归并、custom metric provisional 注册、单位换算**
 
 ```python
-from src.financial_report_analysis.registries.metric_registry import MetricRegistry
-from src.financial_report_analysis.registries.period_registry import PeriodRegistry
-from src.financial_report_analysis.unit_policy import UnitPolicy
+from financial_report_analysis.registries.metric_registry import MetricRegistry
+from financial_report_analysis.registries.period_registry import PeriodRegistry
+from financial_report_analysis.unit_policy import UnitPolicy
 
 
 def test_period_registry_reuses_existing_standard_period() -> None:
@@ -328,14 +329,14 @@ def test_unit_policy_separates_compute_and_presentation_units() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_period_registry.py report/tests/unit/financial_report_analysis/test_metric_registry.py report/tests/unit/financial_report_analysis/test_unit_policy.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_period_registry.py tests/unit/test_metric_registry.py tests/unit/test_unit_policy.py -v`
 
 Expected: FAIL，提示 `ModuleNotFoundError` 或缺少 `get_or_create_duration` / `resolve_metric` / `normalize_report_value`
 
 - [ ] **Step 3: 写最小实现**
 
 ```python
-# report/src/financial_report_analysis/registries/period_registry.py
+# financial-report-analysis/src/financial_report_analysis/registries/period_registry.py
 from dataclasses import dataclass
 
 from ..models.document import Period
@@ -378,7 +379,7 @@ class PeriodRegistry:
 ```
 
 ```python
-# report/src/financial_report_analysis/unit_policy.py
+# financial-report-analysis/src/financial_report_analysis/unit_policy.py
 from dataclasses import dataclass
 
 
@@ -419,35 +420,35 @@ class UnitPolicy:
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_period_registry.py report/tests/unit/financial_report_analysis/test_metric_registry.py report/tests/unit/financial_report_analysis/test_unit_policy.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_period_registry.py tests/unit/test_metric_registry.py tests/unit/test_unit_policy.py -v`
 
 Expected: PASS，所有 registry / unit policy 测试通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/src/financial_report_analysis/registries report/src/financial_report_analysis/unit_policy.py report/tests/unit/financial_report_analysis/test_period_registry.py report/tests/unit/financial_report_analysis/test_metric_registry.py report/tests/unit/financial_report_analysis/test_unit_policy.py
+git add financial-report-analysis/src/financial_report_analysis/registries financial-report-analysis/src/financial_report_analysis/unit_policy.py financial-report-analysis/tests/unit/test_period_registry.py financial-report-analysis/tests/unit/test_metric_registry.py financial-report-analysis/tests/unit/test_unit_policy.py
 git commit -m "feat: add registries and unit policy for report analysis"
 ```
 
 ## Task 3: 实现 Normalizer、Resolver、Derivation、Validation 服务
 
 **Files:**
-- Create: `report/src/financial_report_analysis/services/__init__.py`
-- Create: `report/src/financial_report_analysis/services/fact_normalizer.py`
-- Create: `report/src/financial_report_analysis/services/conflict_resolver.py`
-- Create: `report/src/financial_report_analysis/services/derivation_service.py`
-- Create: `report/src/financial_report_analysis/services/validation_service.py`
-- Create: `report/tests/unit/financial_report_analysis/test_fact_pipeline.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/services/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/services/fact_normalizer.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/services/conflict_resolver.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/services/derivation_service.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/services/validation_service.py`
+- Create: `financial-report-analysis/tests/unit/test_fact_pipeline.py`
 
 - [ ] **Step 1: 写失败测试，固定 normalized/canonical/derived 的边界**
 
 ```python
-from src.financial_report_analysis.models.facts import CandidateFact
-from src.financial_report_analysis.services.conflict_resolver import ConflictResolver
-from src.financial_report_analysis.services.derivation_service import DerivationService
-from src.financial_report_analysis.services.fact_normalizer import FactNormalizer
-from src.financial_report_analysis.services.validation_service import ValidationService
+from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
+from financial_report_analysis.services.conflict_resolver import ConflictResolver
+from financial_report_analysis.services.derivation_service import DerivationService
+from financial_report_analysis.services.fact_normalizer import FactNormalizer
+from financial_report_analysis.services.validation_service import ValidationService
 
 
 def test_normalizer_sets_standard_metric_and_currency() -> None:
@@ -602,14 +603,14 @@ def test_validation_flags_missing_ttm_dependency() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_fact_pipeline.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_fact_pipeline.py -v`
 
 Expected: FAIL，提示服务类或方法不存在
 
 - [ ] **Step 3: 写最小实现**
 
 ```python
-# report/src/financial_report_analysis/services/conflict_resolver.py
+# financial-report-analysis/src/financial_report_analysis/services/conflict_resolver.py
 from ..models.facts import CanonicalFact, CandidateFact
 
 
@@ -662,7 +663,7 @@ class ConflictResolver:
 ```
 
 ```python
-# report/src/financial_report_analysis/services/derivation_service.py
+# financial-report-analysis/src/financial_report_analysis/services/derivation_service.py
 from ..models.facts import CanonicalFact, DerivedFact
 
 
@@ -700,30 +701,30 @@ class DerivationService:
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_fact_pipeline.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_fact_pipeline.py -v`
 
 Expected: PASS，normalized / canonical / derived / validation 路径通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/src/financial_report_analysis/services report/tests/unit/financial_report_analysis/test_fact_pipeline.py
+git add financial-report-analysis/src/financial_report_analysis/services financial-report-analysis/tests/unit/test_fact_pipeline.py
 git commit -m "feat: add fact normalization resolution and derivation services"
 ```
 
 ## Task 4: 编排主 Pipeline，并接入 Document/Evidence/FactSet 引用
 
 **Files:**
-- Create: `report/src/financial_report_analysis/storage/artifacts.py`
-- Create: `report/src/financial_report_analysis/storage/repositories.py`
-- Create: `report/src/financial_report_analysis/pipeline.py`
-- Modify: `report/src/financial_report_analysis/__init__.py`
-- Modify: `report/tests/unit/financial_report_analysis/test_fact_pipeline.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/storage/artifacts.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/storage/repositories.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/pipeline.py`
+- Modify: `financial-report-analysis/src/financial_report_analysis/__init__.py`
+- Modify: `financial-report-analysis/tests/unit/test_fact_pipeline.py`
 
 - [ ] **Step 1: 写失败测试，固定 pipeline 输出 `canonical_fact_set_id / derived_fact_set_id / validation_report_id`**
 
 ```python
-from src.financial_report_analysis.pipeline import analyze_report
+from financial_report_analysis.pipeline import analyze_report
 
 
 def test_pipeline_returns_fact_sets_and_quality_gate() -> None:
@@ -770,14 +771,14 @@ def test_pipeline_returns_fact_sets_and_quality_gate() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_fact_pipeline.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_fact_pipeline.py -v`
 
 Expected: FAIL，提示 `analyze_report` 不存在或返回对象缺少字段
 
 - [ ] **Step 3: 写最小实现**
 
 ```python
-# report/src/financial_report_analysis/pipeline.py
+# financial-report-analysis/src/financial_report_analysis/pipeline.py
 from dataclasses import dataclass
 
 from .models.facts import CandidateFact
@@ -821,28 +822,28 @@ def analyze_report(document_ref: dict, extracted_payload: dict) -> PipelineResul
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_fact_pipeline.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_fact_pipeline.py -v`
 
 Expected: PASS，主 pipeline 返回稳定 fact set 引用
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/src/financial_report_analysis/pipeline.py report/src/financial_report_analysis/storage report/src/financial_report_analysis/__init__.py report/tests/unit/financial_report_analysis/test_fact_pipeline.py
+git add financial-report-analysis/src/financial_report_analysis/pipeline.py financial-report-analysis/src/financial_report_analysis/storage financial-report-analysis/src/financial_report_analysis/__init__.py financial-report-analysis/tests/unit/test_fact_pipeline.py
 git commit -m "feat: add financial report analysis pipeline orchestration"
 ```
 
 ## Task 5: 实现面向调用方的 ReportAdapter 与质量闸门
 
 **Files:**
-- Create: `report/src/financial_report_analysis/adapters/__init__.py`
-- Create: `report/src/financial_report_analysis/adapters/report_adapter.py`
-- Create: `report/tests/unit/financial_report_analysis/test_report_adapter.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/adapters/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/adapters/report_adapter.py`
+- Create: `financial-report-analysis/tests/unit/test_report_adapter.py`
 
 - [ ] **Step 1: 写失败测试，固定 `TradingAgents-CN` 需要的受控接口**
 
 ```python
-from src.financial_report_analysis.adapters.report_adapter import ReportAdapter
+from financial_report_analysis.adapters.report_adapter import ReportAdapter
 
 
 def test_report_adapter_exposes_only_curated_fields() -> None:
@@ -867,14 +868,14 @@ def test_report_adapter_exposes_only_curated_fields() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_report_adapter.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_report_adapter.py -v`
 
 Expected: FAIL，提示 `ReportAdapter` 或 `build_analysis_result` 不存在
 
 - [ ] **Step 3: 写最小实现**
 
 ```python
-# report/src/financial_report_analysis/adapters/report_adapter.py
+# financial-report-analysis/src/financial_report_analysis/adapters/report_adapter.py
 class ReportAdapter:
     def build_analysis_result(self, *, document: dict, pipeline_result: dict) -> dict:
         canonical_facts = pipeline_result.get("canonical_facts", [])
@@ -899,20 +900,21 @@ class ReportAdapter:
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis/test_report_adapter.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_report_adapter.py -v`
 
 Expected: PASS，adapter 输出不泄漏 candidate 层数据
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/src/financial_report_analysis/adapters report/tests/unit/financial_report_analysis/test_report_adapter.py
+git add financial-report-analysis/src/financial_report_analysis/adapters financial-report-analysis/tests/unit/test_report_adapter.py
 git commit -m "feat: add report analysis adapter and quality gate"
 ```
 
 ## Task 6: 将新包接入现有 `PDFHandler` 与 FastAPI 路由
 
 **Files:**
+- Modify: `report/pyproject.toml`
 - Modify: `report/src/handlers/pdf_handler.py`
 - Modify: `report/src/api/routes/extract.py`
 - Modify: `report/src/api/schemas/extract.py`
@@ -948,7 +950,7 @@ def test_extract_analysis_endpoint_returns_quality_gate() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/integration/test_financial_report_analysis_api.py -v`
+Run: `cd report && uv run pytest tests/integration/test_financial_report_analysis_api.py -v`
 
 Expected: FAIL，提示缺少 `analysis_mode` 分支或返回结构缺字段
 
@@ -970,8 +972,8 @@ class AnalysisResultResponse(BaseModel):
 
 ```python
 # report/src/handlers/pdf_handler.py
-from ..financial_report_analysis.adapters.report_adapter import ReportAdapter
-from ..financial_report_analysis.pipeline import analyze_report
+from financial_report_analysis.adapters.report_adapter import ReportAdapter
+from financial_report_analysis.pipeline import analyze_report
 
 
 class PDFHandler:
@@ -1002,14 +1004,14 @@ class PDFHandler:
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `uv run pytest report/tests/integration/test_financial_report_analysis_api.py report/tests/unit/test_extract_schema_negotiation.py -v`
+Run: `cd report && uv run pytest tests/integration/test_financial_report_analysis_api.py tests/unit/test_extract_schema_negotiation.py -v`
 
 Expected: PASS，且旧 schema 协商测试不回归
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/src/handlers/pdf_handler.py report/src/api/routes/extract.py report/src/api/schemas/extract.py report/tests/integration/test_financial_report_analysis_api.py
+git add report/pyproject.toml report/src/handlers/pdf_handler.py report/src/api/routes/extract.py report/src/api/schemas/extract.py report/tests/integration/test_financial_report_analysis_api.py
 git commit -m "feat: expose financial report analysis through handler and api"
 ```
 
@@ -1026,7 +1028,7 @@ git commit -m "feat: expose financial report analysis through handler and api"
 
 ```python
 def test_hk_phase1_rejects_non_english_report_input() -> None:
-    from src.financial_report_analysis.pipeline import analyze_report
+    from financial_report_analysis.pipeline import analyze_report
 
     result = analyze_report(
         document_ref={"document_id": "hk-doc", "market": "HK", "language": "zh-Hant"},
@@ -1038,7 +1040,7 @@ def test_hk_phase1_rejects_non_english_report_input() -> None:
 
 ```python
 def test_validation_report_marks_missing_ttm_dependency_as_review() -> None:
-    from src.financial_report_analysis.services.validation_service import ValidationService
+    from financial_report_analysis.services.validation_service import ValidationService
 
     report = ValidationService().validate(canonical_facts=[], derived_facts=[])
     assert report.overall_status == "review_required"
@@ -1046,7 +1048,7 @@ def test_validation_report_marks_missing_ttm_dependency_as_review() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `uv run pytest report/tests/unit/test_fact_evidence_mapping.py report/tests/integration/test_hk_09987_period_extraction.py report/tests/integration/test_cn_annual_period_regression.py -v`
+Run: `cd report && uv run pytest tests/unit/test_fact_evidence_mapping.py tests/integration/test_hk_09987_period_extraction.py tests/integration/test_cn_annual_period_regression.py -v`
 
 Expected: FAIL，提示缺少语言策略或质量状态断言
 
@@ -1056,14 +1058,15 @@ Expected: FAIL，提示缺少语言策略或质量状态断言
 <!-- report/README.md -->
 ## Financial Report Analysis Package
 
-- 新领域包入口：`src.financial_report_analysis`
+- 新领域包子项目：`financial-report-analysis/`
+- 新领域包入口：`financial_report_analysis`
 - 第一阶段范围：A 股 + 港股英文财报，年报/中报/季报
 - 对外受控结果：`canonical_facts`、`derived_facts`、`validation_report`、`quality_gate`
 - 非目标：繁中港股主链路、RAG 数字主抽取、provisional custom metric 核心分析
 ```
 
 ```python
-# report/src/financial_report_analysis/pipeline.py
+# financial-report-analysis/src/financial_report_analysis/pipeline.py
 def analyze_report(document_ref: dict, extracted_payload: dict) -> PipelineResult:
     if document_ref.get("market") == "HK" and document_ref.get("language") not in {None, "en"}:
         validation = ValidationService().build_language_restriction_report(document_ref)
@@ -1101,14 +1104,14 @@ def analyze_report(document_ref: dict, extracted_payload: dict) -> PipelineResul
 
 - [ ] **Step 4: 跑完整相关测试**
 
-Run: `uv run pytest report/tests/unit/financial_report_analysis report/tests/unit/test_fact_evidence_mapping.py report/tests/integration/test_financial_report_analysis_api.py report/tests/integration/test_hk_09987_period_extraction.py report/tests/integration/test_cn_annual_period_regression.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/unit -v && cd ../report && uv run pytest tests/unit/test_fact_evidence_mapping.py tests/integration/test_financial_report_analysis_api.py tests/integration/test_hk_09987_period_extraction.py tests/integration/test_cn_annual_period_regression.py -v`
 
 Expected: PASS，新增与既有财报期间回归测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/tests/unit/financial_report_analysis report/tests/unit/test_fact_evidence_mapping.py report/tests/integration/test_financial_report_analysis_api.py report/tests/integration/test_hk_09987_period_extraction.py report/tests/integration/test_cn_annual_period_regression.py report/README.md docs/superpowers/specs/2026-04-18-financial-report-analysis-integration-design.md
+git add financial-report-analysis/tests/unit financial-report-analysis/src/financial_report_analysis/pipeline.py report/tests/unit/test_fact_evidence_mapping.py report/tests/integration/test_financial_report_analysis_api.py report/tests/integration/test_hk_09987_period_extraction.py report/tests/integration/test_cn_annual_period_regression.py report/README.md docs/superpowers/specs/2026-04-18-financial-report-analysis-integration-design.md
 git commit -m "docs: align report analysis implementation and regression coverage"
 ```
 
@@ -1131,9 +1134,9 @@ git commit -m "docs: align report analysis implementation and regression coverag
 
 ## Notes Before Execution
 
-- 如果 Task 3 中的最小实现无法兼容现有 `content_extractor.py` 的事实输出，优先在 `PDFHandler` 加一层 legacy-to-candidate 映射，而不是把新模型倒灌回旧 extractor。
+- 如果 Task 3 中的最小实现无法兼容现有 `content_extractor.py` 的事实输出，优先在 `report/src/handlers/pdf_handler.py` 加一层 legacy-to-candidate 映射，而不是把新模型倒灌回旧 extractor。
 - 如果 API 层需要避免污染现有 `/extract/content` 契约，可以在 Task 6 改为新增 `/extract/analysis` 路由，但必须同步更新 `report/tests/integration/test_financial_report_analysis_api.py` 与 adapter schema。
-- 如果第一阶段无法立即引入真实数据库，请先实现 `repositories.py` 中的内存实现，但接口命名必须保持关系型友好。
+- 如果第一阶段无法立即引入真实数据库，请先实现 `financial-report-analysis/src/financial_report_analysis/storage/repositories.py` 中的内存实现，但接口命名必须保持关系型友好。
 
 Plan complete and saved to `docs/superpowers/plans/2026-04-18-financial-report-analysis-implementation-plan.md`. Two execution options:
 
