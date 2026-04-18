@@ -7,13 +7,13 @@ from financial_report_analysis.models.common import Extensions
 
 @dataclass(kw_only=True)
 class BaseFact:
-    fact_kind: str = ""
-    metric_id: str = ""
-    period_id: str = ""
-    entity_scope: str = ""
-    comparison_axis: str = ""
-    adjustment_basis: str = ""
-    currency: str = ""
+    fact_kind: str
+    metric_id: str
+    period_id: str
+    entity_scope: str
+    comparison_axis: str
+    adjustment_basis: str
+    currency: str
     extensions: Extensions = field(default_factory=dict)
 
 
