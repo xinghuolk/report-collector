@@ -41,6 +41,32 @@ def test_candidate_fact_inherits_common_fact_contract() -> None:
     assert fact.extensions == {}
 
 
+def test_candidate_fact_rejects_incompatible_fact_kind() -> None:
+    with pytest.raises(ValueError, match="CandidateFact"):
+        CandidateFact(
+            fact_kind="canonical",
+            metric_id="revenue",
+            period_id="period-2024-fy",
+            entity_scope="consolidated",
+            comparison_axis="current",
+            adjustment_basis="reported",
+            currency="CNY",
+        )
+
+
+def test_canonical_fact_rejects_incompatible_fact_kind() -> None:
+    with pytest.raises(ValueError, match="CanonicalFact"):
+        CanonicalFact(
+            fact_kind="candidate",
+            metric_id="revenue",
+            period_id="period-2024-fy",
+            entity_scope="consolidated",
+            comparison_axis="current",
+            adjustment_basis="reported",
+            currency="CNY",
+        )
+
+
 def test_evidence_bundle_requires_primary_item_when_items_present() -> None:
     with pytest.raises(ValueError, match="primary_evidence_item_id"):
         EvidenceBundle(
@@ -54,6 +80,11 @@ def test_evidence_bundle_requires_primary_item_to_match_contents() -> None:
             evidence_items=[EvidenceItem(evidence_item_id="item-1")],
             primary_evidence_item_id="item-2",
         )
+
+
+def test_evidence_bundle_rejects_primary_item_without_contents() -> None:
+    with pytest.raises(ValueError, match="primary_evidence_item_id"):
+        EvidenceBundle(primary_evidence_item_id="item-1")
 
 
 def test_evidence_bundle_accepts_matching_primary_item() -> None:

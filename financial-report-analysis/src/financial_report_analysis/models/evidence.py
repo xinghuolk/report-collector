@@ -14,6 +14,10 @@ class EvidenceBundle:
     primary_evidence_item_id: str | None = None
 
     def __post_init__(self) -> None:
+        if not self.evidence_items and self.primary_evidence_item_id is not None:
+            raise ValueError(
+                "primary_evidence_item_id cannot be set when evidence_items are empty"
+            )
         if not self.evidence_items:
             return
         if self.primary_evidence_item_id is None:

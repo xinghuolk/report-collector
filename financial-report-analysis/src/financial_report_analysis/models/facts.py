@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from financial_report_analysis.models.common import Extensions
 
@@ -19,12 +20,20 @@ class BaseFact:
 
 @dataclass(kw_only=True)
 class CandidateFact(BaseFact):
-    fact_kind: str = "candidate"
+    fact_kind: Literal["candidate"] = "candidate"
+
+    def __post_init__(self) -> None:
+        if self.fact_kind != "candidate":
+            raise ValueError("fact_kind must be candidate for CandidateFact")
 
 
 @dataclass(kw_only=True)
 class CanonicalFact(BaseFact):
-    fact_kind: str = "canonical"
+    fact_kind: Literal["canonical"] = "canonical"
+
+    def __post_init__(self) -> None:
+        if self.fact_kind != "canonical":
+            raise ValueError("fact_kind must be canonical for CanonicalFact")
 
     @property
     def business_key(self) -> tuple[str, str, str, str, str, str]:
