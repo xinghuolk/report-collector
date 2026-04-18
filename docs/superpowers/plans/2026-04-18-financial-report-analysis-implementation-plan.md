@@ -39,14 +39,14 @@
   - 面向 `TradingAgents-CN` 的受控查询与 `quality_gate` 聚合。
 - Create: `financial-report-analysis/src/financial_report_analysis/storage/`
   - `artifacts.py`：对象存储引用模型
-  - `repositories.py`：先定义协议接口和内存实现
+  - `repositories.py`：先定义协议接口和内存实现；`EvidenceBundle` 与 `EvidenceItem` 的关系以 link relation 为真源
 
 ### Existing files to modify
 
 - Modify: `report/src/handlers/pdf_handler.py`
   - 增加对独立分析子项目的调用入口，保持旧 extractor 接口兼容。
 - Modify: `report/src/api/routes/extract.py`
-  - 增加面向新 pipeline 的分析接口或 schema 版本入口。
+  - 新增独立 `/extract/analysis` 分析接口，不污染现有 `/extract/content`。
 - Modify: `report/src/api/schemas/extract.py`
   - 增加 `AnalysisResult`、`CanonicalFactSet`、`ValidationReport` 等 API schema。
 
@@ -68,6 +68,7 @@
 - Create: `financial-report-analysis/src/financial_report_analysis/models/__init__.py`
 - Create: `financial-report-analysis/src/financial_report_analysis/models/common.py`
 - Create: `financial-report-analysis/src/financial_report_analysis/models/document.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/models/period.py`
 - Create: `financial-report-analysis/src/financial_report_analysis/models/evidence.py`
 - Create: `financial-report-analysis/src/financial_report_analysis/models/facts.py`
 - Create: `financial-report-analysis/tests/unit/test_models.py`
@@ -75,7 +76,7 @@
 - [ ] **Step 1: 写失败测试，固定 `Period / EvidenceBundle / Fact` 最小契约**
 
 ```python
-from financial_report_analysis.models.document import Period
+from financial_report_analysis.models.period import Period
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 
@@ -177,6 +178,7 @@ from pydantic import BaseModel, computed_field
 
 class BaseFact(BaseModel):
     fact_id: str
+    fact_kind: str = "base"
     metric_id: str
     metric_label_raw: str | None = None
     statement_type: str
@@ -191,9 +193,11 @@ class BaseFact(BaseModel):
     normalized_unit: str | None = None
     precision: int | None = None
     confidence: float = 0.0
+    extensions: dict[str, object] = {}
 
 
 class CandidateFact(BaseFact):
+    fact_kind: str = "candidate"
     document_id: str
     block_id: str | None = None
     table_id: str | None = None
@@ -208,6 +212,7 @@ class CandidateFact(BaseFact):
 
 
 class CanonicalFact(BaseFact):
+    fact_kind: str = "canonical"
     source_candidate_fact_ids: list[str]
     resolution_reason: str
     resolution_score: float
@@ -324,7 +329,8 @@ def test_unit_policy_separates_compute_and_presentation_units() -> None:
     )
 
     assert normalized.normalized_currency == "CNY"
-    assert presented.presentation_unit == "CNY_100M"
+    assert presented.presentation_unit
+    assert presented.presentation_policy_name == "default_phase1"
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -339,7 +345,7 @@ Expected: FAIL，提示 `ModuleNotFoundError` 或缺少 `get_or_create_duration`
 # financial-report-analysis/src/financial_report_analysis/registries/period_registry.py
 from dataclasses import dataclass
 
-from ..models.document import Period
+from ..models.period import Period
 
 
 class PeriodRegistry:
@@ -394,6 +400,7 @@ class NormalizedValue:
 class PresentationValue:
     presentation_value: float
     presentation_unit: str
+    presentation_policy_name: str
 
 
 class UnitPolicy:
@@ -414,7 +421,8 @@ class UnitPolicy:
     ) -> PresentationValue:
         return PresentationValue(
             presentation_value=numeric_value / 100_000_000.0,
-            presentation_unit="CNY_100M",
+            presentation_unit="DEFAULT_PRESENTATION_UNIT",
+            presentation_policy_name="default_phase1",
         )
 ```
 
@@ -820,6 +828,33 @@ def analyze_report(document_ref: dict, extracted_payload: dict) -> PipelineResul
     )
 ```
 
+- [ ] **Step 3.5: 明确 `EvidenceBundle` 关系表达边界**
+
+```python
+# financial-report-analysis/src/financial_report_analysis/storage/repositories.py
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class EvidenceBundleItemLink:
+    evidence_bundle_id: str
+    evidence_item_id: str
+    sort_order: int
+
+
+class InMemoryEvidenceRepository:
+    """
+    第一阶段允许 EvidenceBundle 在内存态包含 evidence_item_ids 便于测试和序列化，
+    但 repository/storage 层必须以 EvidenceBundleItemLink 作为 source of truth。
+    """
+```
+
+- [ ] **Step 3.6: 运行测试确认边界不回退**
+
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_fact_pipeline.py tests/unit/test_models.py -v`
+
+Expected: PASS，且未引入 EvidenceBundle 直接持久化数组为真源的设计
+
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `cd financial-report-analysis && uv run pytest tests/unit/test_fact_pipeline.py -v`
@@ -913,6 +948,8 @@ git commit -m "feat: add report analysis adapter and quality gate"
 
 ## Task 6: 将新包接入现有 `PDFHandler` 与 FastAPI 路由
 
+> **Execution gate:** Task 6 默认采用新增 `/extract/analysis` 路由方案。不要在执行时临时改回 `/extract/content` 分支模式，除非先更新 spec 与本计划。
+
 **Files:**
 - Modify: `report/pyproject.toml`
 - Modify: `report/src/handlers/pdf_handler.py`
@@ -933,11 +970,9 @@ def test_extract_analysis_endpoint_returns_quality_gate() -> None:
     client = TestClient(app)
 
     response = client.post(
-        "/extract/content",
+        "/extract/analysis",
         json={
             "pdf_path": "/tmp/mock.pdf",
-            "schema": "v2",
-            "analysis_mode": "ledger",
         },
     )
 
@@ -952,7 +987,7 @@ def test_extract_analysis_endpoint_returns_quality_gate() -> None:
 
 Run: `cd report && uv run pytest tests/integration/test_financial_report_analysis_api.py -v`
 
-Expected: FAIL，提示缺少 `analysis_mode` 分支或返回结构缺字段
+Expected: FAIL，提示新路由不存在或返回结构缺字段
 
 - [ ] **Step 3: 写最小实现**
 
@@ -1002,6 +1037,23 @@ class PDFHandler:
         )
 ```
 
+```python
+# report/src/api/routes/extract.py
+@router.post("/extract/analysis", response_model=APIResponse[Dict[str, Any]])
+async def extract_financial_report_analysis(
+    pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
+    pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
+    handler: PDFHandler = Depends(get_pdf_handler),
+) -> APIResponse[Dict[str, Any]]:
+    if not pdf_path and not pdf_id:
+        return APIResponse(success=False, error="请提供 pdf_path 或 pdf_id 参数")
+
+    result = await handler.extract_financial_report_analysis(
+        pdf_path=pdf_path or str(pdf_id)
+    )
+    return APIResponse(success=True, data=result, error=None)
+```
+
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `cd report && uv run pytest tests/integration/test_financial_report_analysis_api.py tests/unit/test_extract_schema_negotiation.py -v`
@@ -1016,6 +1068,8 @@ git commit -m "feat: expose financial report analysis through handler and api"
 ```
 
 ## Task 7: 补验证矩阵、回归测试与文档同步
+
+> **Execution gate:** Task 7 在 Task 6 完成独立新路由后再执行。港股非英文输入在第一阶段应标记为 `unsupported_in_phase1` 或 `review`，不要和真实数据质量失败混成 `fail`。
 
 **Files:**
 - Modify: `report/tests/unit/test_fact_evidence_mapping.py`
@@ -1035,7 +1089,8 @@ def test_hk_phase1_rejects_non_english_report_input() -> None:
         extracted_payload={"candidate_facts": []},
     )
 
-    assert result.quality_gate == "fail"
+    assert result.quality_gate == "review"
+    assert result.validation_report.overall_status == "unsupported_in_phase1"
 ```
 
 ```python
@@ -1063,6 +1118,7 @@ Expected: FAIL，提示缺少语言策略或质量状态断言
 - 第一阶段范围：A 股 + 港股英文财报，年报/中报/季报
 - 对外受控结果：`canonical_facts`、`derived_facts`、`validation_report`、`quality_gate`
 - 非目标：繁中港股主链路、RAG 数字主抽取、provisional custom metric 核心分析
+- 港股非英文输入在第一阶段标记为 `unsupported_in_phase1/review`，不与数据质量失败混用
 ```
 
 ```python
@@ -1074,7 +1130,7 @@ def analyze_report(document_ref: dict, extracted_payload: dict) -> PipelineResul
             canonical_fact_set_id=f"{document_ref['document_id']}:canonical:v1",
             derived_fact_set_id=f"{document_ref['document_id']}:derived:v1",
             validation_report_id=f"{document_ref['document_id']}:validation:v1",
-            quality_gate="fail",
+            quality_gate="review",
             canonical_facts=[],
             derived_facts=[],
             validation_report=validation,
@@ -1131,6 +1187,11 @@ git commit -m "docs: align report analysis implementation and regression coverag
 - Type consistency:
   - 统一使用 `metric_id / period_id / canonical_fact_set_id / derived_fact_set_id / validation_report_id / quality_gate`
   - 统一将 `comparison_axis` 保留在 fact 层，未回流到 `Period`
+
+## Execution Order Recommendation
+
+- 可直接执行：Task 1, Task 2, Task 3, Task 4, Task 5
+- 执行前已在本计划中修订收口：Task 6, Task 7
 
 ## Notes Before Execution
 
