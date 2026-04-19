@@ -1,23 +1,24 @@
 """
-内容提取API路由
+内容提取 API 路由。
 """
-from typing import Any, Dict, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Body, Header
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 
+from ...handlers.pdf_handler import PDFHandler
 from ..dependencies import get_pdf_handler
 from ..schemas.common import APIResponse
-from ...handlers.pdf_handler import PDFHandler
+from ..schemas.extract import AnalysisProxyRequest
 
 router = APIRouter()
 
 
 def _resolve_schema_version(
-    schema: Optional[str],
-    header_schema: Optional[str],
-    accept_header: Optional[str],
+    schema: str | None,
+    header_schema: str | None,
+    accept_header: str | None,
 ) -> str:
-    """解析 schema 版本（query > X-Schema-Version > Accept）"""
+    """解析 schema 版本，优先级为 query > header > accept。"""
     if schema in {"v1", "v2"}:
         return schema
 
@@ -33,59 +34,37 @@ def _resolve_schema_version(
     return "v2"
 
 
-@router.post("/extract/content", response_model=APIResponse[Dict[str, Any]])
+@router.post("/extract/content", response_model=APIResponse[dict[str, Any]])
 async def extract_pdf_content(
-    pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
-    pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
-    force_refresh: bool = Body(default=False, description="强制重新提取(忽略缓存)"),
-    min_confidence: Optional[float] = Body(
-        default=None, ge=0.0, le=1.0, description="仅返回置信度不低于该值的 facts（仅V2）"
+    pdf_path: str | None = Body(default=None, description="PDF 文件路径"),
+    pdf_id: int | None = Body(default=None, description="PDF 记录 ID"),
+    force_refresh: bool = Body(default=False, description="强制重新提取，忽略缓存"),
+    min_confidence: float | None = Body(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="仅返回置信度不低于该值的 facts，仅 v2 生效",
     ),
-    schema: Optional[str] = Query(
+    schema: str | None = Query(
         default=None,
         pattern=r"^(v1|v2)$",
-        description="响应结构版本（query 兼容入口）",
+        description="响应结构版本，query 兼容入口",
     ),
-    x_schema_version: Optional[str] = Header(
+    x_schema_version: str | None = Header(
         default=None,
         alias="X-Schema-Version",
-        description="响应结构版本（header，优先级低于 query）",
+        description="响应结构版本，header 优先级低于 query",
     ),
-    accept_header: Optional[str] = Header(
+    accept_header: str | None = Header(
         default=None,
         alias="Accept",
-        description=(
-            "支持 vendor MIME 版本协商，例如 "
-            "application/vnd.financial-reports.v2+json"
-        ),
+        description="支持 vendor MIME 版本协商",
     ),
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[Dict[str, Any]]:
-    """
-    提取PDF中的结构化财务数据
-
-    提供 pdf_path 或 pdf_id 之一:
-    - **pdf_path**: PDF文件绝对路径
-    - **pdf_id**: 从列表API获取的PDF记录ID
-    - **force_refresh**: 是否强制重新提取(忽略缓存)
-
-    默认返回 V2 结构:
-    - document: 文档层元数据
-    - periods: 标准化期间定义（full_year / ytd / single_quarter / point_in_time）
-    - facts: 指标值（含 period_id、置信度、evidence_ids）
-    - evidence: 证据链（页码、表格、行列定位）
-    - quality: 结构化质量问题
-
-    版本协商优先级:
-    1. query 参数 schema=v1|v2
-    2. Header: X-Schema-Version
-    3. Header: Accept vendor MIME
-    """
+) -> APIResponse[dict[str, Any]]:
+    """提取 PDF 中的结构化财务数据。"""
     if not pdf_path and not pdf_id:
-        return APIResponse(
-            success=False,
-            error="请提供 pdf_path 或 pdf_id 参数",
-        )
+        return APIResponse(success=False, error="请提供 pdf_path 或 pdf_id 参数")
 
     schema_version = _resolve_schema_version(schema, x_schema_version, accept_header)
     result = await handler.extract_pdf_content(
@@ -96,39 +75,23 @@ async def extract_pdf_content(
         min_confidence=min_confidence,
     )
 
-    # extract_pdf_content 返回的是扁平结构，不需要取 data
     if result.get("success"):
-        # 移除内部的 success 字段，避免重复
         data = {k: v for k, v in result.items() if k not in ("success", "error")}
         return APIResponse(success=True, data=data, error=None)
-    else:
-        return APIResponse(success=False, data=None, error=result.get("error"))
+    return APIResponse(success=False, data=None, error=result.get("error"))
 
 
-@router.post("/extract/tables", response_model=APIResponse[Dict[str, Any]])
+@router.post("/extract/tables", response_model=APIResponse[dict[str, Any]])
 async def extract_pdf_tables(
-    pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
-    pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
+    pdf_path: str | None = Body(default=None, description="PDF 文件路径"),
+    pdf_id: int | None = Body(default=None, description="PDF 记录 ID"),
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[Dict[str, Any]]:
-    """
-    提取PDF中的表格数据
-
-    提供 pdf_path 或 pdf_id 之一
-
-    返回PDF中识别出的所有表格，以列表形式呈现
-    """
+) -> APIResponse[dict[str, Any]]:
+    """提取 PDF 中的表格数据。"""
     if not pdf_path and not pdf_id:
-        return APIResponse(
-            success=False,
-            error="请提供 pdf_path 或 pdf_id 参数",
-        )
+        return APIResponse(success=False, error="请提供 pdf_path 或 pdf_id 参数")
 
-    result = await handler.extract_tables(
-        pdf_path=pdf_path,
-        pdf_id=pdf_id,
-    )
-
+    result = await handler.extract_tables(pdf_path=pdf_path, pdf_id=pdf_id)
     return APIResponse(
         success=result.get("success", False),
         data=result.get("data") if result.get("success") else None,
@@ -136,30 +99,17 @@ async def extract_pdf_tables(
     )
 
 
-@router.post("/extract/text", response_model=APIResponse[Dict[str, Any]])
+@router.post("/extract/text", response_model=APIResponse[dict[str, Any]])
 async def extract_pdf_text(
-    pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
-    pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
+    pdf_path: str | None = Body(default=None, description="PDF 文件路径"),
+    pdf_id: int | None = Body(default=None, description="PDF 记录 ID"),
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[Dict[str, Any]]:
-    """
-    提取PDF全部文本
-
-    提供 pdf_path 或 pdf_id 之一
-
-    返回PDF中的纯文本内容
-    """
+) -> APIResponse[dict[str, Any]]:
+    """提取 PDF 全部文本。"""
     if not pdf_path and not pdf_id:
-        return APIResponse(
-            success=False,
-            error="请提供 pdf_path 或 pdf_id 参数",
-        )
+        return APIResponse(success=False, error="请提供 pdf_path 或 pdf_id 参数")
 
-    result = await handler.extract_text(
-        pdf_path=pdf_path,
-        pdf_id=pdf_id,
-    )
-
+    result = await handler.extract_text(pdf_path=pdf_path, pdf_id=pdf_id)
     return APIResponse(
         success=result.get("success", False),
         data=result.get("data") if result.get("success") else None,
@@ -167,17 +117,34 @@ async def extract_pdf_text(
     )
 
 
-@router.get("/cache/stats", response_model=APIResponse[Dict[str, Any]])
+@router.post("/extract/analysis", response_model=APIResponse[dict[str, Any]])
+async def extract_financial_report_analysis(
+    request: AnalysisProxyRequest,
+    handler: PDFHandler = Depends(get_pdf_handler),
+) -> APIResponse[dict[str, Any]]:
+    """转发 financial-report-analysis 独立 analysis service。"""
+    try:
+        result = await handler.extract_financial_report_analysis(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return APIResponse(success=True, data=result, error=None)
+
+
+@router.get("/cache/stats", response_model=APIResponse[dict[str, Any]])
 async def get_extraction_cache_stats(
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[Dict[str, Any]]:
-    """
-    获取提取结果缓存统计
-
-    返回缓存数量、大小、最近更新时间等
-    """
+) -> APIResponse[dict[str, Any]]:
+    """获取提取结果缓存统计。"""
     result = await handler.get_cache_stats()
-
     return APIResponse(
         success=result.get("success", False),
         data=result.get("data") if result.get("success") else None,

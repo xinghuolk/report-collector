@@ -48,7 +48,7 @@ def extract_analysis(request: AnalysisExtractRequest) -> dict[str, Any]:
         "min_confidence": request.min_confidence,
     }
     pipeline_result = analyze_report(
-        document_ref={"document_id": document_id},
+        document_ref=document,
         extracted_payload={"candidate_facts": []},
     )
     return ReportAdapter().build_analysis_result(

@@ -6,16 +6,17 @@ import asyncio
 import json
 import re
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import aiohttp
 from loguru import logger
 from cachetools import TTLCache
 
 from ..pdf_sources.cninfo_downloader import CninfoDownloader
 from ..pdf_sources.hkex_downloader import HKEXDownloader
 from ..pdf_manager import PDFManager
-from ..pdf_parser import PDFContentExtractor
 from ..utils.validators import DataValidator
 from ..config import Config
 
@@ -27,6 +28,8 @@ class PDFHandler:
         self.pdf_manager = PDFManager()
         self.cn_downloader = CninfoDownloader(str(Config.CN_DOWNLOADS_DIR))
         self.hk_downloader = HKEXDownloader(str(Config.HK_DOWNLOADS_DIR))
+        from ..pdf_parser import PDFContentExtractor
+
         self.content_extractor = PDFContentExtractor()
         self.cache = TTLCache(maxsize=Config.MAX_CACHE_SIZE, ttl=Config.CACHE_TTL)
         
@@ -34,6 +37,40 @@ class PDFHandler:
         """初始化处理器"""
         await self.pdf_manager.initialize()
         logger.info("PDF处理器初始化完成")
+
+    async def extract_financial_report_analysis(
+        self,
+        request: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """通过 HTTP 转发到独立 analysis service。"""
+        endpoint = (
+            f"{Config.ANALYSIS_SERVICE_BASE_URL.rstrip('/')}"
+            f"{Config.ANALYSIS_EXTRACT_PATH}"
+        )
+        timeout = aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT)
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(endpoint, json=request) as response:
+                    payload = await response.json(content_type=None)
+        except aiohttp.ClientError as exc:
+            logger.error(f"analysis service 调用失败: {exc}")
+            raise RuntimeError("analysis service unavailable") from exc
+        except asyncio.TimeoutError as exc:
+            logger.error("analysis service 调用超时")
+            raise RuntimeError("analysis service unavailable") from exc
+
+        if response.status >= 500:
+            raise RuntimeError("analysis service unavailable")
+
+        if response.status >= 400:
+            detail = payload.get("detail") if isinstance(payload, dict) else None
+            raise ValueError(detail or "analysis request rejected")
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("analysis service returned invalid payload")
+
+        return payload
         
     async def search_available_reports(self, stock_code: str, market: str = "CN", 
                                      report_type: str = "annual", 
