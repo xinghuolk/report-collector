@@ -35,9 +35,11 @@ def test_hk_09987_q1_key_values() -> None:
     if not Q1_PDF.exists():
         pytest.skip(f"Sample PDF not found: {Q1_PDF}")
 
-    result = PDFContentExtractor().extract(str(Q1_PDF))
+    extractor = PDFContentExtractor()
+    result = extractor.extract(str(Q1_PDF))
     assert result.get("success") is True
     assert result.get("schema_version") == "v2"
+    assert extractor.is_english_report is True
 
     period_ids = {period["period_id"] for period in result.get("periods", [])}
     assert {"2025Q1_YTD", "BS_2025-03-31"} <= period_ids

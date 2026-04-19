@@ -27,11 +27,14 @@ def test_cn_annual_period_regression() -> None:
             "Set CN_ANNUAL_SAMPLE_PDF or place one under downloads/cn_stocks/*/annual/"
         )
 
-    result = PDFContentExtractor().extract(str(sample_pdf))
+    extractor = PDFContentExtractor()
+    result = extractor.extract(str(sample_pdf))
     assert result.get("success") is True
+    assert extractor.is_english_report is False
 
     metadata = result.get("metadata", {})
     periods = result.get("periods", [])
     assert metadata.get("report_type") in {"annual", "semi_annual", "quarterly"}
     if metadata.get("report_type") == "annual":
         assert any(period.get("scope") == "full_year" for period in periods)
+        assert metadata.get("primary_period_id", "").endswith("FY")
