@@ -52,6 +52,7 @@ class ParsedTable:
     table_kind: str
     title_text: str
     statement_scope_guess: str = "unknown"
+    semantic_ambiguity_reason: str | None = None
     continued_from_table_id: str | None = None
     continuation_confidence: float | None = None
     header_rows: list[list[str]] = field(default_factory=list)

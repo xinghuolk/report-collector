@@ -76,3 +76,46 @@ def test_build_parsed_table_sets_statement_scope_guess_from_title() -> None:
 
     assert table is not None
     assert table.statement_scope_guess == "consolidated"
+
+
+def test_build_parsed_table_recovers_rows_from_numeric_only_statement_page_text() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:134:table:1",
+        page_index=134,
+        page_range=(134, 134),
+        rows=[
+            ["689,022,322.44"],
+            ["607,645,160.15"],
+            ["981,111,286.02"],
+            ["754,316,996.75"],
+        ],
+        page_text=(
+            "31 December 2022\n"
+            "Prepared by: Triumph New Energy Company Limited Consolidated Balance Sheet\n"
+            "Unit: Yuan Currency: RMB\n"
+            "Item Note 31 December 2022 31 December 2021\n"
+            "Monetary funds VII.1 689,022,322.44 1,116,571,580.99\n"
+            "Notes receivable VII.2 607,645,160.15 204,999,510.62\n"
+            "Accounts receivable VII.3 981,111,286.02 438,504,721.48\n"
+            "133\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.semantic_ambiguity_reason == "numeric_only_statement_block"
+    assert table.table_kind == "balance_sheet"
+    assert table.header_rows == [["Item Note 31 December 2022 31 December 2021"]]
+    assert [row.label_raw for row in table.body_rows[:2]] == [
+        "Monetary funds VII.1",
+        "Notes receivable VII.2",
+    ]
+    assert table.period_columns[0].period_id == "2022FY"
+    assert table.period_columns[0].value_time_shape == "point"

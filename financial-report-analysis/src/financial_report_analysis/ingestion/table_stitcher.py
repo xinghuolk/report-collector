@@ -6,7 +6,7 @@ import re
 from financial_report_analysis.models import ParsedCell, ParsedRow, ParsedTable
 
 _NUMBER_PATTERN = re.compile(
-    r"(?<!\w)-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+    r"(?<![\w.])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 )
 _CONTINUABLE_TABLE_KINDS = {
     "income_statement",

@@ -11,6 +11,10 @@ _HK_QUARTER_HEADER_RE = re.compile(
     r"three\s+months\s+ended\s+(\d{1,2})\s+([a-z]+)\s+(20\d{2})",
     re.IGNORECASE,
 )
+_HK_ANNUAL_HEADER_RE = re.compile(
+    r"(\d{1,2})\s+([a-z]+)\s+(20\d{2})",
+    re.IGNORECASE,
+)
 _CURRENCY_PATTERN = re.compile(r"币种[:：]\s*(\S+)")
 _UNIT_PATTERN = re.compile(r"单位[:：]\s*(\S+)")
 
@@ -132,6 +136,21 @@ def _parse_period_from_header(
             quarter = _hk_quarter_from_end_date(day, month)
             if quarter is not None:
                 return f"{year}{quarter}", "duration"
+
+    if market == "HK":
+        annual_match = _HK_ANNUAL_HEADER_RE.search(header_text)
+        if annual_match is not None:
+            day = int(annual_match.group(1))
+            month = annual_match.group(2).lower()
+            year = annual_match.group(3)
+            if day == 31 and month == "december":
+                value_time_shape = (
+                    "point"
+                    if "balance sheet" in title_text.casefold()
+                    or "financial position" in title_text.casefold()
+                    else "duration"
+                )
+                return f"{year}FY", value_time_shape
 
     return None, None
 

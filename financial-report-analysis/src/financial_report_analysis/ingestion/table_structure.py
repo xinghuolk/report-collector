@@ -56,8 +56,13 @@ class PdfTableStructureAdapter:
         if table_kind == "unknown":
             return None
 
-        header_rows = self._select_header_rows(block.rows)
-        body_rows = block.rows[len(header_rows) :]
+        recovered_rows, semantic_ambiguity_reason = self._recover_rows_for_statement_block(
+            block=block,
+            title_text=title_text,
+            table_kind=table_kind,
+        )
+        header_rows = self._select_header_rows(recovered_rows)
+        body_rows = recovered_rows[len(header_rows) :]
         body_lines = [" ".join(cell for cell in row if cell).strip() for row in body_rows]
         local_context = "\n".join(
             line
@@ -82,6 +87,7 @@ class PdfTableStructureAdapter:
                 title_text=title_text,
                 local_context=local_context,
             ),
+            semantic_ambiguity_reason=semantic_ambiguity_reason,
             header_rows=header_rows,
             body_rows=bind_body_rows(
                 page_index=block.page_index,
@@ -93,7 +99,7 @@ class PdfTableStructureAdapter:
                 title_text=title_text,
                 header_rows=header_rows,
                 market=market,
-                rows=block.rows,
+                rows=recovered_rows,
             ),
             comparison_columns=[],
             source_blocks=[
@@ -104,6 +110,26 @@ class PdfTableStructureAdapter:
                 )
             ],
         )
+
+    def _recover_rows_for_statement_block(
+        self,
+        *,
+        block: RawTableBlock,
+        title_text: str,
+        table_kind: str,
+    ) -> tuple[list[list[str]], str | None]:
+        if not self._looks_like_numeric_only_statement_block(block.rows):
+            return block.rows, None
+        if table_kind not in {"income_statement", "balance_sheet", "cash_flow_statement"}:
+            return block.rows, None
+
+        recovered_rows = self._recover_rows_from_page_text(
+            page_text=block.page_text,
+            title_text=title_text,
+        )
+        if recovered_rows:
+            return recovered_rows, "numeric_only_statement_block"
+        return block.rows, None
 
     def _infer_table_title(self, block: RawTableBlock, *, market: str | None) -> str:
         page_text = re.sub(r"\s+", " ", block.page_text).lower()
@@ -143,6 +169,53 @@ class PdfTableStructureAdapter:
             if row_text:
                 return row_text
         return ""
+
+    @staticmethod
+    def _looks_like_numeric_only_statement_block(rows: list[list[str]]) -> bool:
+        non_empty_rows = [row for row in rows if any(cell.strip() for cell in row)]
+        if not non_empty_rows:
+            return False
+        if len(non_empty_rows) < 3:
+            return False
+        numeric_like_count = 0
+        for row in non_empty_rows[:12]:
+            if len(row) != 1:
+                return False
+            cell = row[0].replace(",", "").strip()
+            if re.fullmatch(r"-?\d+(?:\.\d+)?", cell):
+                numeric_like_count += 1
+        return numeric_like_count >= min(len(non_empty_rows[:12]), 3)
+
+    @staticmethod
+    def _recover_rows_from_page_text(*, page_text: str, title_text: str) -> list[list[str]]:
+        lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        if not lines:
+            return []
+
+        title_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if line.casefold() == title_text.casefold()
+            ),
+            -1,
+        )
+        start_index = title_index + 1 if title_index >= 0 else 0
+
+        rows: list[list[str]] = []
+        footer_pattern = re.compile(r"^\d+$")
+        for line in lines[start_index:]:
+            lowered = line.casefold()
+            if footer_pattern.fullmatch(line):
+                break
+            if "annual report" in lowered and not any(char.isdigit() for char in line):
+                break
+            if line.startswith("Prepared by:") or line.startswith("Unit:") or line == title_text:
+                continue
+            if line.startswith("II. ") or line.startswith("I. "):
+                continue
+            rows.append([line])
+        return rows
 
     @staticmethod
     def _guess_statement_scope(*, title_text: str, local_context: str) -> str:
