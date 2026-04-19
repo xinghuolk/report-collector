@@ -102,7 +102,7 @@ def test_report_adapter_caps_key_facts_and_keeps_document() -> None:
     assert result["key_facts"][-1]["metric_id"] == "metric-9"
 
 
-def test_report_adapter_derives_quality_gate_from_validation_report() -> None:
+def test_report_adapter_preserves_pipeline_quality_gate() -> None:
     adapter = ReportAdapter()
 
     result = adapter.build_analysis_result(
@@ -123,10 +123,33 @@ def test_report_adapter_derives_quality_gate_from_validation_report() -> None:
         },
     )
 
-    assert result["quality_gate"] == "review"
+    assert result["quality_gate"] == "pass"
     assert result["blocked_items"] == [
         {"code": "duplicate_canonical_fact_ids", "status": "review_required"}
     ]
+
+
+def test_report_adapter_derives_quality_gate_when_pipeline_value_missing() -> None:
+    adapter = ReportAdapter()
+
+    result = adapter.build_analysis_result(
+        document={"document_id": "doc-4b", "market": "CN"},
+        pipeline_result={
+            "canonical_fact_set_id": "doc-4b:canonical:v1",
+            "derived_fact_set_id": "doc-4b:derived:v1",
+            "validation_report_id": "doc-4b:validation:v1",
+            "canonical_facts": [],
+            "derived_facts": [],
+            "validation_report": ValidationReport(
+                overall_status="review_required",
+                canonical_fact_count=0,
+                derived_fact_count=0,
+                issues=("duplicate_canonical_fact_ids",),
+            ),
+        },
+    )
+
+    assert result["quality_gate"] == "review"
 
 
 def test_report_adapter_treats_scalar_issue_payload_as_single_blocker() -> None:

@@ -145,9 +145,8 @@ class ReportAdapter:
         pipeline_quality_gate: Any,
         validation_report: Any,
     ) -> str:
-        validation_gate = ReportAdapter._quality_gate_from_validation_report(
-            validation_report,
-        )
         if pipeline_quality_gate is None:
-            return validation_gate
-        return validation_gate
+            return ReportAdapter._quality_gate_from_validation_report(
+                validation_report,
+            )
+        return str(pipeline_quality_gate)
