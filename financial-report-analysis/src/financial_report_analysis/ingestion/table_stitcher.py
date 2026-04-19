@@ -74,6 +74,15 @@ def stitch_tables(tables: list[ParsedTable]) -> list[ParsedTable]:
         if stitched_tables and should_merge_tables(stitched_tables[-1], table):
             stitched_tables[-1] = _merge_tables(stitched_tables[-1], table)
             continue
+        if stitched_tables and _looks_like_ambiguous_continuation(
+            stitched_tables[-1],
+            table,
+        ):
+            table = replace(
+                table,
+                continued_from_table_id=None,
+                continuation_confidence=0.25,
+            )
         stitched_tables.append(table)
     return stitched_tables
 
@@ -90,3 +99,13 @@ def _merge_tables(previous: ParsedTable, current: ParsedTable) -> ParsedTable:
 def _is_continuation_title(title_text: str) -> bool:
     normalized = re.sub(r"\s+", "", title_text).lower()
     return "continued" in normalized or "续" in normalized
+
+
+def _looks_like_ambiguous_continuation(previous: ParsedTable, current: ParsedTable) -> bool:
+    if previous.table_kind != current.table_kind:
+        return False
+    if previous.table_kind not in _CONTINUABLE_TABLE_KINDS:
+        return False
+    if not _is_continuation_title(current.title_text):
+        return False
+    return current.page_range[0] - previous.page_range[1] != 1

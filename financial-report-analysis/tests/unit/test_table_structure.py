@@ -51,3 +51,28 @@ def test_infer_table_title_prefers_title_row_over_full_page_text() -> None:
     title = adapter._infer_table_title(block, market="HK")
 
     assert title == "Condensed Consolidated Statement of Profit or Loss"
+
+
+def test_build_parsed_table_sets_statement_scope_guess_from_title() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:3:table:1",
+        page_index=3,
+        page_range=(3, 3),
+        rows=[
+            ["Consolidated Statement of Financial Position"],
+            ["Item", "2024"],
+            ["Cash and cash equivalents", "1,000"],
+        ],
+        page_text="Consolidated Statement of Financial Position\nUnit: HKD million",
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.statement_scope_guess == "consolidated"

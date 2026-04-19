@@ -78,6 +78,10 @@ class PdfTableStructureAdapter:
             page_range=block.page_range,
             table_kind=table_kind,
             title_text=title_text,
+            statement_scope_guess=self._guess_statement_scope(
+                title_text=title_text,
+                local_context=local_context,
+            ),
             header_rows=header_rows,
             body_rows=bind_body_rows(
                 page_index=block.page_index,
@@ -139,6 +143,15 @@ class PdfTableStructureAdapter:
             if row_text:
                 return row_text
         return ""
+
+    @staticmethod
+    def _guess_statement_scope(*, title_text: str, local_context: str) -> str:
+        haystack = f"{title_text}\n{local_context}".casefold()
+        if "consolidated" in haystack or "合并" in haystack:
+            return "consolidated"
+        if "parent company" in haystack or "母公司" in haystack:
+            return "parent_only"
+        return "unknown"
 
     @staticmethod
     def _select_header_rows(rows: list[list[str]]) -> list[list[str]]:

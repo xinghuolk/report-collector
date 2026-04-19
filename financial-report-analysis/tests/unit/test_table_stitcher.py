@@ -174,3 +174,6 @@ def test_stitch_tables_does_not_merge_same_page_continued_looking_tables() -> No
 
     assert len(stitched) == 2
     assert [table.table_id for table in stitched] == ["doc:table:9", "doc:table:10"]
+    assert stitched[1].continued_from_table_id is None
+    assert stitched[1].continuation_confidence is not None
+    assert stitched[1].continuation_confidence < 0.5
