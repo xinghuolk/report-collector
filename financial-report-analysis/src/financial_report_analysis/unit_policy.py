@@ -20,6 +20,12 @@ class PresentationReportValue:
 class UnitPolicy:
     _THOUSAND_UNIT_SUFFIX = "'000"
     _UNIT_MULTIPLIERS = {
+        "thousand": 1_000.0,
+        "thousands": 1_000.0,
+        "million": 1_000_000.0,
+        "millions": 1_000_000.0,
+        "billion": 1_000_000_000.0,
+        "billions": 1_000_000_000.0,
         "千元": 1_000.0,
         "万元": 10_000.0,
         "万": 10_000.0,
@@ -64,6 +70,7 @@ class UnitPolicy:
 
         normalized_unit = raw_unit.strip().replace("人民币", "")
         normalized_unit = normalized_unit.replace(" ", "")
+        normalized_unit = normalized_unit.casefold()
         if normalized_unit.upper().endswith(self._THOUSAND_UNIT_SUFFIX):
             return 1000.0
         if normalized_unit in self._UNIT_MULTIPLIERS:

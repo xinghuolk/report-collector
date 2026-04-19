@@ -762,6 +762,93 @@ def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
     assert first_table["page_range"]
 
 
+def test_extract_endpoint_promotes_table_semantic_candidates_to_canonical_facts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:1",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "2023 Annual Report Revenue 9,999 RMB'000",
+    )
+
+    pdf_path = tmp_path / "table-mock.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "pass"
+    assert any(fact["metric_id"] == "revenue" for fact in payload["key_facts"])
+
+
 def test_extract_endpoint_accepts_cn_quarterly_sample_pdf() -> None:
     sample_pdf = _resolve_cn_quarterly_sample()
     if sample_pdf is None or not sample_pdf.exists():

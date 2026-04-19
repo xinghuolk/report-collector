@@ -1,6 +1,7 @@
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
+from financial_report_analysis.services.table_fact_builder import build_table_candidate_facts
 from financial_report_analysis.services.validation_service import (
     ValidationReport,
     ValidationService,
@@ -12,4 +13,5 @@ __all__ = [
     "FactNormalizer",
     "ValidationReport",
     "ValidationService",
+    "build_table_candidate_facts",
 ]

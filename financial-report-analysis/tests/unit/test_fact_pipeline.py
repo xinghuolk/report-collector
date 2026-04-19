@@ -3,10 +3,20 @@ from financial_report_analysis.models.facts import CandidateFact
 from financial_report_analysis.models.facts import CanonicalFact
 from financial_report_analysis.models.facts import DerivedFact
 from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+from financial_report_analysis.models import (
+    NormalizedTableCellValue,
+    NormalizedTableColumn,
+    NormalizedTableRow,
+    NormalizedTableSemantics,
+)
 from financial_report_analysis.pipeline import analyze_report
+from financial_report_analysis.registries import load_metric_registry
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
+from financial_report_analysis.services.table_fact_builder import (
+    build_table_candidate_facts,
+)
 from financial_report_analysis.services.validation_service import ValidationService
 from financial_report_analysis.storage.repositories import (
     EvidenceBundleItemLink,
@@ -617,6 +627,61 @@ def test_pipeline_rejects_mismatched_candidate_document_id() -> None:
         assert "document_id" in str(exc)
     else:
         raise AssertionError("analyze_report should reject mismatched document_id")
+
+
+def test_analyze_report_promotes_supported_table_metrics_to_canonical_facts() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-1",
+                document_id="doc-1",
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-1",
+                        label_raw="Revenue",
+                        normalized_row_label="revenue",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="1,000",
+                                numeric_value=1000.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert any(f.metric_id == "revenue" for f in result.canonical_facts)
 
 
 def test_evidence_repository_round_trips_bundle_through_links() -> None:

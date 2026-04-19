@@ -8,8 +8,11 @@ from typing import Any
 import httpx
 from pypdf import PdfReader
 
+from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
 from financial_report_analysis.ingestion.table_structure import PdfTableStructureAdapter
 from financial_report_analysis.models import ParsedRow, ParsedTable
+from financial_report_analysis.registries import load_metric_registry
+from financial_report_analysis.services import build_table_candidate_facts
 
 
 class PdfIngestionInputError(ValueError):
@@ -81,24 +84,29 @@ class PdfIngestionAdapter:
             text,
         )
 
-        candidate_facts: list[dict[str, Any]] = []
-        revenue_fact = self._extract_revenue_fact_from_tables(
-            parsed_tables,
-            period_id=period_id,
-            market=market,
+        candidate_facts = build_table_candidate_facts(
+            [normalize_table_semantics(table) for table in parsed_tables],
+            registry=load_metric_registry(),
+            document_id=document_id,
+            market=market or "CN",
         )
-        if revenue_fact is None:
+        if not candidate_facts:
             revenue_fact = self._extract_revenue_fact_from_text(
                 document_id=document_id,
                 text=text,
                 period_id=period_id,
                 market=market,
             )
+            if revenue_fact is not None:
+                candidate_facts = [revenue_fact]
 
-        if revenue_fact is not None and (
-            min_confidence is None or revenue_fact["confidence"] >= min_confidence
-        ):
-            candidate_facts.append(revenue_fact)
+        if min_confidence is not None:
+            candidate_facts = [
+                fact
+                for fact in candidate_facts
+                if fact.get("confidence") is not None
+                and float(fact["confidence"]) >= min_confidence
+            ]
 
         return {
             "candidate_facts": candidate_facts,
