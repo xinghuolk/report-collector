@@ -66,7 +66,7 @@ def test_extract_endpoint_rejects_both_sources() -> None:
     assert response.json()["detail"] == "provide only one of pdf_path or pdf_url"
 
 
-def test_extract_endpoint_returns_analysis_envelope_for_pdf_path() -> None:
+def test_extract_endpoint_rejects_missing_pdf_path() -> None:
     client = TestClient(create_app())
 
     response = client.post(
@@ -78,23 +78,8 @@ def test_extract_endpoint_returns_analysis_envelope_for_pdf_path() -> None:
         },
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["document"] == {
-        "document_id": "/tmp/report.pdf",
-        "pdf_path": "/tmp/report.pdf",
-        "pdf_url": None,
-        "market": "CN",
-        "min_confidence": 0.8,
-    }
-    assert payload["canonical_fact_set_id"] == "/tmp/report.pdf:canonical:v1"
-    assert payload["derived_fact_set_id"] == "/tmp/report.pdf:derived:v1"
-    assert payload["validation_report_id"] == "/tmp/report.pdf:validation:v1"
-    assert payload["quality_gate"] == "review"
-    assert payload["key_facts"] == []
-    assert payload["ttm_facts"] == []
-    assert payload["analysis_snapshot"] == {"summary": "", "blocked_items": []}
-    assert payload["blocked_items"] == []
+    assert response.status_code == 400
+    assert response.json()["detail"] == "pdf_path does not exist"
 
 
 def test_extract_endpoint_runs_ingestion_path_for_pdf_input(

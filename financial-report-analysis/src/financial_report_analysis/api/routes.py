@@ -5,7 +5,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from financial_report_analysis.adapters.report_adapter import ReportAdapter
-from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+from financial_report_analysis.ingestion.pdf_ingestion import (
+    PdfIngestionAdapter,
+    PdfIngestionInputError,
+)
 from financial_report_analysis.api.schemas import (
     AnalysisExtractRequest,
     AnalysisExtractResponse,
@@ -48,12 +51,18 @@ def extract_analysis(request: AnalysisExtractRequest) -> dict[str, Any]:
         "market": request.market,
         "min_confidence": request.min_confidence,
     }
-    extracted_payload = PdfIngestionAdapter().extract_candidate_facts(
-        pdf_path=pdf_path,
-        pdf_url=pdf_url,
-        market=request.market,
-        min_confidence=request.min_confidence,
-    )
+    try:
+        extracted_payload = PdfIngestionAdapter().extract_candidate_facts(
+            pdf_path=pdf_path,
+            pdf_url=pdf_url,
+            market=request.market,
+            min_confidence=request.min_confidence,
+        )
+    except PdfIngestionInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     pipeline_result = analyze_report(
         document_ref=document,
         extracted_payload=extracted_payload,

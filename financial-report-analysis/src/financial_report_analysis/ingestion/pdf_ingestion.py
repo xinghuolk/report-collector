@@ -9,6 +9,10 @@ import httpx
 from pypdf import PdfReader
 
 
+class PdfIngestionInputError(ValueError):
+    """Raised when ingestion input cannot be read as requested."""
+
+
 class PdfIngestionAdapter:
     _REVENUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ("Revenue", re.compile(r"\bRevenue\b[^\d\-()]*([0-9][0-9,]*(?:\.\d+)?)", re.IGNORECASE)),
@@ -83,7 +87,7 @@ class PdfIngestionAdapter:
         if pdf_path:
             path = Path(pdf_path)
             if not path.exists():
-                return ""
+                raise PdfIngestionInputError("pdf_path does not exist")
             reader = PdfReader(str(path))
             return "\n".join(page.extract_text() or "" for page in reader.pages)
 
