@@ -13,14 +13,16 @@ def _candidate(
     period_id: str,
     source_rank_hint: int | None,
     numeric_value: float,
+    statement_type: str = "income_statement",
     currency: str = "CNY",
     raw_unit: str = "unit",
+    extensions: dict[str, object] | None = None,
 ) -> CandidateFact:
     return CandidateFact(
         fact_id=fact_id,
         metric_id="raw_revenue",
         metric_label_raw="Revenue",
-        statement_type="income_statement",
+        statement_type=statement_type,
         entity_scope="consolidated",
         comparison_axis="current",
         adjustment_basis="reported",
@@ -32,7 +34,7 @@ def _candidate(
         normalized_unit=None,
         precision=0,
         confidence=0.9,
-        extensions={},
+        extensions=extensions or {},
         document_id="doc-1",
         block_id="block-1",
         page_index=0,
@@ -259,6 +261,130 @@ def test_derivation_service_uses_latest_valid_four_quarter_window() -> None:
         "canonical::candidate-2024q3",
         "canonical::candidate-2024q4",
     ]
+
+
+def test_derivation_service_accepts_registry_period_ids_with_period_metadata() -> None:
+    normalizer = FactNormalizer()
+    resolver = ConflictResolver()
+    derivation_service = DerivationService()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-q1",
+                period_id="duration::ifrs::2024::q1::2024-01-01::2024-03-31",
+                source_rank_hint=1,
+                numeric_value=10.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "Q1",
+                    "fiscal_year": 2024,
+                },
+            ),
+            _candidate(
+                fact_id="candidate-q2",
+                period_id="duration::ifrs::2024::q2::2024-04-01::2024-06-30",
+                source_rank_hint=1,
+                numeric_value=20.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "Q2",
+                    "fiscal_year": 2024,
+                },
+            ),
+            _candidate(
+                fact_id="candidate-q3",
+                period_id="duration::ifrs::2024::q3::2024-07-01::2024-09-30",
+                source_rank_hint=1,
+                numeric_value=30.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "Q3",
+                    "fiscal_year": 2024,
+                },
+            ),
+            _candidate(
+                fact_id="candidate-q4",
+                period_id="duration::ifrs::2024::fy::2024-01-01::2024-12-31",
+                source_rank_hint=1,
+                numeric_value=40.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "FY",
+                    "fiscal_year": 2024,
+                    "period_variant": "single_quarter",
+                },
+            ),
+        ]
+    )
+
+    canonical_facts = resolver.resolve(normalized)
+    derived_facts = derivation_service.derive_ttm(canonical_facts)
+
+    assert len(derived_facts) == 1
+    assert derived_facts[0].numeric_value == 100.0
+
+
+def test_derivation_service_rejects_point_periods_and_mixed_statements() -> None:
+    normalizer = FactNormalizer()
+    resolver = ConflictResolver()
+    derivation_service = DerivationService()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-q1",
+                period_id="duration::ifrs::2024::q1::2024-01-01::2024-03-31",
+                source_rank_hint=1,
+                numeric_value=10.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "Q1",
+                    "fiscal_year": 2024,
+                },
+            ),
+            _candidate(
+                fact_id="candidate-q2",
+                period_id="duration::ifrs::2024::q2::2024-04-01::2024-06-30",
+                source_rank_hint=1,
+                numeric_value=20.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "Q2",
+                    "fiscal_year": 2024,
+                },
+            ),
+            _candidate(
+                fact_id="candidate-point",
+                period_id="duration::ifrs::2024::q3::2024-07-01::2024-09-30",
+                source_rank_hint=1,
+                numeric_value=30.0,
+                statement_type="balance_sheet",
+                extensions={
+                    "period_type": "POINT",
+                    "reporting_scope": "Q3",
+                    "fiscal_year": 2024,
+                },
+            ),
+            _candidate(
+                fact_id="candidate-q4",
+                period_id="duration::ifrs::2024::fy::2024-01-01::2024-12-31",
+                source_rank_hint=1,
+                numeric_value=40.0,
+                extensions={
+                    "period_type": "DURATION",
+                    "reporting_scope": "FY",
+                    "fiscal_year": 2024,
+                    "period_variant": "single_quarter",
+                },
+            ),
+        ]
+    )
+
+    canonical_facts = resolver.resolve(normalized)
+    derived_facts = derivation_service.derive_ttm(canonical_facts)
+
+    assert derived_facts == []
 
 
 def test_validation_service_returns_stable_report_shape() -> None:

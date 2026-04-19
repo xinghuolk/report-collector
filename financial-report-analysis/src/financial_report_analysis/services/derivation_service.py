@@ -16,12 +16,18 @@ class _QuarterlyFact:
 
 
 class DerivationService:
+    _DURATION_STATEMENT_TYPES = {
+        "income_statement",
+        "cash_flow_statement",
+        "metrics",
+    }
+
     def derive_ttm(
         self,
         canonical_facts: Iterable[CanonicalFact],
     ) -> list[DerivedFact]:
         grouped_facts: dict[
-            tuple[str, str, str, str, str, str],
+            tuple[str, str, str, str, str, str, str],
             list[CanonicalFact],
         ] = defaultdict(list)
         for fact in canonical_facts:
@@ -64,9 +70,12 @@ class DerivationService:
         return derived_facts
 
     @staticmethod
-    def _ttm_group_key(fact: CanonicalFact) -> tuple[str, str, str, str, str, str]:
+    def _ttm_group_key(
+        fact: CanonicalFact,
+    ) -> tuple[str, str, str, str, str, str, str]:
         return (
             fact.metric_id,
+            fact.statement_type,
             fact.entity_scope,
             fact.comparison_axis,
             fact.adjustment_basis,
@@ -78,12 +87,10 @@ class DerivationService:
     def _quarterly_facts(canonical_facts: list[CanonicalFact]) -> list[_QuarterlyFact]:
         quarterly_facts: list[_QuarterlyFact] = []
         for fact in canonical_facts:
-            parsed = DerivationService._parse_quarter_period_id(fact.period_id)
+            parsed = DerivationService._parse_quarterly_fact(fact)
             if parsed is None:
                 return []
-            quarterly_facts.append(
-                _QuarterlyFact(year=parsed[0], quarter=parsed[1], fact=fact)
-            )
+            quarterly_facts.append(parsed)
         return quarterly_facts
 
     @staticmethod
@@ -112,8 +119,113 @@ class DerivationService:
         return True
 
     @staticmethod
-    def _parse_quarter_period_id(period_id: str) -> tuple[int, int] | None:
-        match = re.fullmatch(r"(?P<year>\d{4})Q(?P<quarter>[1-4])", period_id)
+    def _parse_quarterly_fact(fact: CanonicalFact) -> _QuarterlyFact | None:
+        if fact.statement_type not in DerivationService._DURATION_STATEMENT_TYPES:
+            return None
+
+        metadata = fact.extensions
+        period_type = str(metadata.get("period_type", "")).upper()
+        if period_type and period_type != "DURATION":
+            return None
+
+        metadata_year = metadata.get("fiscal_year")
+        metadata_scope = str(metadata.get("reporting_scope", "")).upper()
+        metadata_quarter = DerivationService._quarter_from_metadata(
+            year=metadata_year,
+            reporting_scope=metadata_scope,
+            period_type=period_type,
+            metadata=metadata,
+            fact=fact,
+        )
+        if metadata_quarter is not None:
+            return metadata_quarter
+
+        parsed = DerivationService._parse_legacy_period_id(fact.period_id)
+        if parsed is not None:
+            return _QuarterlyFact(year=parsed[0], quarter=parsed[1], fact=fact)
+
+        parsed = DerivationService._parse_registry_period_id(fact)
+        if parsed is not None:
+            return _QuarterlyFact(year=parsed[0], quarter=parsed[1], fact=fact)
+
+        return None
+
+    @staticmethod
+    def _quarter_from_metadata(
+        *,
+        year: object,
+        reporting_scope: str,
+        period_type: str,
+        metadata: dict[str, object],
+        fact: CanonicalFact,
+    ) -> _QuarterlyFact | None:
+        if not reporting_scope or year is None:
+            return None
+
+        quarter = DerivationService._scope_to_single_quarter(
+            reporting_scope=reporting_scope,
+            metadata=metadata,
+        )
+        if quarter is None:
+            return None
+
+        try:
+            parsed_year = int(year)
+        except (TypeError, ValueError):
+            return None
+
+        return _QuarterlyFact(year=parsed_year, quarter=quarter, fact=fact)
+
+    @staticmethod
+    def _parse_legacy_period_id(period_id: str) -> tuple[int, int] | None:
+        match = re.fullmatch(r"(?P<year>\d{4})Q(?P<quarter>[1-4])(?:_SINGLE)?", period_id)
         if match is None:
             return None
         return int(match.group("year")), int(match.group("quarter"))
+
+    @staticmethod
+    def _parse_registry_period_id(fact: CanonicalFact) -> tuple[int, int] | None:
+        match = re.fullmatch(
+            r"duration::[^:]+::(?P<year>\d{4})::(?P<scope>[a-z0-9_]+)::[^:]+::[^:]+",
+            fact.period_id,
+        )
+        if match is None:
+            return None
+
+        quarter = DerivationService._scope_to_single_quarter(
+            reporting_scope=match.group("scope").upper(),
+            metadata=fact.extensions,
+        )
+        if quarter is None:
+            return None
+
+        return int(match.group("year")), quarter
+
+    @staticmethod
+    def _scope_to_single_quarter(
+        *,
+        reporting_scope: str,
+        metadata: dict[str, object],
+    ) -> int | None:
+        if reporting_scope in {"Q1", "Q2", "Q3", "Q4"}:
+            return int(reporting_scope[-1])
+
+        if reporting_scope == "FY" and DerivationService._is_single_quarter_metadata(
+            metadata
+        ):
+            return 4
+
+        return None
+
+    @staticmethod
+    def _is_single_quarter_metadata(metadata: dict[str, object]) -> bool:
+        single_quarter_keys = (
+            metadata.get("is_single_quarter"),
+            metadata.get("single_quarter"),
+            metadata.get("is_single_quarter_delta"),
+            metadata.get("period_variant"),
+        )
+        return any(
+            value is True or str(value).lower() == "single_quarter"
+            for value in single_quarter_keys
+        )
