@@ -954,6 +954,8 @@ git commit -m "feat: add report analysis adapter and quality gate"
 ## Task 6: 为 `financial-report-analysis` 提供独立 API，并让 `report` 以 HTTP 转发接入
 
 > **Execution gate:** Task 6 以 `financial-report-analysis` 独立 API 为主路径。不要在执行时让 `report/` 直接 import 分析核心实现，除非先更新 spec 与本计划。
+>
+> **Scope clarification:** Task 6 的收口目标是“独立 service + 独立 HTTP contract + `report` forwarding”。Task 6 不包含复用 `report` extractor 来实现真实 PDF ingestion，也不要求在本任务中完成 `pdf_path/pdf_url -> candidate_facts` 的独立闭环。
 
 **Files:**
 - Modify: `financial-report-analysis/pyproject.toml`
@@ -1113,9 +1115,91 @@ git add financial-report-analysis/pyproject.toml financial-report-analysis/src/f
 git commit -m "feat: expose financial report analysis via standalone api"
 ```
 
+## Task 6.5: 为 `financial-report-analysis` 实现独立 extraction adapter / candidate-fact ingestion path
+
+> **Execution gate:** Task 6.5 必须保持 `financial-report-analysis` 对 `report/` extractor 零代码依赖。允许复用已经稳定下来的 HTTP contract、领域模型和 pipeline，但不允许直接 import `report/src/pdf_parser`、`PDFHandler` 或其缓存/数据库实现。
+
+**Files:**
+- Create: `financial-report-analysis/src/financial_report_analysis/ingestion/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/ingestion/pdf_ingestion.py`
+- Modify: `financial-report-analysis/src/financial_report_analysis/api/routes.py`
+- Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
+- Modify: `financial-report-analysis/tests/unit/test_fact_pipeline.py`
+- Modify: `financial-report-analysis/README.md`
+
+- [ ] **Step 1: 写失败测试，固定独立 ingestion 的 happy path 与边界**
+
+```python
+def test_analysis_service_extracts_candidate_facts_from_pdf_path() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={"pdf_path": "/tmp/mock.pdf", "market": "CN"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["canonical_fact_set_id"]
+    assert payload["quality_gate"] in {"pass", "review", "fail"}
+```
+
+```python
+def test_ingestion_adapter_stays_report_independent() -> None:
+    import financial_report_analysis.ingestion.pdf_ingestion as ingestion
+
+    assert "report." not in repr(ingestion)
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `cd financial-report-analysis && uv run pytest tests/integration/test_analysis_api.py tests/unit/test_fact_pipeline.py -v`
+
+Expected: FAIL，提示独立 ingestion adapter 尚未实现或 `/api/v1/analysis/extract` 仍走空 `candidate_facts`
+
+- [ ] **Step 3: 写最小实现**
+
+```python
+# financial-report-analysis/src/financial_report_analysis/ingestion/pdf_ingestion.py
+class PdfIngestionAdapter:
+    def extract_candidate_facts(
+        self,
+        *,
+        pdf_path: str | None,
+        pdf_url: str | None,
+        market: str | None,
+        min_confidence: float | None,
+    ) -> dict[str, Any]:
+        ...
+```
+
+```python
+# financial-report-analysis/src/financial_report_analysis/api/routes.py
+payload = PdfIngestionAdapter().extract_candidate_facts(
+    pdf_path=pdf_path,
+    pdf_url=pdf_url,
+    market=request.market,
+    min_confidence=request.min_confidence,
+)
+pipeline_result = analyze_report(document_ref=document, extracted_payload=payload)
+```
+
+- [ ] **Step 4: 运行测试确认通过**
+
+Run: `cd financial-report-analysis && uv run pytest tests/integration/test_analysis_api.py tests/unit/test_fact_pipeline.py -v`
+
+Expected: PASS，analysis service 不依赖 `report/` extractor 且具备独立 ingest-and-analyze 主路径
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add financial-report-analysis/src/financial_report_analysis/ingestion financial-report-analysis/src/financial_report_analysis/api/routes.py financial-report-analysis/tests/integration/test_analysis_api.py financial-report-analysis/tests/unit/test_fact_pipeline.py financial-report-analysis/README.md
+git commit -m "feat: add standalone ingestion path for analysis service"
+```
+
 ## Task 7: 补独立服务验证矩阵、转发回归测试与文档同步
 
-> **Execution gate:** Task 7 在 Task 6 完成独立 analysis service 后再执行。港股非英文输入在第一阶段应标记为 `unsupported_in_phase1` 或 `review`，不要和真实数据质量失败混成 `fail`。
+> **Execution gate:** Task 7 在 Task 6.5 完成独立 ingestion path 后再执行。港股非英文输入在第一阶段应标记为 `unsupported_in_phase1` 或 `review`，不要和真实数据质量失败混成 `fail`。
 
 **Files:**
 - Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
@@ -1240,11 +1324,12 @@ git commit -m "docs: align standalone analysis service and regression coverage"
 ## Execution Order Recommendation
 
 - 可直接执行：Task 1, Task 2, Task 3, Task 4, Task 5
-- 执行前已在本计划中修订收口：Task 6, Task 7
+- 执行前已在本计划中修订收口：Task 6, Task 6.5, Task 7
 
 ## Notes Before Execution
 
-- 如果 Task 3 中的最小实现无法兼容现有 `content_extractor.py` 的事实输出，优先在 `financial-report-analysis` 服务内部加 legacy-to-candidate 映射，而不是把新模型倒灌回旧 extractor。
+- Task 6 收口于独立 service、HTTP contract 和 forwarding；不要把真实 PDF ingestion 隐含塞回 Task 6。
+- 如需支持 `pdf_path/pdf_url -> candidate_facts` 的真实闭环，统一放在 Task 6.5 中实现，并保持对 `report/` extractor 的零代码依赖。
 - `report/` 在 Task 6 之后只承担转发与错误映射职责，不应直接 import `financial_report_analysis.pipeline` 或 `ReportAdapter`。
 - 如果第一阶段无法立即引入真实数据库，请先实现 `financial-report-analysis/src/financial_report_analysis/storage/repositories.py` 中的内存实现，但接口命名必须保持关系型友好。
 
