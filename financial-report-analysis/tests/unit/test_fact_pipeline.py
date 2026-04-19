@@ -1,10 +1,16 @@
+from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact
 from financial_report_analysis.models.facts import CanonicalFact
 from financial_report_analysis.models.facts import DerivedFact
+from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
 from financial_report_analysis.services.validation_service import ValidationService
+from financial_report_analysis.storage.repositories import (
+    EvidenceBundleItemLink,
+    InMemoryEvidenceRepository,
+)
 
 
 def _candidate(
@@ -498,3 +504,169 @@ def test_validation_service_requires_review_for_dangling_derived_reference() -> 
     )
 
     assert report.overall_status == "review_required"
+
+
+def test_pipeline_returns_fact_sets_and_quality_gate() -> None:
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-1",
+                    "metric_id": "unknown",
+                    "metric_label_raw": "营业收入",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1000",
+                    "numeric_value": 1000.0,
+                    "raw_unit": "万元",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "营业收入 1000",
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    assert result.canonical_fact_set_id == "doc-1:canonical:v1"
+    assert result.derived_fact_set_id == "doc-1:derived:v1"
+    assert result.validation_report_id == "doc-1:validation:v1"
+    assert result.quality_gate == "pass"
+    assert len(result.canonical_facts) == 1
+    assert result.canonical_facts[0].metric_id == "revenue"
+    assert result.canonical_facts[0].numeric_value == 1000.0
+    assert result.canonical_facts[0].source_candidate_fact_ids == ["cand-1"]
+    assert result.derived_facts == []
+    assert result.validation_report.overall_status == "ok"
+
+
+def test_pipeline_rejects_mismatched_candidate_document_id() -> None:
+    try:
+        analyze_report(
+            document_ref={"document_id": "doc-1", "market": "CN"},
+            extracted_payload={
+                "candidate_facts": [
+                    {
+                        "fact_id": "cand-1",
+                        "metric_id": "unknown",
+                        "metric_label_raw": "营业收入",
+                        "statement_type": "income_statement",
+                        "entity_scope": "consolidated",
+                        "comparison_axis": "current",
+                        "adjustment_basis": "reported",
+                        "period_id": "2025FY",
+                        "currency": "CNY",
+                        "raw_value": "1000",
+                        "numeric_value": 1000.0,
+                        "raw_unit": "万元",
+                        "precision": 2,
+                        "confidence": 0.95,
+                        "document_id": "doc-2",
+                        "block_id": "block-1",
+                        "table_id": "table-1",
+                        "page_index": 1,
+                        "table_coord": "A1",
+                        "evidence_bundle_id": "bundle-1",
+                        "evidence_span": "营业收入 1000",
+                        "snapshot_path": None,
+                        "extraction_method": "table_skill",
+                        "extraction_version": "v1",
+                        "source_rank_hint": 1,
+                    }
+                ]
+            },
+        )
+    except ValueError as exc:
+        assert "document_id" in str(exc)
+    else:
+        raise AssertionError("analyze_report should reject mismatched document_id")
+
+
+def test_evidence_repository_round_trips_bundle_through_links() -> None:
+    item = EvidenceItem(
+        evidence_item_id="item-1",
+        document_id="doc-1",
+        source_type="block",
+        block_id="block-1",
+        page_no=1,
+        text_excerpt="营业收入 1000",
+    )
+    bundle = EvidenceBundle(
+        evidence_bundle_id="bundle-1",
+        document_id="doc-1",
+        bundle_type="fact_support",
+        evidence_items=[item],
+        primary_evidence_item_id="item-1",
+        summary="Revenue support",
+    )
+
+    repository = InMemoryEvidenceRepository()
+    repository.save_evidence_bundle(bundle)
+
+    assert repository.list_evidence_bundle_item_links("bundle-1") == (
+        EvidenceBundleItemLink(
+            evidence_bundle_id="bundle-1",
+            evidence_item_id="item-1",
+            sort_order=0,
+        ),
+    )
+
+    loaded_bundle = repository.get_evidence_bundle("bundle-1")
+    assert loaded_bundle is not None
+    assert loaded_bundle.evidence_items[0].evidence_item_id == "item-1"
+    assert loaded_bundle.primary_evidence_item_id == "item-1"
+
+
+def test_evidence_repository_rejects_linking_missing_items() -> None:
+    repository = InMemoryEvidenceRepository()
+
+    try:
+        repository.link_evidence_bundle_item(
+            evidence_bundle_id="bundle-1",
+            evidence_item_id="missing-item",
+            sort_order=0,
+        )
+    except ValueError as exc:
+        assert "missing-item" in str(exc)
+    else:
+        raise AssertionError("link_evidence_bundle_item should reject missing items")
+
+
+def test_evidence_repository_rejects_missing_linked_items_on_read() -> None:
+    repository = InMemoryEvidenceRepository()
+    item = EvidenceItem(
+        evidence_item_id="item-1",
+        document_id="doc-1",
+        source_type="block",
+    )
+    bundle = EvidenceBundle(
+        evidence_bundle_id="bundle-1",
+        document_id="doc-1",
+        bundle_type="fact_support",
+        evidence_items=[item],
+        primary_evidence_item_id="item-1",
+    )
+    repository.save_evidence_bundle(bundle)
+    repository._evidence_items.pop("item-1")
+
+    try:
+        repository.get_evidence_bundle("bundle-1")
+    except ValueError as exc:
+        assert "missing linked evidence item" in str(exc)
+    else:
+        raise AssertionError("get_evidence_bundle should reject missing linked items")
