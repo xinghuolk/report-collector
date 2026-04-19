@@ -4,8 +4,13 @@ import pytest
 
 from src.pdf_parser.content_extractor import PDFContentExtractor
 
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
+WORKTREE_REPORT_ROOT = Path(__file__).resolve().parents[2]
+MAIN_REPORT_ROOT = WORKTREE_REPORT_ROOT.parent.parent.parent / "report"
+ROOT_DIR = (
+    WORKTREE_REPORT_ROOT
+    if (WORKTREE_REPORT_ROOT / "downloads").exists()
+    else MAIN_REPORT_ROOT
+)
 Q1_PDF = ROOT_DIR / "downloads" / "hk_stocks" / "09987" / "quarterly" / "2025_quarterly_q1_en.pdf"
 Q3_PDF = ROOT_DIR / "downloads" / "hk_stocks" / "09987" / "quarterly" / "2025_quarterly_q3_en.pdf"
 Q4_PDF = ROOT_DIR / "downloads" / "hk_stocks" / "09987" / "quarterly" / "2025_quarterly_q4_fy_en.pdf"

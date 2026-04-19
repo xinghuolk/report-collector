@@ -49,9 +49,6 @@ class PdfIngestionAdapter:
         text = self._extract_text(pdf_path=pdf_path, pdf_url=pdf_url)
         language = self._detect_language(text, market)
         period_id = self._detect_period_id(text)
-        currency = self._detect_currency(text, market)
-        raw_unit = self._detect_raw_unit(text)
-        confidence = 0.9
 
         candidate_facts: list[dict[str, Any]] = []
         if period_id is None:
@@ -60,7 +57,19 @@ class PdfIngestionAdapter:
                 "document_metadata": {"language": language},
             }
 
-        for index, (label, numeric_value) in enumerate(self._extract_revenue_facts(text), start=1):
+        revenue_facts = self._extract_revenue_facts(text)
+        if not revenue_facts:
+            return {
+                "candidate_facts": candidate_facts,
+                "document_metadata": {"language": language},
+            }
+
+        revenue_context = self._extract_revenue_context(text, revenue_facts[0][2])
+        currency = self._detect_currency(revenue_context, market)
+        raw_unit = self._detect_raw_unit(revenue_context)
+        confidence = 0.9
+
+        for index, (label, numeric_value, _) in enumerate(revenue_facts, start=1):
             if min_confidence is not None and confidence < min_confidence:
                 continue
             candidate_facts.append(
@@ -117,15 +126,22 @@ class PdfIngestionAdapter:
 
         return ""
 
-    def _extract_revenue_facts(self, text: str) -> list[tuple[str, float]]:
-        facts: list[tuple[str, float]] = []
+    def _extract_revenue_facts(self, text: str) -> list[tuple[str, float, tuple[int, int]]]:
+        facts: list[tuple[str, float, tuple[int, int]]] = []
         for label, pattern in self._REVENUE_PATTERNS:
             match = pattern.search(text)
             if match is None:
                 continue
-            facts.append((label, self._parse_number(match.group(1))))
+            facts.append((label, self._parse_number(match.group(1)), match.span()))
             break
         return facts
+
+    @staticmethod
+    def _extract_revenue_context(text: str, revenue_span: tuple[int, int]) -> str:
+        start, end = revenue_span
+        context_start = max(0, start - 400)
+        context_end = min(len(text), end + 120)
+        return text[context_start:context_end]
 
     @staticmethod
     def _detect_period_id(text: str) -> str | None:
@@ -137,12 +153,15 @@ class PdfIngestionAdapter:
         if quarter_match:
             return f"{quarter_match.group(1)}Q{quarter_match.group(2)}"
 
-        chinese_annual = re.search(r"(20\d{2})\u5e74\u5e74\u5ea6\u62a5\u544a", text)
+        chinese_annual = re.search(
+            r"(20\d{2})\s*\u5e74\s*\u5e74\u5ea6\u62a5\u544a",
+            text,
+        )
         if chinese_annual:
             return f"{chinese_annual.group(1)}FY"
 
         chinese_quarter = re.search(
-            r"(20\d{2})\u5e74\u7b2c([\u4e00\u4e8c\u4e09\u56db])\u5b63\u5ea6\u62a5\u544a",
+            r"(20\d{2})\s*\u5e74\s*\u7b2c\s*([\u4e00\u4e8c\u4e09\u56db])\s*\u5b63\u5ea6\u62a5\u544a",
             text,
         )
         if chinese_quarter:
@@ -165,6 +184,12 @@ class PdfIngestionAdapter:
     @staticmethod
     def _detect_currency(text: str, market: str | None) -> str:
         upper_text = text.upper()
+        if re.search(r"\u5e01\u79cd[:\uFF1A]\s*\u6e2f\u5143", text):
+            return "HKD"
+        if re.search(r"\u5e01\u79cd[:\uFF1A]\s*\u7f8e\u5143", text):
+            return "USD"
+        if re.search(r"\u5e01\u79cd[:\uFF1A]\s*\u4eba\u6c11\u5e01", text):
+            return "CNY"
         if "HK$" in text or "HKD" in upper_text or "\u6e2f\u5143" in text:
             return "HKD"
         if "US$" in text or "USD" in upper_text or "\u7f8e\u5143" in text:
@@ -179,6 +204,9 @@ class PdfIngestionAdapter:
 
     @staticmethod
     def _detect_raw_unit(text: str) -> str | None:
+        unit_match = re.search(r"\u5355\u4f4d[:\uFF1A]\s*([^\s\n]+)", text)
+        if unit_match:
+            return unit_match.group(1)
         thousand_match = re.search(
             r"(RMB|CNY|USD|HKD|HK\$|US\$)\s*['` ]?0{3}",
             text,

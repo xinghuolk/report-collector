@@ -751,3 +751,70 @@ def test_pdf_ingestion_adapter_extracts_revenue_candidate_from_text(
     assert candidate["numeric_value"] == 2500.0
     assert candidate["raw_unit"] == "RMB'000"
     assert candidate["confidence"] == 0.9
+
+
+def test_pdf_ingestion_adapter_handles_spaced_cn_annual_title_and_local_context(
+    monkeypatch,
+) -> None:
+    adapter = PdfIngestionAdapter()
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        (
+            lambda self, *, pdf_path, pdf_url: (
+                "2024 年年度报告\n"
+                "合并利润表\n"
+                "营业收入 1,234\n"
+                "单位：元 币种：人民币\n"
+                "附注：港元、美元仅用于说明\n"
+            )
+        ),
+    )
+
+    payload = adapter.extract_candidate_facts(
+        pdf_path="/tmp/mock-cn-annual.pdf",
+        pdf_url=None,
+        market="CN",
+        min_confidence=0.8,
+    )
+
+    assert payload["candidate_facts"], "expected a revenue candidate"
+    candidate = payload["candidate_facts"][0]
+    assert candidate["period_id"] == "2024FY"
+    assert candidate["currency"] == "CNY"
+    assert candidate["raw_unit"] == "元"
+    assert candidate["metric_label_raw"] == "营业收入"
+
+
+def test_pdf_ingestion_adapter_handles_spaced_cn_quarterly_title_and_local_context(
+    monkeypatch,
+) -> None:
+    adapter = PdfIngestionAdapter()
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        (
+            lambda self, *, pdf_path, pdf_url: (
+                "2025 年第三季度报告\n"
+                "合并利润表\n"
+                "营业收入 9,876\n"
+                "单位：元 币种：人民币\n"
+                "附注：港元、美元仅用于说明\n"
+            )
+        ),
+    )
+
+    payload = adapter.extract_candidate_facts(
+        pdf_path="/tmp/mock-cn-quarterly.pdf",
+        pdf_url=None,
+        market="CN",
+        min_confidence=0.8,
+    )
+
+    assert payload["candidate_facts"], "expected a revenue candidate"
+    candidate = payload["candidate_facts"][0]
+    assert candidate["period_id"] == "2025Q3"
+    assert candidate["currency"] == "CNY"
+    assert candidate["raw_unit"] == "元"

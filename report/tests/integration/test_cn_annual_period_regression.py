@@ -6,12 +6,21 @@ import pytest
 from src.pdf_parser.content_extractor import PDFContentExtractor
 
 
+def _resolve_report_root() -> Path:
+    worktree_root = Path(__file__).resolve().parents[2]
+    if (worktree_root / "downloads").exists():
+        return worktree_root
+
+    repo_root = worktree_root.parent.parent.parent
+    return repo_root / "report"
+
+
 def _resolve_cn_annual_pdf() -> Path:
     env_path = os.getenv("CN_ANNUAL_SAMPLE_PDF")
     if env_path:
         return Path(env_path)
 
-    root_dir = Path(__file__).resolve().parents[2]
+    root_dir = _resolve_report_root()
     candidates = sorted((root_dir / "downloads" / "cn_stocks").glob("*/annual/*.pdf"))
     if candidates:
         return candidates[0]

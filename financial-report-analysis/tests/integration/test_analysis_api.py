@@ -10,23 +10,54 @@ from fastapi.testclient import TestClient
 from financial_report_analysis.api.app import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+MAIN_REPO_ROOT = REPO_ROOT.parent.parent
+
+
+def _resolve_sample_path(*relative_parts: str) -> Path | None:
+    for root in (REPO_ROOT, MAIN_REPO_ROOT):
+        candidate = root.joinpath(*relative_parts)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _resolve_cn_annual_sample() -> Path | None:
-    annual_dir = REPO_ROOT / "report" / "downloads" / "cn_stocks" / "688008" / "annual"
+    annual_dir = _resolve_sample_path(
+        "report",
+        "downloads",
+        "cn_stocks",
+        "688008",
+        "annual",
+    )
+    if annual_dir is None:
+        return None
     return next(annual_dir.glob("*.pdf"), None)
 
 
-def _resolve_hk_non_english_sample() -> Path:
-    return (
-        REPO_ROOT
-        / "report"
-        / "downloads"
-        / "hk_stocks"
-        / "01810"
-        / "annual"
-        / "2020_annual_zh.pdf"
+def _resolve_cn_quarterly_sample() -> Path | None:
+    quarterly_dir = _resolve_sample_path(
+        "report",
+        "downloads",
+        "cn_stocks",
+        "688008",
+        "quarterly",
     )
+    if quarterly_dir is None:
+        return None
+    return next(quarterly_dir.glob("*.pdf"), None)
+
+
+def _resolve_hk_non_english_sample() -> Path:
+    resolved = _resolve_sample_path(
+        "report",
+        "downloads",
+        "hk_stocks",
+        "01810",
+        "annual",
+        "2020_annual_zh.pdf",
+    )
+    assert resolved is not None
+    return resolved
 
 
 def test_health_endpoint_reports_ready() -> None:
@@ -161,6 +192,31 @@ def test_extract_endpoint_accepts_cn_annual_sample_pdf() -> None:
     payload = response.json()
     assert payload["document"]["pdf_path"] == str(sample_pdf)
     assert payload["quality_gate"] in {"pass", "review"}
+    assert payload["key_facts"]
+    assert payload["key_facts"][0]["metric_id"] == "revenue"
+
+
+def test_extract_endpoint_accepts_cn_quarterly_sample_pdf() -> None:
+    sample_pdf = _resolve_cn_quarterly_sample()
+    if sample_pdf is None or not sample_pdf.exists():
+        pytest.skip("CN quarterly sample PDF not found")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(sample_pdf),
+            "market": "CN",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["pdf_path"] == str(sample_pdf)
+    assert payload["quality_gate"] in {"pass", "review"}
+    assert payload["key_facts"]
+    assert payload["key_facts"][0]["metric_id"] == "revenue"
 
 
 def test_extract_endpoint_marks_hk_non_english_input_as_unsupported_review() -> None:
