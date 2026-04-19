@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from financial_report_analysis.adapters.report_adapter import ReportAdapter
+from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
 from financial_report_analysis.api.schemas import (
     AnalysisExtractRequest,
     AnalysisExtractResponse,
@@ -47,9 +48,15 @@ def extract_analysis(request: AnalysisExtractRequest) -> dict[str, Any]:
         "market": request.market,
         "min_confidence": request.min_confidence,
     }
+    extracted_payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=pdf_path,
+        pdf_url=pdf_url,
+        market=request.market,
+        min_confidence=request.min_confidence,
+    )
     pipeline_result = analyze_report(
         document_ref=document,
-        extracted_payload={"candidate_facts": []},
+        extracted_payload=extracted_payload,
     )
     return ReportAdapter().build_analysis_result(
         document=document,

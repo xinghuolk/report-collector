@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -94,6 +95,46 @@ def test_extract_endpoint_returns_analysis_envelope_for_pdf_path() -> None:
     assert payload["ttm_facts"] == []
     assert payload["analysis_snapshot"] == {"summary": "", "blocked_items": []}
     assert payload["blocked_items"] == []
+
+
+def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+
+    pdf_path = tmp_path / "mock.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    def fake_extract_text(
+        self: PdfIngestionAdapter,
+        *,
+        pdf_path: str | None,
+        pdf_url: str | None,
+    ) -> str:
+        assert pdf_path == str(pdf_file)
+        assert pdf_url is None
+        return "2024 Annual Report\nRevenue 1,234 RMB'000\n"
+
+    pdf_file = pdf_path
+    monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", fake_extract_text)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "pass"
+    assert payload["key_facts"]
+    assert payload["key_facts"][0]["metric_id"] == "revenue"
+    assert payload["key_facts"][0]["numeric_value"] == 1_234_000.0
 
 
 def test_package_root_does_not_import_api_app_transitively() -> None:

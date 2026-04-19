@@ -2,6 +2,7 @@ from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceIt
 from financial_report_analysis.models.facts import CandidateFact
 from financial_report_analysis.models.facts import CanonicalFact
 from financial_report_analysis.models.facts import DerivedFact
+from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
 from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
@@ -722,3 +723,31 @@ def test_evidence_repository_rejects_missing_linked_items_on_read() -> None:
         assert "missing linked evidence item" in str(exc)
     else:
         raise AssertionError("get_evidence_bundle should reject missing linked items")
+
+
+def test_pdf_ingestion_adapter_extracts_revenue_candidate_from_text(
+    monkeypatch,
+) -> None:
+    adapter = PdfIngestionAdapter()
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, *, pdf_path, pdf_url: "2024 Annual Report\nRevenue 2,500 RMB'000\n",
+    )
+
+    payload = adapter.extract_candidate_facts(
+        pdf_path="/tmp/mock.pdf",
+        pdf_url=None,
+        market="CN",
+        min_confidence=0.8,
+    )
+
+    candidate = payload["candidate_facts"][0]
+    assert candidate["document_id"] == "/tmp/mock.pdf"
+    assert candidate["metric_label_raw"] == "Revenue"
+    assert candidate["statement_type"] == "income_statement"
+    assert candidate["period_id"] == "2024FY"
+    assert candidate["numeric_value"] == 2500.0
+    assert candidate["raw_unit"] == "RMB'000"
+    assert candidate["confidence"] == 0.9
