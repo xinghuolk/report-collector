@@ -63,7 +63,8 @@ def extract_analysis(request: AnalysisExtractRequest) -> dict[str, Any]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-    document.update(extracted_payload.get("document_metadata", {}))
+    document["language"] = extracted_payload.get("document_metadata", {}).get("language")
+    document["metadata"] = extracted_payload.get("document_metadata", {})
     pipeline_result = analyze_report(
         document_ref=document,
         extracted_payload=extracted_payload,

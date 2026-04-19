@@ -8,12 +8,27 @@ from typing import Any
 import httpx
 from pypdf import PdfReader
 
+from financial_report_analysis.ingestion.table_structure import PdfTableStructureAdapter
+from financial_report_analysis.models import ParsedRow, ParsedTable
+
 
 class PdfIngestionInputError(ValueError):
     """Raised when ingestion input cannot be read as requested."""
 
 
 class PdfIngestionAdapter:
+    _REVENUE_TABLE_KINDS: tuple[str, ...] = (
+        "income_statement",
+        "key_metrics",
+        "metrics",
+    )
+    _PRIMARY_REVENUE_LABELS: tuple[str, ...] = (
+        "revenue",
+        "turnover",
+        "operating revenue",
+        "营业收入",
+        "营业总收入",
+    )
     _REVENUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         (
             "Revenue",
@@ -36,6 +51,15 @@ class PdfIngestionAdapter:
             ),
         ),
     )
+    _REVENUE_LABEL_PATTERNS: tuple[re.Pattern[str], ...] = (
+        re.compile(r"\bRevenue\b", re.IGNORECASE),
+        re.compile(r"\bTurnover\b", re.IGNORECASE),
+        re.compile(r"\u8425\u4e1a\u6536\u5165"),
+        re.compile(r"\u8425\u4e1a\u603b\u6536\u5165"),
+    )
+
+    def __init__(self) -> None:
+        self._table_adapter = PdfTableStructureAdapter()
 
     def extract_candidate_facts(
         self,
@@ -47,67 +71,44 @@ class PdfIngestionAdapter:
     ) -> dict[str, Any]:
         document_id = pdf_path or pdf_url or "unknown-document"
         text = self._extract_text(pdf_path=pdf_path, pdf_url=pdf_url)
+        parsed_tables = self._extract_parsed_tables(
+            pdf_path=pdf_path,
+            pdf_url=pdf_url,
+            market=market,
+        )
         language = self._detect_language(text, market)
-        period_id = self._detect_period_id(text)
+        period_id = self._detect_period_id_from_tables(parsed_tables) or self._detect_period_id(
+            text,
+        )
 
         candidate_facts: list[dict[str, Any]] = []
-        if period_id is None:
-            return {
-                "candidate_facts": candidate_facts,
-                "document_metadata": {"language": language},
-            }
-
-        revenue_facts = self._extract_revenue_facts(text)
-        if not revenue_facts:
-            return {
-                "candidate_facts": candidate_facts,
-                "document_metadata": {"language": language},
-            }
-
-        revenue_context = self._extract_revenue_context(text, revenue_facts[0][2])
-        currency = self._detect_currency(revenue_context, market)
-        raw_unit = self._detect_raw_unit(revenue_context)
-        confidence = 0.9
-
-        for index, (label, numeric_value, _) in enumerate(revenue_facts, start=1):
-            if min_confidence is not None and confidence < min_confidence:
-                continue
-            candidate_facts.append(
-                {
-                    "fact_id": f"{document_id}:candidate:{index}",
-                    "fact_kind": "candidate",
-                    "metric_id": "raw_revenue",
-                    "metric_label_raw": label,
-                    "statement_type": "income_statement",
-                    "entity_scope": "consolidated",
-                    "comparison_axis": "current",
-                    "adjustment_basis": "reported",
-                    "period_id": period_id,
-                    "currency": currency,
-                    "raw_value": str(numeric_value),
-                    "numeric_value": numeric_value,
-                    "raw_unit": raw_unit,
-                    "normalized_unit": None,
-                    "precision": self._precision(numeric_value),
-                    "confidence": confidence,
-                    "extensions": {
-                        "market": market or "CN",
-                        "accounting_standard": "OTHER",
-                    },
-                    "document_id": document_id,
-                    "block_id": f"{document_id}:block:1",
-                    "page_index": 0,
-                    "evidence_bundle_id": f"{document_id}:bundle:{index}",
-                    "table_coord": None,
-                    "extraction_method": "pdf_text_regex",
-                    "extraction_version": "v1",
-                    "source_rank_hint": 1,
-                }
+        revenue_fact = self._extract_revenue_fact_from_tables(
+            parsed_tables,
+            period_id=period_id,
+            market=market,
+        )
+        if revenue_fact is None:
+            revenue_fact = self._extract_revenue_fact_from_text(
+                document_id=document_id,
+                text=text,
+                period_id=period_id,
+                market=market,
             )
+
+        if revenue_fact is not None and (
+            min_confidence is None or revenue_fact["confidence"] >= min_confidence
+        ):
+            candidate_facts.append(revenue_fact)
 
         return {
             "candidate_facts": candidate_facts,
-            "document_metadata": {"language": language},
+            "document_metadata": {
+                "language": language,
+                "parsed_tables": [
+                    self._serialize_parsed_table(table)
+                    for table in parsed_tables
+                ],
+            },
         }
 
     def _extract_text(self, *, pdf_path: str | None, pdf_url: str | None) -> str:
@@ -125,6 +126,153 @@ class PdfIngestionAdapter:
             return "\n".join(page.extract_text() or "" for page in reader.pages)
 
         return ""
+
+    def _extract_parsed_tables(
+        self,
+        *,
+        pdf_path: str | None,
+        pdf_url: str | None,
+        market: str | None,
+    ) -> list[ParsedTable]:
+        try:
+            return self._table_adapter.extract_tables(
+                pdf_path=pdf_path,
+                pdf_url=pdf_url,
+                market=market,
+            )
+        except (OSError, ValueError, TypeError):
+            return []
+
+    def _extract_revenue_fact_from_tables(
+        self,
+        parsed_tables: list[ParsedTable],
+        *,
+        period_id: str | None,
+        market: str | None,
+    ) -> dict[str, Any] | None:
+        for table in self._ordered_revenue_tables(parsed_tables):
+            if table.table_kind not in self._REVENUE_TABLE_KINDS:
+                continue
+            revenue_row = self._find_revenue_row(table)
+            if revenue_row is None or not revenue_row.value_cells:
+                continue
+            value_cell = self._first_numeric_value_cell(revenue_row)
+            if value_cell is None:
+                continue
+            raw_value = value_cell.text_raw
+            numeric_value = value_cell.numeric_value
+            if numeric_value is None:
+                try:
+                    numeric_value = self._parse_number(raw_value)
+                except ValueError:
+                    continue
+            resolved_period_id = self._first_period_id(table) or period_id
+            if resolved_period_id is None:
+                continue
+            context = self._table_context(table, revenue_row)
+            return self._build_candidate_fact(
+                document_id=table.document_id,
+                label=self._normalize_revenue_label(revenue_row.label_raw),
+                numeric_value=numeric_value,
+                raw_value=raw_value,
+                period_id=resolved_period_id,
+                currency=table.table_currency or self._detect_currency(context, market),
+                raw_unit=table.table_unit or self._detect_raw_unit(context),
+                statement_type=table.table_kind if table.table_kind != "key_metrics" else "metrics",
+                page_index=value_cell.page_index or table.page_range[0],
+                table_coord=(value_cell.row_index, value_cell.column_index),
+                extraction_method="table_structure",
+                evidence_bundle_suffix="table",
+                market=market,
+                table_id=table.table_id,
+            )
+        return None
+
+    def _extract_revenue_fact_from_text(
+        self,
+        *,
+        document_id: str,
+        text: str,
+        period_id: str | None,
+        market: str | None,
+    ) -> dict[str, Any] | None:
+        if period_id is None:
+            return None
+
+        revenue_facts = self._extract_revenue_facts(text)
+        if not revenue_facts:
+            return None
+
+        label, numeric_value, span = revenue_facts[0]
+        revenue_context = self._extract_revenue_context(text, span)
+        return self._build_candidate_fact(
+            document_id=document_id,
+            label=label,
+            numeric_value=numeric_value,
+            raw_value=str(numeric_value),
+            period_id=period_id,
+            currency=self._detect_currency(revenue_context, market),
+            raw_unit=self._detect_raw_unit(revenue_context),
+            statement_type="income_statement",
+            page_index=0,
+            table_coord=None,
+            extraction_method="pdf_text_regex",
+            evidence_bundle_suffix="text",
+            market=market,
+            table_id=None,
+        )
+
+    def _build_candidate_fact(
+        self,
+        *,
+        document_id: str,
+        label: str,
+        numeric_value: float,
+        raw_value: str,
+        period_id: str,
+        currency: str,
+        raw_unit: str | None,
+        statement_type: str,
+        page_index: int,
+        table_coord: tuple[int, int] | None,
+        extraction_method: str,
+        evidence_bundle_suffix: str,
+        market: str | None,
+        table_id: str | None,
+    ) -> dict[str, Any]:
+        fact: dict[str, Any] = {
+            "fact_id": f"{document_id}:candidate:1",
+            "fact_kind": "candidate",
+            "metric_id": "raw_revenue",
+            "metric_label_raw": label,
+            "statement_type": statement_type,
+            "entity_scope": "consolidated",
+            "comparison_axis": "current",
+            "adjustment_basis": "reported",
+            "period_id": period_id,
+            "currency": currency,
+            "raw_value": raw_value,
+            "numeric_value": numeric_value,
+            "raw_unit": raw_unit,
+            "normalized_unit": None,
+            "precision": self._precision(numeric_value),
+            "confidence": 0.9,
+            "extensions": {
+                "market": market or "CN",
+                "accounting_standard": "OTHER",
+            },
+            "document_id": document_id,
+            "block_id": f"{document_id}:block:1",
+            "page_index": page_index,
+            "evidence_bundle_id": f"{document_id}:bundle:{evidence_bundle_suffix}",
+            "table_coord": table_coord,
+            "extraction_method": extraction_method,
+            "extraction_version": "v2" if extraction_method == "table_structure" else "v1",
+            "source_rank_hint": 1,
+        }
+        if table_id is not None:
+            fact["table_id"] = table_id
+        return fact
 
     def _extract_revenue_facts(self, text: str) -> list[tuple[str, float, tuple[int, int]]]:
         facts: list[tuple[str, float, tuple[int, int]]] = []
@@ -180,6 +328,106 @@ class PdfIngestionAdapter:
         if re.search(r"[\u4e00-\u9fff]", text):
             return "zh-Hant" if market == "HK" else "zh-Hans"
         return "en"
+
+    def _detect_period_id_from_tables(self, parsed_tables: list[ParsedTable]) -> str | None:
+        for table in parsed_tables:
+            for column in table.period_columns:
+                if column.period_id is not None:
+                    return column.period_id
+        return None
+
+    @staticmethod
+    def _first_period_id(table: ParsedTable) -> str | None:
+        for column in table.period_columns:
+            if column.period_id is not None:
+                return column.period_id
+        return None
+
+    def _find_revenue_row(self, table: ParsedTable) -> ParsedRow | None:
+        for row in table.body_rows:
+            label = row.label_raw.strip()
+            if self._is_revenue_label(label, table_kind=table.table_kind):
+                return row
+        return None
+
+    def _is_revenue_label(self, label: str, *, table_kind: str) -> bool:
+        normalized = re.sub(r"\s+", " ", label).strip()
+        english_label = normalized.lower()
+        if table_kind in {"key_metrics", "metrics"}:
+            return english_label in self._PRIMARY_REVENUE_LABELS or normalized in self._PRIMARY_REVENUE_LABELS
+        if "revenue" in english_label or "turnover" in english_label:
+            return True
+        return any(pattern.search(normalized) for pattern in self._REVENUE_LABEL_PATTERNS)
+
+    def _ordered_revenue_tables(
+        self,
+        parsed_tables: list[ParsedTable],
+    ) -> list[ParsedTable]:
+        kind_priority = {
+            "income_statement": 0,
+            "key_metrics": 1,
+            "metrics": 2,
+        }
+        return sorted(
+            parsed_tables,
+            key=lambda table: (
+                kind_priority.get(table.table_kind, 99),
+                table.page_range[0],
+                table.table_id,
+            ),
+        )
+
+    @staticmethod
+    def _normalize_revenue_label(label: str) -> str:
+        normalized = re.sub(r"^[\s\d\u3001\.\-:：]+", "", label).strip()
+        if "\u8425\u4e1a\u603b\u6536\u5165" in normalized:
+            return "\u8425\u4e1a\u6536\u5165"
+        return normalized
+
+    @staticmethod
+    def _first_numeric_value_cell(row: ParsedRow) -> Any | None:
+        for cell in row.value_cells:
+            if cell.numeric_value is not None:
+                return cell
+        return row.value_cells[0] if row.value_cells else None
+
+    @staticmethod
+    def _table_context(table: ParsedTable, row: ParsedRow) -> str:
+        header_text = "\n".join(
+            " ".join(cell for cell in header_row if cell).strip()
+            for header_row in table.header_rows
+            if any(header_row)
+        )
+        body_text = " ".join(cell.text_raw for cell in row.value_cells if cell.text_raw)
+        return "\n".join(
+            part
+            for part in [table.title_text, header_text, row.label_raw, body_text]
+            if part
+        )
+
+    @staticmethod
+    def _serialize_parsed_table(table: ParsedTable) -> dict[str, Any]:
+        return {
+            "table_id": table.table_id,
+            "document_id": table.document_id,
+            "table_kind": table.table_kind,
+            "title_text": table.title_text,
+            "page_range": list(table.page_range),
+            "table_unit": table.table_unit,
+            "table_currency": table.table_currency,
+            "period_columns": [
+                {
+                    "column_id": column.column_id,
+                    "column_index": column.column_index,
+                    "header_text": column.header_text,
+                    "period_id": column.period_id,
+                    "comparison_axis": column.comparison_axis,
+                    "is_current": column.is_current,
+                    "is_comparison": column.is_comparison,
+                }
+                for column in table.period_columns
+            ],
+        }
 
     @staticmethod
     def _detect_currency(text: str, market: str | None) -> str:
