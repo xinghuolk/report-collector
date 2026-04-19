@@ -131,6 +131,8 @@ Required properties:
 - preserve stable title text
 - preserve local table unit and currency context
 - preserve period-column semantics
+- expose a lightweight `statement_scope_guess` such as `consolidated`,
+  `parent_only`, or `unknown`
 - preserve cross-page continuation behavior
 
 ### 7.2 Normalized Table Semantics
@@ -147,6 +149,10 @@ It should represent:
 - period scope and period identity
 - unit and currency context
 - value context such as duration versus point-in-time
+
+`normalized_label_hint` remains a semantic hint only. It must not be treated as
+the final metric mapping result and must not collapse into `metric_id` at this
+layer.
 
 Recommended module shape:
 
@@ -174,6 +180,10 @@ In this phase:
 - external YAML, JSON, or database sources are not implemented yet
 - the loader boundary is still defined now so later migration does not change
   higher-level code
+
+The metric mapping registry consumes normalized table semantics produced by the
+structure and semantics layers. Metric mapping itself is not part of the table
+structure stage.
 
 ### 7.4 Table Fact Builder
 
@@ -291,6 +301,10 @@ This protection should come from the combination of:
 
 It should not rely on one-off ad hoc exceptions in downstream adapters.
 
+This phase also keeps `ParsedTable` and related structures out of fact-layer
+territory. They must not grow into semi-fact objects carrying fields such as
+`metric_id`, `canonical_value`, or `fact_confidence`.
+
 ## 12. Verification Matrix
 
 This phase should verify at four levels.
@@ -304,6 +318,8 @@ Verify that:
 - local unit and currency context is preserved
 - period columns remain stable
 - continuation stitching remains stable
+- when continuation ownership is ambiguous, the parser prefers separation over
+  forced merge and preserves a continuation suspicion marker or confidence
 
 ### 12.2 Semantic Layer Verification
 
@@ -313,6 +329,7 @@ Verify that normalized table semantics expose:
 - `normalized_row_label`
 - `column_semantics`
 - `period/value context`
+- `statement_scope_guess`
 
 ### 12.3 Registry and Fact Builder Verification
 
@@ -344,6 +361,8 @@ This phase is complete when all of the following are true:
 - the seven supported metrics reliably appear as canonical facts on the target
   samples
 - regression tests lock both the semantic layer and the canonical outputs
+- `ParsedTable` exposes stable `table_kind`, period columns, unit/currency
+  context, and row-to-value bindings consumable by the downstream fact builder
 
 ## 14. Out of Scope
 
