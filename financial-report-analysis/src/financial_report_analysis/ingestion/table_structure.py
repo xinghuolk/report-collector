@@ -59,7 +59,18 @@ class PdfTableStructureAdapter:
         header_rows = self._select_header_rows(block.rows)
         body_rows = block.rows[len(header_rows) :]
         body_lines = [" ".join(cell for cell in row if cell).strip() for row in body_rows]
-        local_context = "\n".join([block.page_text, *body_lines])
+        local_context = "\n".join(
+            line
+            for line in [
+                title_text.strip(),
+                *[
+                    " ".join(cell for cell in row if cell).strip()
+                    for row in header_rows
+                ],
+                *body_lines,
+            ]
+            if line
+        )
 
         return ParsedTable(
             table_id=f"{document_id}:parsed-table:{table_index}",

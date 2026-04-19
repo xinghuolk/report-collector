@@ -154,11 +154,10 @@ class PdfTableSource:
         rows: list[list[str]] = []
         for row in raw_rows or []:
             normalized_row = [
-                str(cell).strip()
+                "" if cell is None else str(cell).strip()
                 for cell in row
-                if cell is not None and str(cell).strip()
             ]
-            if normalized_row:
+            if any(normalized_row):
                 rows.append(normalized_row)
         return rows
 

@@ -83,3 +83,33 @@ def test_extract_raw_table_blocks_preserve_grid_and_page_metadata(
     assert block.cells[1][1].text == "3,638,911,068.29"
     assert block.bbox == (10.0, 20.0, 70.0, 40.0)
 
+
+def test_extract_raw_table_blocks_preserve_blank_header_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from financial_report_analysis.ingestion import table_source
+
+    page = _FakePage(
+        page_number=3,
+        tables=[
+            _FakeTable(
+                cells=[
+                    [
+                        _FakeCell("项目", 10.0, 20.0, 40.0, 30.0, 0, 0),
+                        _FakeCell(None, 40.0, 20.0, 50.0, 30.0, 0, 1),
+                        _FakeCell("2024年度", 50.0, 20.0, 80.0, 30.0, 0, 2),
+                        _FakeCell(None, 80.0, 20.0, 90.0, 30.0, 0, 3),
+                        _FakeCell("2023年度", 90.0, 20.0, 120.0, 30.0, 0, 4),
+                    ]
+                ]
+            )
+        ],
+    )
+
+    monkeypatch.setattr(table_source.pdfplumber, "open", lambda *_args, **_kwargs: _FakePdf([page]))
+
+    source = table_source.PdfTableSource()
+    blocks = source.extract_raw_table_blocks(pdf_path="/tmp/fake.pdf", pdf_url=None)
+
+    assert blocks[0].rows[0] == ["项目", "", "2024年度", "", "2023年度"]
+
