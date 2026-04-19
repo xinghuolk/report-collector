@@ -22,6 +22,7 @@ def build_table_candidate_facts(
                     table_kind=table.table_kind,
                     normalized_row_label=row.normalized_row_label,
                     value_time_shape=value.value_time_shape,
+                    statement_scope_guess=table.statement_scope_guess,
                     market=market,
                 )
                 if definition is None or value.numeric_value is None or value.period_id is None:
@@ -72,6 +73,10 @@ def _build_candidate_payload(
             "market": market,
             "accounting_standard": "OTHER",
             "statement_scope_guess": table.statement_scope_guess,
+            "semantic_source": row.semantic_source,
+            "semantic_confidence": row.semantic_confidence,
+            "fallback_reason": row.fallback_reason,
+            "table_semantic_ambiguity_reason": table.semantic_ambiguity_reason,
         },
         "document_id": document_id,
         "block_id": f"{table.table_id}:row:{row.row_id}",

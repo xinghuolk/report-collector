@@ -28,8 +28,10 @@ class MetricMappingRegistry:
         table_kind: str,
         normalized_row_label: str | None,
         value_time_shape: str | None,
+        statement_scope_guess: str,
         market: str,
     ) -> MetricMappingDefinition | None:
+        del statement_scope_guess
         if normalized_row_label is None:
             return None
 
