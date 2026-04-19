@@ -802,6 +802,10 @@ def test_extract_endpoint_accepts_hk_annual_anchor_pdfs(
     assert payload["document"]["pdf_path"] == str(sample_pdf)
     assert payload["document"]["metadata"]["parsed_tables"]
     assert payload["quality_gate"] in {"pass", "review"}
+    assert payload["document"]["metadata"]["parsed_tables"][0]["semantic_source"] in {
+        "deterministic",
+        "llm_fallback",
+    }
 
 
 def test_extract_endpoint_promotes_table_semantic_candidates_to_canonical_facts(

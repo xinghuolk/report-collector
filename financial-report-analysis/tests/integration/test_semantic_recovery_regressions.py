@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from financial_report_analysis.api.app import create_app
 from financial_report_analysis.ingestion import (
     PdfTableStructureAdapter,
     normalize_table_semantics,
@@ -48,3 +51,43 @@ def test_cn_annual_semantics_expose_normalized_row_labels() -> None:
     semantics = normalize_table_semantics(income_statement)
 
     assert any(row.normalized_row_label for row in semantics.rows)
+
+
+def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["key_facts"]
+
+
+def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "quarterly", "2025_quarterly_q3_en.pdf")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["metadata"]["parsed_tables"]
+    assert any(
+        table.get("semantic_source") in {"deterministic", "llm_fallback"}
+        for table in payload["document"]["metadata"]["parsed_tables"]
+    )
