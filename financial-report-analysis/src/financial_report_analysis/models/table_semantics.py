@@ -9,12 +9,15 @@ class NormalizedTableCellValue:
     column_index: int
     raw_text: str
     numeric_value: float | None
+    period_id: str | None
+    comparison_axis: str | None
     value_time_shape: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizedTableColumn:
     column_id: str
+    header_text: str
     period_id: str | None
     comparison_axis: str | None
     value_time_shape: str | None
@@ -33,7 +36,9 @@ class NormalizedTableRow:
 @dataclass(frozen=True, slots=True)
 class NormalizedTableSemantics:
     table_id: str
+    document_id: str
     table_kind: str
+    title_text: str
     statement_scope_guess: str
     table_unit: str | None
     table_currency: str | None

@@ -1,4 +1,5 @@
 from financial_report_analysis import models
+from financial_report_analysis.ingestion import normalize_table_semantics
 from financial_report_analysis.models import (
     NormalizedTableCellValue,
     NormalizedTableColumn,
@@ -21,3 +22,7 @@ def test_model_package_all_includes_semantic_exports() -> None:
     assert "NormalizedTableColumn" in models.__all__
     assert "NormalizedTableRow" in models.__all__
     assert "NormalizedTableSemantics" in models.__all__
+
+
+def test_ingestion_package_exports_semantic_normalizer() -> None:
+    assert callable(normalize_table_semantics)
