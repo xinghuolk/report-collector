@@ -110,6 +110,8 @@ def test_stitch_tables_merges_continued_adjacent_income_statement_pages() -> Non
         "营业收入",
         "营业成本",
     ]
+    assert stitched[0].continued_from_table_id == "doc:table:2"
+    assert stitched[0].continuation_confidence == 1.0
 
 
 def test_stitch_tables_merges_continued_adjacent_balance_sheet_pages() -> None:

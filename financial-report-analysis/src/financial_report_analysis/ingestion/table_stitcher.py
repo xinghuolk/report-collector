@@ -91,6 +91,8 @@ def _merge_tables(previous: ParsedTable, current: ParsedTable) -> ParsedTable:
     return replace(
         previous,
         page_range=(previous.page_range[0], current.page_range[1]),
+        continued_from_table_id=current.table_id,
+        continuation_confidence=1.0,
         body_rows=[*previous.body_rows, *current.body_rows],
         source_blocks=[*previous.source_blocks, *current.source_blocks],
     )

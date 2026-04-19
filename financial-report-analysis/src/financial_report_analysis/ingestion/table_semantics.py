@@ -13,6 +13,7 @@ from financial_report_analysis.models import (
 
 
 def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
+    all_columns = [*table.period_columns, *table.comparison_columns]
     normalized_columns = [
         NormalizedTableColumn(
             column_id=column.column_id,
@@ -23,9 +24,9 @@ def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
             is_current=column.is_current,
             is_comparison=column.is_comparison,
         )
-        for column in table.period_columns
+        for column in all_columns
     ]
-    column_by_index = {column.column_index: column for column in table.period_columns}
+    column_by_index = {column.column_index: column for column in all_columns}
 
     return NormalizedTableSemantics(
         table_id=table.table_id,
