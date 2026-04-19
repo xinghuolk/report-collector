@@ -37,7 +37,7 @@ def parse_header_rows(
         if not header_text:
             continue
 
-        period_id, period_scope = _parse_period_from_header(
+        period_id, value_time_shape = _parse_period_from_header(
             header_text,
             title_text=title_text,
             market=market,
@@ -52,7 +52,7 @@ def parse_header_rows(
                 column_index=column_index,
                 header_text=header_text,
                 period_id=period_id,
-                period_scope=period_scope,
+                value_time_shape=value_time_shape,
                 comparison_axis="current" if is_current else "prior",
                 is_current=is_current,
                 is_comparison=not is_current,

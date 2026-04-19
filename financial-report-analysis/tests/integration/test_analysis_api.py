@@ -229,7 +229,7 @@ def test_pdf_ingestion_prefers_parsed_tables_over_text_regex(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -299,7 +299,7 @@ def test_pdf_ingestion_uses_revenue_table_period_over_earlier_table_period(
                 column_index=1,
                 header_text="2023",
                 period_id="2023FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -339,7 +339,7 @@ def test_pdf_ingestion_uses_revenue_table_period_over_earlier_table_period(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -415,7 +415,7 @@ def test_pdf_ingestion_matches_operating_revenue_table_labels(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -491,7 +491,7 @@ def test_pdf_ingestion_ignores_balance_sheet_deferred_revenue_rows(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="point",
+                value_time_shape="point",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -531,7 +531,7 @@ def test_pdf_ingestion_ignores_balance_sheet_deferred_revenue_rows(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -609,7 +609,7 @@ def test_pdf_ingestion_prefers_income_statement_over_key_metrics_growth_rows(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )
@@ -649,7 +649,7 @@ def test_pdf_ingestion_prefers_income_statement_over_key_metrics_growth_rows(
                 column_index=1,
                 header_text="2024",
                 period_id="2024FY",
-                period_scope="duration",
+                value_time_shape="duration",
                 comparison_axis="current",
                 is_current=True,
             )

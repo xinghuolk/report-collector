@@ -19,7 +19,7 @@ class ParsedColumn:
     column_index: int
     header_text: str
     period_id: str | None
-    period_scope: str | None
+    value_time_shape: str | None
     comparison_axis: str | None
     is_current: bool = False
     is_comparison: bool = False
@@ -51,6 +51,9 @@ class ParsedTable:
     page_range: tuple[int, int]
     table_kind: str
     title_text: str
+    statement_scope_guess: str = "unknown"
+    continued_from_table_id: str | None = None
+    continuation_confidence: float | None = None
     header_rows: list[list[str]] = field(default_factory=list)
     body_rows: list[ParsedRow] = field(default_factory=list)
     table_unit: str | None = None

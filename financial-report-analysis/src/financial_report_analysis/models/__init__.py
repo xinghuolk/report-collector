@@ -15,6 +15,12 @@ from financial_report_analysis.models.table import (
     ParsedRow,
     ParsedTable,
 )
+from financial_report_analysis.models.table_semantics import (
+    NormalizedTableCellValue,
+    NormalizedTableColumn,
+    NormalizedTableRow,
+    NormalizedTableSemantics,
+)
 
 __all__ = [
     "BaseFact",
@@ -25,6 +31,10 @@ __all__ = [
     "EvidenceItem",
     "Extensions",
     "DerivedFact",
+    "NormalizedTableCellValue",
+    "NormalizedTableColumn",
+    "NormalizedTableRow",
+    "NormalizedTableSemantics",
     "Period",
     "PageTextBlock",
     "ParsedCell",

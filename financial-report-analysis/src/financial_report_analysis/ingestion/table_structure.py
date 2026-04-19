@@ -193,7 +193,7 @@ class PdfTableStructureAdapter:
                         column_index=column_index,
                         header_text=cell,
                         period_id=period_id,
-                        period_scope="duration",
+                        value_time_shape="duration",
                         comparison_axis="current" if not columns else "prior",
                         is_current=not columns,
                         is_comparison=bool(columns),
