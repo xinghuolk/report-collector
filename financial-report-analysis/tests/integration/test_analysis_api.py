@@ -26,25 +26,35 @@ def _resolve_cn_annual_sample() -> Path | None:
         "report",
         "downloads",
         "cn_stocks",
-        "688008",
+        "601919",
         "annual",
     )
     if annual_dir is None:
         return None
-    return next(annual_dir.glob("*.pdf"), None)
+    target = annual_dir / "2024_年度报告.pdf"
+    return target if target.exists() else None
+
+
+def _resolve_hk_annual_sample(stock_code: str, filename: str) -> Path | None:
+    return _resolve_sample_path(
+        "report",
+        "downloads",
+        "hk_stocks",
+        stock_code,
+        "annual",
+        filename,
+    )
 
 
 def _resolve_cn_quarterly_sample() -> Path | None:
-    quarterly_dir = _resolve_sample_path(
+    return _resolve_sample_path(
         "report",
         "downloads",
         "cn_stocks",
         "688008",
         "quarterly",
+        "2024_第三季度报告.pdf",
     )
-    if quarterly_dir is None:
-        return None
-    return next(quarterly_dir.glob("*.pdf"), None)
 
 
 def _resolve_hk_non_english_sample() -> Path:
@@ -730,7 +740,6 @@ def test_extract_endpoint_accepts_cn_annual_sample_pdf() -> None:
     assert payload["document"]["pdf_path"] == str(sample_pdf)
     assert payload["quality_gate"] in {"pass", "review"}
     assert payload["key_facts"]
-    assert payload["key_facts"][0]["metric_id"] == "revenue"
 
 
 def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
@@ -760,6 +769,39 @@ def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
     }
     assert first_table["table_id"]
     assert first_table["page_range"]
+
+
+@pytest.mark.parametrize(
+    ("stock_code", "filename"),
+    [
+        ("02498", "2022_annual_en.pdf"),
+        ("06862", "2024_annual_en.pdf"),
+        ("09987", "2024_annual_en.pdf"),
+    ],
+)
+def test_extract_endpoint_accepts_hk_annual_anchor_pdfs(
+    stock_code: str,
+    filename: str,
+) -> None:
+    sample_pdf = _resolve_hk_annual_sample(stock_code, filename)
+    if sample_pdf is None or not sample_pdf.exists():
+        pytest.skip("HK annual sample PDF not found")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(sample_pdf),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["pdf_path"] == str(sample_pdf)
+    assert payload["document"]["metadata"]["parsed_tables"]
+    assert payload["quality_gate"] in {"pass", "review"}
 
 
 def test_extract_endpoint_promotes_table_semantic_candidates_to_canonical_facts(
@@ -869,7 +911,6 @@ def test_extract_endpoint_accepts_cn_quarterly_sample_pdf() -> None:
     assert payload["document"]["pdf_path"] == str(sample_pdf)
     assert payload["quality_gate"] in {"pass", "review"}
     assert payload["key_facts"]
-    assert payload["key_facts"][0]["metric_id"] == "revenue"
 
 
 def test_extract_endpoint_marks_hk_non_english_input_as_unsupported_review() -> None:

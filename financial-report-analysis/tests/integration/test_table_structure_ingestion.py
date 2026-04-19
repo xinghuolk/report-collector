@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from financial_report_analysis.ingestion import (
     PdfTableStructureAdapter,
     normalize_table_semantics,
@@ -21,13 +23,19 @@ def _sample_pdf(*parts: str) -> Path:
     raise AssertionError(f"Sample PDF not found for {parts}")
 
 
-def test_cn_annual_sample_exposes_income_statement_and_balance_sheet() -> None:
+def _cn_primary_anchor() -> Path:
+    return _sample_pdf("cn_stocks", "601919", "annual", "2024_年度报告.pdf")
+
+
+def _hk_annual_anchor(stock_code: str, filename: str) -> Path:
+    return _sample_pdf("hk_stocks", stock_code, "annual", filename)
+
+
+def test_cn_primary_annual_anchor_exposes_income_statement_and_balance_sheet() -> None:
     adapter = PdfTableStructureAdapter()
 
     tables = adapter.extract_tables(
-        pdf_path=str(
-            _sample_pdf("cn_stocks", "688008", "annual", "2024_年度报告.pdf")
-        ),
+        pdf_path=str(_cn_primary_anchor()),
         pdf_url=None,
         market="CN",
     )
@@ -35,6 +43,56 @@ def test_cn_annual_sample_exposes_income_statement_and_balance_sheet() -> None:
     kinds = {table.table_kind for table in tables}
     assert "income_statement" in kinds
     assert "balance_sheet" in kinds
+
+
+@pytest.mark.parametrize(
+    ("stock_code", "filename", "expected_kinds", "expect_income_rows"),
+    [
+        (
+            "02498",
+            "2022_annual_en.pdf",
+            {"balance_sheet", "cash_flow_statement"},
+            False,
+        ),
+        (
+            "06862",
+            "2024_annual_en.pdf",
+            {"income_statement", "balance_sheet", "cash_flow_statement"},
+            True,
+        ),
+        (
+            "09987",
+            "2024_annual_en.pdf",
+            {"income_statement", "balance_sheet", "cash_flow_statement"},
+            True,
+        ),
+    ],
+)
+def test_hk_annual_anchors_expose_non_empty_statement_rows(
+    stock_code: str,
+    filename: str,
+    expected_kinds: set[str],
+    expect_income_rows: bool,
+) -> None:
+    adapter = PdfTableStructureAdapter()
+
+    tables = adapter.extract_tables(
+        pdf_path=str(_hk_annual_anchor(stock_code, filename)),
+        pdf_url=None,
+        market="HK",
+    )
+
+    assert {table.table_kind for table in tables} >= expected_kinds
+    income_tables = [table for table in tables if table.table_kind == "income_statement"]
+    if expect_income_rows:
+        assert income_tables
+        assert any(table.body_rows for table in income_tables)
+        assert any(
+            any(row.label_raw.strip() for row in table.body_rows)
+            for table in income_tables
+        )
+    else:
+        assert not income_tables
 
 
 def test_hk_quarter_sample_exposes_non_empty_period_columns() -> None:
@@ -115,7 +173,7 @@ def test_table_structure_and_semantics_preserve_continuation_metadata_end_to_end
     assert len(tables) == 1
     income_table = tables[0]
     assert income_table.statement_scope_guess == "consolidated"
-    assert income_table.continued_from_table_id == "/tmp/fake.pdf:parsed-table:2"
+    assert income_table.continued_from_table_id == f"{Path('/tmp/fake.pdf')}:parsed-table:2"
     assert income_table.continuation_confidence == 1.0
 
     semantics = normalize_table_semantics(income_table)
