@@ -36,6 +36,9 @@ def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
         statement_scope_guess=table.statement_scope_guess,
         table_unit=table.table_unit,
         table_currency=table.table_currency,
+        semantic_source="deterministic",
+        semantic_confidence=None,
+        semantic_ambiguity_reason=table.semantic_ambiguity_reason,
         columns=normalized_columns,
         rows=[
             _normalize_row(row, column_by_index=column_by_index)
@@ -54,6 +57,9 @@ def _normalize_row(
         row_id=row.row_id,
         label_raw=row.label_raw,
         normalized_row_label=normalized_label,
+        semantic_source="deterministic",
+        semantic_confidence=None,
+        fallback_reason=None,
         values=[
             NormalizedTableCellValue(
                 row_index=cell.row_index,
@@ -78,5 +84,9 @@ def _normalize_row(
 
 
 def _normalize_label(raw_label: str) -> str | None:
-    normalized = re.sub(r"\s+", " ", raw_label).strip().casefold()
+    normalized = raw_label.strip()
+    normalized = re.sub(r"^[（(]?[一二三四五六七八九十]+[)）\.、]\s*", "", normalized)
+    normalized = re.sub(r"^[（(]?\d+[)）\.、]\s*", "", normalized)
+    normalized = re.sub(r"^[IVXLCM]+\.\s*", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
     return normalized or None

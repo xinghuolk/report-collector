@@ -164,3 +164,55 @@ def test_normalize_table_semantics_keeps_comparison_columns_and_cell_context() -
     assert semantics.rows[0].values[1].period_id == "2024Q3_YTD"
     assert semantics.rows[0].values[1].comparison_axis == "prior"
     assert semantics.rows[0].values[1].value_time_shape == "duration"
+
+
+def test_normalized_table_semantics_preserve_statement_scope_and_ambiguity() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:annual-bs",
+            document_id="doc",
+            page_range=(10, 10),
+            table_kind="balance_sheet",
+            title_text="Consolidated Balance Sheet",
+            statement_scope_guess="consolidated",
+            semantic_ambiguity_reason="numeric_only_statement_block",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="Monetary funds VII.1",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                )
+            ],
+        )
+    )
+
+    assert semantics.statement_scope_guess == "consolidated"
+    assert semantics.semantic_source == "deterministic"
+    assert semantics.semantic_ambiguity_reason == "numeric_only_statement_block"
+
+
+def test_cn_annual_row_label_normalization_strips_numbering_prefixes() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:cn-annual",
+            document_id="doc",
+            page_range=(11, 11),
+            table_kind="income_statement",
+            title_text="合并利润表",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="一、营业收入",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                )
+            ],
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label == "营业收入"
+    assert semantics.rows[0].semantic_source == "deterministic"

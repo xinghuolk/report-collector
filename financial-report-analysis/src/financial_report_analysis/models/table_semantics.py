@@ -30,6 +30,9 @@ class NormalizedTableRow:
     row_id: str
     label_raw: str
     normalized_row_label: str | None
+    semantic_source: str = "deterministic"
+    semantic_confidence: float | None = None
+    fallback_reason: str | None = None
     values: list[NormalizedTableCellValue] = field(default_factory=list)
 
 
@@ -42,5 +45,8 @@ class NormalizedTableSemantics:
     statement_scope_guess: str
     table_unit: str | None
     table_currency: str | None
+    semantic_source: str = "deterministic"
+    semantic_confidence: float | None = None
+    semantic_ambiguity_reason: str | None = None
     columns: list[NormalizedTableColumn] = field(default_factory=list)
     rows: list[NormalizedTableRow] = field(default_factory=list)

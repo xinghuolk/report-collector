@@ -104,6 +104,27 @@ def test_parse_header_rows_parses_hk_quarter_header(
     ]
 
 
+def test_parse_header_rows_parses_hk_annual_balance_sheet_header_as_point_in_time() -> None:
+    columns = parse_header_rows(
+        title_text="Consolidated Balance Sheet",
+        header_rows=[["Item Note 31 December 2022 31 December 2021"]],
+        market="HK",
+    )
+
+    assert columns == [
+        ParsedColumn(
+            column_id="column-0",
+            column_index=0,
+            header_text="Item Note 31 December 2022 31 December 2021",
+            period_id="2022FY",
+            value_time_shape="point",
+            comparison_axis="current",
+            is_current=True,
+            is_comparison=False,
+        )
+    ]
+
+
 def test_detect_table_currency_uses_local_chinese_context() -> None:
     assert detect_table_currency("单位：万元 币种：人民币", market="CN") == "CNY"
 
