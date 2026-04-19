@@ -283,3 +283,58 @@ skill 只应作为大模型或 agent 的“使用规范层”，例如告诉模�
 - 财报解析与分析能力保持统一
 - 上层 agent 不会直接放大底层抽取误差
 - 后续版本升级、重算、审计和证据回链都更可控
+## 14. Task 7 Phase-1 Validation Matrix
+
+Task 7 should be driven by a small set of real sample reports rather than only
+synthetic payloads. The goal of this phase is not to prove a complete
+extractor. The goal is to lock down the Phase-1 service boundary, forwarding
+behavior, and quality-gate semantics with representative CN and HK inputs.
+
+### 14.1 Required Sample Anchors
+
+- CN annual happy path:
+  `report/downloads/cn_stocks/688008/annual/2024_年度报告.pdf`
+- HK English supported path:
+  `report/downloads/hk_stocks/09987/` quarterly and semi-annual English PDFs
+- HK non-English unsupported path:
+  `report/downloads/hk_stocks/01810/annual/2020_annual_zh.pdf`
+
+### 14.2 Expected Phase-1 Outcomes
+
+- CN annual sample:
+  the independent analysis service should accept the input and return a valid
+  analysis envelope. The outcome may be `pass` or `review`, but it must not be
+  treated as an input error.
+- HK English samples:
+  the supported path should continue to preserve period extraction, fact /
+  evidence mapping, and forwarding compatibility.
+- HK non-English sample:
+  Phase-1 must classify this as `unsupported_in_phase1` and expose it through
+  `quality_gate=review`, not `fail`.
+
+### 14.3 Task 7 Scope
+
+Task 7 is allowed to make small behavior fixes that are required to satisfy the
+real-sample matrix above, including:
+
+- language-policy branching in the analysis pipeline
+- quality-gate mapping fixes between `review` and `fail`
+- forwarding-layer regression fixes so that upstream gate semantics are not
+  rewritten
+- README and integration-spec synchronization
+
+Task 7 should not expand into a broad "complete extractor" effort.
+
+### 14.4 Acceptance Criteria
+
+- `financial-report-analysis/tests/integration/test_analysis_api.py` covers:
+  - CN annual real-sample happy path
+  - HK non-English unsupported path
+- `report/tests/integration/test_hk_09987_period_extraction.py` remains green
+  for the HK English supported path
+- `report/tests/integration/test_cn_annual_period_regression.py` remains green
+  for the CN annual sample path
+- forwarding-related tests in `report/` confirm that `quality_gate` and
+  unsupported semantics from the analysis service are preserved
+- `financial-report-analysis/README.md`, `report/README.md`, and this spec all
+  describe the same Phase-1 support boundary
