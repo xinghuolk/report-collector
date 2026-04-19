@@ -30,6 +30,10 @@ class PipelineResult:
 
 def analyze_report(document_ref: dict[str, Any], extracted_payload: dict[str, Any]) -> PipelineResult:
     document_id = str(document_ref["document_id"])
+    unsupported_language_result = _unsupported_language_result(document_ref, document_id)
+    if unsupported_language_result is not None:
+        return unsupported_language_result
+
     candidates = [
         _candidate_fact_from_payload(document_id=document_id, payload=payload)
         for payload in extracted_payload.get("candidate_facts", [])
@@ -79,6 +83,34 @@ def _stringify_table_coord(value: object) -> str | None:
 def _quality_gate(validation_report: ValidationReport) -> str:
     if validation_report.overall_status == "ok":
         return "pass"
-    if validation_report.overall_status == "review_required":
+    if validation_report.overall_status in {"review_required", "unsupported_in_phase1"}:
         return "review"
     return "fail"
+
+
+def _unsupported_language_result(
+    document_ref: dict[str, Any],
+    document_id: str,
+) -> PipelineResult | None:
+    if document_ref.get("market") != "HK":
+        return None
+
+    language = document_ref.get("language")
+    if language in {None, "en"}:
+        return None
+
+    validation_report = ValidationReport(
+        overall_status="unsupported_in_phase1",
+        canonical_fact_count=0,
+        derived_fact_count=0,
+        issues=("unsupported_in_phase1",),
+    )
+    return PipelineResult(
+        canonical_fact_set_id=build_fact_set_id(document_id, "canonical"),
+        derived_fact_set_id=build_fact_set_id(document_id, "derived"),
+        validation_report_id=build_validation_report_id(document_id),
+        quality_gate="review",
+        canonical_facts=[],
+        derived_facts=[],
+        validation_report=validation_report,
+    )

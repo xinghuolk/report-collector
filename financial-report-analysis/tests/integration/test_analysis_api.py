@@ -4,9 +4,29 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_cn_annual_sample() -> Path | None:
+    annual_dir = REPO_ROOT / "report" / "downloads" / "cn_stocks" / "688008" / "annual"
+    return next(annual_dir.glob("*.pdf"), None)
+
+
+def _resolve_hk_non_english_sample() -> Path:
+    return (
+        REPO_ROOT
+        / "report"
+        / "downloads"
+        / "hk_stocks"
+        / "01810"
+        / "annual"
+        / "2020_annual_zh.pdf"
+    )
 
 
 def test_health_endpoint_reports_ready() -> None:
@@ -120,6 +140,53 @@ def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     assert payload["key_facts"]
     assert payload["key_facts"][0]["metric_id"] == "revenue"
     assert payload["key_facts"][0]["numeric_value"] == 1_234_000.0
+
+
+def test_extract_endpoint_accepts_cn_annual_sample_pdf() -> None:
+    sample_pdf = _resolve_cn_annual_sample()
+    if sample_pdf is None or not sample_pdf.exists():
+        pytest.skip("CN annual sample PDF not found")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(sample_pdf),
+            "market": "CN",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["pdf_path"] == str(sample_pdf)
+    assert payload["quality_gate"] in {"pass", "review"}
+
+
+def test_extract_endpoint_marks_hk_non_english_input_as_unsupported_review() -> None:
+    sample_pdf = _resolve_hk_non_english_sample()
+    if not sample_pdf.exists():
+        pytest.skip("HK non-English sample PDF not found")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(sample_pdf),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "review"
+    assert payload["blocked_items"] == [
+        {
+            "code": "unsupported_in_phase1",
+            "status": "unsupported_in_phase1",
+        }
+    ]
 
 
 def test_package_root_does_not_import_api_app_transitively() -> None:
