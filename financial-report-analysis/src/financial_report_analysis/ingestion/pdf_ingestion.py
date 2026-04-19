@@ -12,6 +12,7 @@ from financial_report_analysis.ingestion.table_semantics import normalize_table_
 from financial_report_analysis.ingestion.table_structure import PdfTableStructureAdapter
 from financial_report_analysis.models import ParsedRow, ParsedTable
 from financial_report_analysis.registries import load_metric_registry
+from financial_report_analysis.semantic_fallback import SemanticFallbackService
 from financial_report_analysis.services import build_table_candidate_facts
 
 
@@ -61,8 +62,13 @@ class PdfIngestionAdapter:
         re.compile(r"\u8425\u4e1a\u603b\u6536\u5165"),
     )
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        semantic_fallback_service: SemanticFallbackService | None = None,
+    ) -> None:
         self._table_adapter = PdfTableStructureAdapter()
+        self._semantic_fallback_service = semantic_fallback_service
 
     def extract_candidate_facts(
         self,
@@ -435,6 +441,9 @@ class PdfIngestionAdapter:
                 }
                 for column in table.period_columns
             ],
+            "semantic_source": "deterministic",
+            "semantic_confidence": None,
+            "fallback_reason": table.semantic_ambiguity_reason,
         }
 
     @staticmethod

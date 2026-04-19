@@ -8,6 +8,11 @@ from financial_report_analysis.models import (
 )
 from financial_report_analysis.models import table_semantics
 from financial_report_analysis.registries import MetricMappingDefinition, load_metric_registry
+from financial_report_analysis.semantic_fallback import (
+    OllamaSemanticFallbackClient,
+    SemanticFallbackResult,
+    SemanticFallbackService,
+)
 
 
 def test_table_semantic_models_are_publicly_exported() -> None:
@@ -34,3 +39,9 @@ def test_registries_package_exports_metric_mapping_registry() -> None:
 
     assert callable(load_metric_registry)
     assert isinstance(registry.definitions[0], MetricMappingDefinition)
+
+
+def test_semantic_fallback_package_exports_public_entry_points() -> None:
+    assert OllamaSemanticFallbackClient.__name__ == "OllamaSemanticFallbackClient"
+    assert SemanticFallbackService.__name__ == "SemanticFallbackService"
+    assert SemanticFallbackResult.__name__ == "SemanticFallbackResult"
