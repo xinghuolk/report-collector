@@ -54,6 +54,10 @@ class InMemoryEvidenceRepository:
         evidence_item_id: str,
         sort_order: int,
     ) -> None:
+        if evidence_bundle_id not in self._bundle_records:
+            raise ValueError(
+                f"cannot link item to missing evidence bundle: {evidence_bundle_id}"
+            )
         if evidence_item_id not in self._evidence_items:
             raise ValueError(
                 f"cannot link missing evidence item: {evidence_item_id}"

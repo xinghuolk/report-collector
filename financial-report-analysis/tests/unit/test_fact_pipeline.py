@@ -91,6 +91,27 @@ def test_fact_pipeline_normalizes_chinese_revenue_label() -> None:
     assert normalized[0].metric_id == "revenue"
 
 
+def test_fact_pipeline_normalizes_common_cn_units() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-cn-unit-1",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                raw_unit="万元",
+            )
+        ]
+    )
+
+    fact = normalized[0]
+    assert fact.numeric_value == 1_000_000.0
+    assert fact.currency == "CNY"
+    assert fact.normalized_unit == "CNY"
+
+
 def test_conflict_resolver_keeps_highest_priority_candidate() -> None:
     normalizer = FactNormalizer()
     resolver = ConflictResolver()
@@ -549,7 +570,7 @@ def test_pipeline_returns_fact_sets_and_quality_gate() -> None:
     assert result.quality_gate == "pass"
     assert len(result.canonical_facts) == 1
     assert result.canonical_facts[0].metric_id == "revenue"
-    assert result.canonical_facts[0].numeric_value == 1000.0
+    assert result.canonical_facts[0].numeric_value == 10_000_000.0
     assert result.canonical_facts[0].source_candidate_fact_ids == ["cand-1"]
     assert result.derived_facts == []
     assert result.validation_report.overall_status == "ok"
@@ -634,6 +655,13 @@ def test_evidence_repository_round_trips_bundle_through_links() -> None:
 
 def test_evidence_repository_rejects_linking_missing_items() -> None:
     repository = InMemoryEvidenceRepository()
+    repository.save_evidence_bundle(
+        EvidenceBundle(
+            evidence_bundle_id="bundle-1",
+            document_id="doc-1",
+            bundle_type="fact_support",
+        )
+    )
 
     try:
         repository.link_evidence_bundle_item(
@@ -645,6 +673,30 @@ def test_evidence_repository_rejects_linking_missing_items() -> None:
         assert "missing-item" in str(exc)
     else:
         raise AssertionError("link_evidence_bundle_item should reject missing items")
+
+
+def test_evidence_repository_rejects_linking_items_to_missing_bundles() -> None:
+    repository = InMemoryEvidenceRepository()
+    repository.save_evidence_item(
+        EvidenceItem(
+            evidence_item_id="item-1",
+            document_id="doc-1",
+            source_type="block",
+        )
+    )
+
+    try:
+        repository.link_evidence_bundle_item(
+            evidence_bundle_id="missing-bundle",
+            evidence_item_id="item-1",
+            sort_order=0,
+        )
+    except ValueError as exc:
+        assert "missing-bundle" in str(exc)
+    else:
+        raise AssertionError(
+            "link_evidence_bundle_item should reject missing bundles"
+        )
 
 
 def test_evidence_repository_rejects_missing_linked_items_on_read() -> None:

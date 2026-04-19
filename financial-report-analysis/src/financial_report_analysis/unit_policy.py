@@ -19,6 +19,15 @@ class PresentationReportValue:
 
 class UnitPolicy:
     _THOUSAND_UNIT_SUFFIX = "'000"
+    _UNIT_MULTIPLIERS = {
+        "千元": 1_000.0,
+        "万元": 10_000.0,
+        "万": 10_000.0,
+        "百万元": 1_000_000.0,
+        "百万": 1_000_000.0,
+        "亿元": 100_000_000.0,
+        "亿": 100_000_000.0,
+    }
 
     def normalize_report_value(
         self,
@@ -50,6 +59,13 @@ class UnitPolicy:
         )
 
     def _unit_multiplier(self, raw_unit: str | None) -> float:
-        if raw_unit and raw_unit.upper().endswith(self._THOUSAND_UNIT_SUFFIX):
+        if raw_unit is None:
+            return 1.0
+
+        normalized_unit = raw_unit.strip().replace("人民币", "")
+        normalized_unit = normalized_unit.replace(" ", "")
+        if normalized_unit.upper().endswith(self._THOUSAND_UNIT_SUFFIX):
             return 1000.0
+        if normalized_unit in self._UNIT_MULTIPLIERS:
+            return self._UNIT_MULTIPLIERS[normalized_unit]
         return 1.0
