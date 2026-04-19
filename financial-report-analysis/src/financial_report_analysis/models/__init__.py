@@ -8,6 +8,13 @@ from financial_report_analysis.models.facts import (
     DerivedFact,
 )
 from financial_report_analysis.models.period import Period
+from financial_report_analysis.models.table import (
+    PageTextBlock,
+    ParsedCell,
+    ParsedColumn,
+    ParsedRow,
+    ParsedTable,
+)
 
 __all__ = [
     "BaseFact",
@@ -19,4 +26,9 @@ __all__ = [
     "Extensions",
     "DerivedFact",
     "Period",
+    "PageTextBlock",
+    "ParsedCell",
+    "ParsedColumn",
+    "ParsedRow",
+    "ParsedTable",
 ]

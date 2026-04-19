@@ -4,11 +4,18 @@
 
 **Goal:** 为 `financial-report-analysis` 增加可复用的表格结构抽取与对齐层，稳定识别 P0 主表与 P1 主要财务数据表，并产出可供后续 fact builder 消费的 `ParsedTable` 中间对象。
 
-**Architecture:** 不继续在 `src/financial_report_analysis/ingestion/pdf_ingestion.py` 单文件里堆 regex，而是在 `ingestion/` 下拆出 `table_models + classifier + header_parser + stitcher + adapter` 五层。新层先负责页面级文本块、表标题、表头语义、跨页续表和行列绑定，再由现有 `PdfIngestionAdapter` 选择性消费 `ParsedTable` 生成最小 candidate facts，并把 `parsed_tables` 放到 `document_metadata` 供后续阶段复用。
+**Architecture:** 不继续在 `src/financial_report_analysis/ingestion/pdf_ingestion.py` 单文件里堆 regex，而是在 `ingestion/` 下拆出 `table_models + table_source + classifier + header_parser + stitcher + adapter` 六层。`table_source` 必须先从 `pdfplumber` 的表格/cell 结果构造页面级 `RawTableBlock` 和 cell grid，保留 bbox、page、row/column index；分类、表头语义、跨页续表和行列绑定都建立在这个结构化输入上，而不是 `extract_text().splitlines()`。现有 `PdfIngestionAdapter` 只消费 `ParsedTable` 生成最小 candidate facts，并把 `parsed_tables` 放到 `document.metadata` 供后续阶段复用。
 
-**Tech Stack:** Python 3.10, dataclasses, pypdf, FastAPI (existing service), pytest, Ruff
+**Tech Stack:** Python 3.10, dataclasses, pdfplumber, pypdf, FastAPI (existing service), pytest, Ruff
 
 ---
+
+## Independence Constraints
+
+- `financial-report-analysis` 不能直接 import `report/src/**` 的任何运行时代码。
+- `financial-report-analysis` 不能调用或包装 `report` 里的旧 extractor 作为表结构主实现。
+- 允许参考 `report` 现有实现的思路，但 phase-2 代码必须全部落在 `financial-report-analysis/src/financial_report_analysis/**`。
+- 允许在测试中复用 `report/downloads/**` 下的真实 PDF 样本；这些样本只作为 fixture，不构成运行时依赖。
 
 ## File Structure
 
@@ -18,6 +25,8 @@
   - 定义 `ParsedTable`、`ParsedColumn`、`ParsedRow`、`ParsedCell`、`PageTextBlock`。
 - Create: `financial-report-analysis/src/financial_report_analysis/ingestion/table_classifier.py`
   - 标题规范化、表格类型识别、P0/P1 优先级判定。
+- Create: `financial-report-analysis/src/financial_report_analysis/ingestion/table_source.py`
+  - 使用 `pdfplumber` 提取 `RawTableBlock`、cell grid、bbox、page range，作为唯一主输入源。
 - Create: `financial-report-analysis/src/financial_report_analysis/ingestion/table_header_parser.py`
   - 解析期间列、比较列、单位、币种，避免全文级误判。
 - Create: `financial-report-analysis/src/financial_report_analysis/ingestion/table_stitcher.py`
@@ -26,8 +35,10 @@
   - 提供 `PdfTableStructureAdapter`，把 PDF 文本转成 `ParsedTable` 列表。
 - Create: `financial-report-analysis/tests/unit/test_table_models.py`
 - Create: `financial-report-analysis/tests/unit/test_table_classifier.py`
+- Create: `financial-report-analysis/tests/unit/test_table_source.py`
 - Create: `financial-report-analysis/tests/unit/test_table_header_parser.py`
 - Create: `financial-report-analysis/tests/unit/test_table_stitcher.py`
+- Create: `financial-report-analysis/tests/unit/test_package_exports.py`
 - Create: `financial-report-analysis/tests/integration/test_table_structure_ingestion.py`
 
 ### Existing files to modify
@@ -40,8 +51,18 @@
   - 复用新表格结构层；从 `ParsedTable` 读取 period/unit/currency/row-cell 绑定，而不是继续单点 regex。
 - Modify: `financial-report-analysis/src/financial_report_analysis/__init__.py`
   - 导出 `PdfTableStructureAdapter`，方便 service 内部与测试引用。
+- Modify: `financial-report-analysis/src/financial_report_analysis/api/routes.py`
+  - 把 `document_metadata` 嵌套到 `document.metadata`，同时保留 pipeline 所需的顶层 `language`。
+- Modify: `financial-report-analysis/pyproject.toml`
+  - 补 `pdfplumber` 依赖，避免表格结构层继续依赖纯文本抽取。
 - Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
   - 为真实样本增加 `parsed_tables` 与主表识别断言。
+
+### Out of scope for this plan
+
+- Do not modify `report/src/**`
+- Do not import `report.src.pdf_parser.content_extractor`
+- Do not add a runtime dependency from `financial-report-analysis` to `report`
 
 ## Task 1: 建立表格结构模型
 
@@ -737,6 +758,7 @@ __all__ = ["PdfTableStructureAdapter"]
 Run: `cd financial-report-analysis && uv run pytest tests/integration/test_table_structure_ingestion.py -v`
 
 Expected: PASS，真实样本至少识别出 `income_statement`，且有非空 `period_columns`
+Expected: 该测试只依赖 `report/downloads/**` 里的 PDF fixture，不 import `report` 包内任何模块
 
 - [ ] **Step 5: 提交**
 
@@ -934,6 +956,7 @@ git commit -m "feat: expose parsed table metadata"
 
 **Files:**
 - Modify: `financial-report-analysis/README.md`
+- Test: `financial-report-analysis/tests/unit/test_package_exports.py`
 
 - [ ] **Step 1: 写 README 增量说明，记录表格结构调试入口**
 
@@ -961,16 +984,29 @@ Run: `cd financial-report-analysis && uv run ruff check src tests`
 
 Expected: PASS，`All checks passed`
 
-- [ ] **Step 3: 运行最终测试集**
+- [ ] **Step 3: 写失败测试，锁定公开 import surface 和独立边界**
 
-Run: `cd financial-report-analysis && uv run pytest tests/unit/test_table_models.py tests/unit/test_table_classifier.py tests/unit/test_table_header_parser.py tests/unit/test_table_stitcher.py tests/integration/test_table_structure_ingestion.py tests/integration/test_analysis_api.py tests/unit/test_fact_pipeline.py -v`
+```python
+def test_package_exports_expose_table_structures_without_report_dependency() -> None:
+    import financial_report_analysis
+    from financial_report_analysis.ingestion import PdfTableStructureAdapter
+    from financial_report_analysis.models import ParsedTable
+
+    assert financial_report_analysis.PdfTableStructureAdapter is PdfTableStructureAdapter
+    assert ParsedTable.__name__ == "ParsedTable"
+```
+
+- [ ] **Step 4: 运行最终测试集**
+
+Run: `cd financial-report-analysis && uv run pytest tests/unit/test_table_models.py tests/unit/test_table_classifier.py tests/unit/test_table_source.py tests/unit/test_table_header_parser.py tests/unit/test_table_stitcher.py tests/unit/test_package_exports.py tests/integration/test_table_structure_ingestion.py tests/integration/test_analysis_api.py tests/unit/test_fact_pipeline.py -v`
 
 Expected: PASS，新增表结构测试与既有 ingestion/pipeline 回归共同通过
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 5: 提交**
 
 ```bash
-git add financial-report-analysis/README.md
+git add financial-report-analysis/README.md \
+  financial-report-analysis/tests/unit/test_package_exports.py
 git commit -m "docs: document table structure debugging"
 ```
 
