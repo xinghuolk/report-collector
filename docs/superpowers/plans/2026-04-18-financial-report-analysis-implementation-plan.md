@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在仓库根目录下落地一个平级的 `financial-report-analysis/` Python 子项目，支持 A 股与港股英文财报的事实账本、TTM、证据链、校验与对外 adapter。
+**Goal:** 在仓库根目录下落地一个平级的 `financial-report-analysis/` 独立分析服务，支持 A 股与港股英文财报的事实账本、TTM、证据链、校验与对外 adapter。
 
-**Architecture:** 新实现不继续堆在 `report/src/pdf_parser/content_extractor.py` 上，而是在仓库根目录新增独立子项目 `financial-report-analysis/`，其内部使用 `src/financial_report_analysis/` 作为 Python 包根。该包通过 `models + registries + services + pipeline + adapters` 组织，再由现有 `report/` 项目的 FastAPI 路由和 `PDFHandler` 以适配方式接入。第一阶段以内存/文件级持久化接口和关系型友好的数据契约为主，先把事实模型、质量闸门和接入边界打稳。
+**Architecture:** 新实现不继续堆在 `report/src/pdf_parser/content_extractor.py` 上，而是在仓库根目录新增独立子项目 `financial-report-analysis/`。其内部使用 `src/financial_report_analysis/` 作为 Python 包根，按 `models + registries + services + pipeline + adapters + api` 组织，并对外暴露独立 FastAPI。`report/` 仅作为 forwarding client 调用该服务；第一阶段以内存/文件级持久化接口和关系型友好的数据契约为主，先把事实模型、质量闸门和服务边界打稳。
 
 **Tech Stack:** Python 3.10, Pydantic v2, FastAPI, pytest, Ruff, mypy, existing `report/` project tooling
 
@@ -37,18 +37,22 @@
   - 编排主流程：`document -> blocks -> candidate -> normalized -> canonical -> derived -> validation -> snapshot`
 - Create: `financial-report-analysis/src/financial_report_analysis/adapters/report_adapter.py`
   - 面向 `TradingAgents-CN` 的受控查询与 `quality_gate` 聚合。
+- Create: `financial-report-analysis/src/financial_report_analysis/api/`
+  - 独立 FastAPI app、routes、schemas，与外部调用方共享统一 HTTP contract。
 - Create: `financial-report-analysis/src/financial_report_analysis/storage/`
   - `artifacts.py`：对象存储引用模型
   - `repositories.py`：先定义协议接口和内存实现；`EvidenceBundle` 与 `EvidenceItem` 的关系以 link relation 为真源
 
 ### Existing files to modify
 
+- Modify: `financial-report-analysis/pyproject.toml`
+  - 增加 FastAPI / Uvicorn 等 API 依赖与服务入口。
 - Modify: `report/src/handlers/pdf_handler.py`
-  - 增加对独立分析子项目的调用入口，保持旧 extractor 接口兼容。
+  - 改为通过 HTTP client 调独立 analysis service，保持旧 extractor 接口兼容。
 - Modify: `report/src/api/routes/extract.py`
-  - 新增独立 `/extract/analysis` 分析接口，不污染现有 `/extract/content`。
+  - 新增独立 `/extract/analysis` 转发接口，不污染现有 `/extract/content`。
 - Modify: `report/src/api/schemas/extract.py`
-  - 增加 `AnalysisResult`、`CanonicalFactSet`、`ValidationReport` 等 API schema。
+  - 与 analysis service contract 对齐的 request/response schema。
 
 ### Tests
 
@@ -58,6 +62,7 @@
 - Create: `financial-report-analysis/tests/unit/test_unit_policy.py`
 - Create: `financial-report-analysis/tests/unit/test_fact_pipeline.py`
 - Create: `financial-report-analysis/tests/unit/test_report_adapter.py`
+- Create: `financial-report-analysis/tests/integration/test_analysis_api.py`
 - Create: `report/tests/integration/test_financial_report_analysis_api.py`
 
 ## Task 1: 建立领域包骨架与核心模型
@@ -946,18 +951,49 @@ git add financial-report-analysis/src/financial_report_analysis/adapters financi
 git commit -m "feat: add report analysis adapter and quality gate"
 ```
 
-## Task 6: 将新包接入现有 `PDFHandler` 与 FastAPI 路由
+## Task 6: 为 `financial-report-analysis` 提供独立 API，并让 `report` 以 HTTP 转发接入
 
-> **Execution gate:** Task 6 默认采用新增 `/extract/analysis` 路由方案。不要在执行时临时改回 `/extract/content` 分支模式，除非先更新 spec 与本计划。
+> **Execution gate:** Task 6 以 `financial-report-analysis` 独立 API 为主路径。不要在执行时让 `report/` 直接 import 分析核心实现，除非先更新 spec 与本计划。
 
 **Files:**
+- Modify: `financial-report-analysis/pyproject.toml`
+- Create: `financial-report-analysis/src/financial_report_analysis/api/__init__.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/api/app.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/api/routes.py`
+- Create: `financial-report-analysis/src/financial_report_analysis/api/schemas.py`
+- Create: `financial-report-analysis/tests/integration/test_analysis_api.py`
 - Modify: `report/pyproject.toml`
 - Modify: `report/src/handlers/pdf_handler.py`
 - Modify: `report/src/api/routes/extract.py`
 - Modify: `report/src/api/schemas/extract.py`
 - Create: `report/tests/integration/test_financial_report_analysis_api.py`
 
-- [ ] **Step 1: 写失败测试，固定 API 能返回 `quality_gate` 与 fact-set 引用**
+- [ ] **Step 1: 写失败测试，固定独立 analysis API 与转发路由契约**
+
+```python
+from fastapi.testclient import TestClient
+
+from financial_report_analysis.api.app import create_app
+
+
+def test_analysis_service_extract_endpoint_returns_quality_gate() -> None:
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": "/tmp/mock.pdf",
+            "market": "CN",
+        },
+    )
+
+    assert response.status_code in {200, 400}
+    if response.status_code == 200:
+        payload = response.json()
+        assert "quality_gate" in payload
+        assert "canonical_fact_set_id" in payload
+```
 
 ```python
 from fastapi.testclient import TestClient
@@ -965,34 +1001,69 @@ from fastapi.testclient import TestClient
 from src.api.app import create_app
 
 
-def test_extract_analysis_endpoint_returns_quality_gate() -> None:
+def test_report_extract_analysis_forwards_service_contract() -> None:
     app = create_app()
     client = TestClient(app)
 
     response = client.post(
-        "/extract/analysis",
-        json={
-            "pdf_path": "/tmp/mock.pdf",
-        },
+        "/api/v1/extract/analysis",
+        json={"pdf_path": "/tmp/mock.pdf", "market": "CN"},
     )
 
-    assert response.status_code in {200, 400}
-    if response.status_code == 200:
-        payload = response.json()["data"]
-        assert "quality_gate" in payload
-        assert "canonical_fact_set_id" in payload
+    assert response.status_code in {200, 400, 502}
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
+Run: `cd financial-report-analysis && uv run pytest tests/integration/test_analysis_api.py -v`
+
+Expected: FAIL，提示 analysis service app 或新路由不存在
+
 Run: `cd report && uv run pytest tests/integration/test_financial_report_analysis_api.py -v`
 
-Expected: FAIL，提示新路由不存在或返回结构缺字段
+Expected: FAIL，提示转发新路由不存在或返回结构缺字段
 
 - [ ] **Step 3: 写最小实现**
 
 ```python
+# financial-report-analysis/src/financial_report_analysis/api/schemas.py
+class AnalysisExtractRequest(BaseModel):
+    pdf_path: str | None = None
+    pdf_url: str | None = None
+    market: str = "CN"
+    min_confidence: float | None = None
+
+
+class AnalysisResultResponse(BaseModel):
+    document: Dict[str, Any]
+    canonical_fact_set_id: str
+    derived_fact_set_id: str
+    validation_report_id: str
+    quality_gate: str
+    key_facts: List[Dict[str, Any]]
+    ttm_facts: List[Dict[str, Any]]
+    analysis_snapshot: Dict[str, Any]
+    blocked_items: List[Dict[str, Any]]
+```
+
+```python
+# financial-report-analysis/src/financial_report_analysis/api/routes.py
+@router.post("/api/v1/analysis/extract", response_model=AnalysisResultResponse)
+async def extract_analysis(request: AnalysisExtractRequest) -> AnalysisResultResponse:
+    if not request.pdf_path and not request.pdf_url:
+        raise HTTPException(status_code=400, detail="pdf_path or pdf_url is required")
+    ...
+```
+
+```python
 # report/src/api/schemas/extract.py
+class AnalysisProxyRequest(BaseModel):
+    pdf_path: Optional[str] = None
+    pdf_url: Optional[str] = None
+    market: str = "CN"
+    min_confidence: Optional[float] = None
+
+
 class AnalysisResultResponse(BaseModel):
     document: Dict[str, Any]
     canonical_fact_set_id: str
@@ -1007,74 +1078,51 @@ class AnalysisResultResponse(BaseModel):
 
 ```python
 # report/src/handlers/pdf_handler.py
-from financial_report_analysis.adapters.report_adapter import ReportAdapter
-from financial_report_analysis.pipeline import analyze_report
-
-
 class PDFHandler:
-    def __init__(self):
-        self.pdf_manager = PDFManager()
-        self.cn_downloader = CninfoDownloader(str(Config.CN_DOWNLOADS_DIR))
-        self.hk_downloader = HKEXDownloader(str(Config.HK_DOWNLOADS_DIR))
-        self.content_extractor = PDFContentExtractor()
-        self.cache = TTLCache(maxsize=Config.MAX_CACHE_SIZE, ttl=Config.CACHE_TTL)
-        self.report_adapter = ReportAdapter()
+    ...
 
-    async def extract_financial_report_analysis(self, pdf_path: str) -> dict:
-        legacy = self.content_extractor.extract_content(pdf_path)
-        pipeline_result = analyze_report(
-            document_ref={"document_id": pdf_path, "market": "CN"},
-            extracted_payload={"candidate_facts": legacy.get("facts", [])},
-        )
-        return self.report_adapter.build_analysis_result(
-            document={"document_id": pdf_path},
-            pipeline_result={
-                **pipeline_result.__dict__,
-                "canonical_facts": [fact.model_dump() for fact in pipeline_result.canonical_facts],
-                "derived_facts": [fact.model_dump() for fact in pipeline_result.derived_facts],
-                "validation_report": pipeline_result.validation_report.model_dump(),
-            },
-        )
+    async def extract_financial_report_analysis(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self.analysis_client.extract_analysis(request)
 ```
 
 ```python
 # report/src/api/routes/extract.py
 @router.post("/extract/analysis", response_model=APIResponse[Dict[str, Any]])
 async def extract_financial_report_analysis(
-    pdf_path: Optional[str] = Body(default=None, description="PDF文件路径"),
-    pdf_id: Optional[int] = Body(default=None, description="PDF记录ID"),
+    request: AnalysisProxyRequest,
     handler: PDFHandler = Depends(get_pdf_handler),
 ) -> APIResponse[Dict[str, Any]]:
-    if not pdf_path and not pdf_id:
-        return APIResponse(success=False, error="请提供 pdf_path 或 pdf_id 参数")
-
-    result = await handler.extract_financial_report_analysis(
-        pdf_path=pdf_path or str(pdf_id)
-    )
+    result = await handler.extract_financial_report_analysis(request.model_dump())
     return APIResponse(success=True, data=result, error=None)
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
 
+Run: `cd financial-report-analysis && uv run pytest tests/integration/test_analysis_api.py tests/unit/test_report_adapter.py -v`
+
+Expected: PASS，独立 analysis service 暴露统一 contract
+
 Run: `cd report && uv run pytest tests/integration/test_financial_report_analysis_api.py tests/unit/test_extract_schema_negotiation.py -v`
 
-Expected: PASS，且旧 schema 协商测试不回归
+Expected: PASS，且 `report` 只做转发，不回归旧 schema 协商测试
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add report/pyproject.toml report/src/handlers/pdf_handler.py report/src/api/routes/extract.py report/src/api/schemas/extract.py report/tests/integration/test_financial_report_analysis_api.py
-git commit -m "feat: expose financial report analysis through handler and api"
+git add financial-report-analysis/pyproject.toml financial-report-analysis/src/financial_report_analysis/api financial-report-analysis/tests/integration/test_analysis_api.py report/pyproject.toml report/src/handlers/pdf_handler.py report/src/api/routes/extract.py report/src/api/schemas/extract.py report/tests/integration/test_financial_report_analysis_api.py
+git commit -m "feat: expose financial report analysis via standalone api"
 ```
 
-## Task 7: 补验证矩阵、回归测试与文档同步
+## Task 7: 补独立服务验证矩阵、转发回归测试与文档同步
 
-> **Execution gate:** Task 7 在 Task 6 完成独立新路由后再执行。港股非英文输入在第一阶段应标记为 `unsupported_in_phase1` 或 `review`，不要和真实数据质量失败混成 `fail`。
+> **Execution gate:** Task 7 在 Task 6 完成独立 analysis service 后再执行。港股非英文输入在第一阶段应标记为 `unsupported_in_phase1` 或 `review`，不要和真实数据质量失败混成 `fail`。
 
 **Files:**
+- Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
 - Modify: `report/tests/unit/test_fact_evidence_mapping.py`
 - Modify: `report/tests/integration/test_hk_09987_period_extraction.py`
 - Modify: `report/tests/integration/test_cn_annual_period_regression.py`
+- Modify: `financial-report-analysis/README.md`
 - Modify: `report/README.md`
 - Modify: `docs/superpowers/specs/2026-04-18-financial-report-analysis-integration-design.md`（如接口命名需与实现对齐）
 
@@ -1103,18 +1151,35 @@ def test_validation_report_marks_missing_ttm_dependency_as_review() -> None:
 
 - [ ] **Step 2: 运行测试确认失败**
 
+Run: `cd financial-report-analysis && uv run pytest tests/integration/test_analysis_api.py -v`
+
+Expected: FAIL，提示独立 service 的语言策略或质量状态断言未覆盖
+
 Run: `cd report && uv run pytest tests/unit/test_fact_evidence_mapping.py tests/integration/test_hk_09987_period_extraction.py tests/integration/test_cn_annual_period_regression.py -v`
 
-Expected: FAIL，提示缺少语言策略或质量状态断言
+Expected: FAIL，提示缺少语言策略或转发层回归断言
 
 - [ ] **Step 3: 写最小实现与 README 说明**
+
+```markdown
+<!-- financial-report-analysis/README.md -->
+## Financial Report Analysis Service
+
+- 主交付形态：独立 FastAPI analysis service
+- 主入口：`POST /api/v1/analysis/extract`
+- 健康检查：`GET /health`
+- 第一阶段范围：A 股 + 港股英文财报，年报/中报/季报
+- 输入主路径：`pdf_path`
+- 兼容输入：`pdf_url`、上传文件
+```
 
 ```markdown
 <!-- report/README.md -->
 ## Financial Report Analysis Package
 
 - 新领域包子项目：`financial-report-analysis/`
-- 新领域包入口：`financial_report_analysis`
+- 新分析服务入口：`financial-report-analysis` HTTP API
+- `report` 中的 `/extract/analysis` 是转发层，不承载分析核心实现
 - 第一阶段范围：A 股 + 港股英文财报，年报/中报/季报
 - 对外受控结果：`canonical_facts`、`derived_facts`、`validation_report`、`quality_gate`
 - 非目标：繁中港股主链路、RAG 数字主抽取、provisional custom metric 核心分析
@@ -1135,51 +1200,35 @@ def analyze_report(document_ref: dict, extracted_payload: dict) -> PipelineResul
             derived_facts=[],
             validation_report=validation,
         )
-    candidates = [
-        CandidateFact.model_validate(item)
-        for item in extracted_payload.get("candidate_facts", [])
-    ]
-    normalized = FactNormalizer().normalize_candidates(candidates)
-    canonical = ConflictResolver().resolve(normalized)
-    derived = DerivationService().derive_ttm(canonical)
-    validation = ValidationService().validate(
-        canonical_facts=canonical,
-        derived_facts=derived,
-    )
-    quality_gate = "pass" if validation.overall_status == "ok" else "review"
-    return PipelineResult(
-        canonical_fact_set_id=f"{document_ref['document_id']}:canonical:v1",
-        derived_fact_set_id=f"{document_ref['document_id']}:derived:v1",
-        validation_report_id=f"{document_ref['document_id']}:validation:v1",
-        quality_gate=quality_gate,
-        canonical_facts=canonical,
-        derived_facts=derived,
-        validation_report=validation,
-    )
+    ...
 ```
 
 - [ ] **Step 4: 跑完整相关测试**
 
-Run: `cd financial-report-analysis && uv run pytest tests/unit -v && cd ../report && uv run pytest tests/unit/test_fact_evidence_mapping.py tests/integration/test_financial_report_analysis_api.py tests/integration/test_hk_09987_period_extraction.py tests/integration/test_cn_annual_period_regression.py -v`
+Run: `cd financial-report-analysis && uv run pytest tests/integration/test_analysis_api.py tests/unit/test_fact_pipeline.py -v`
 
-Expected: PASS，新增与既有财报期间回归测试全部通过
+Expected: PASS，analysis service 的真实回归与语言策略通过
+
+Run: `cd report && uv run pytest tests/unit/test_fact_evidence_mapping.py tests/integration/test_financial_report_analysis_api.py tests/integration/test_hk_09987_period_extraction.py tests/integration/test_cn_annual_period_regression.py -v`
+
+Expected: PASS，转发层和真实财报回归测试通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add financial-report-analysis/tests/unit financial-report-analysis/src/financial_report_analysis/pipeline.py report/tests/unit/test_fact_evidence_mapping.py report/tests/integration/test_financial_report_analysis_api.py report/tests/integration/test_hk_09987_period_extraction.py report/tests/integration/test_cn_annual_period_regression.py report/README.md docs/superpowers/specs/2026-04-18-financial-report-analysis-integration-design.md
-git commit -m "docs: align report analysis implementation and regression coverage"
+git add financial-report-analysis/tests/integration/test_analysis_api.py financial-report-analysis/src/financial_report_analysis/pipeline.py financial-report-analysis/README.md report/tests/unit/test_fact_evidence_mapping.py report/tests/integration/test_financial_report_analysis_api.py report/tests/integration/test_hk_09987_period_extraction.py report/tests/integration/test_cn_annual_period_regression.py report/README.md docs/superpowers/specs/2026-04-18-financial-report-analysis-integration-design.md
+git commit -m "docs: align standalone analysis service and regression coverage"
 ```
 
 ## Self-Review
 
 - Spec coverage:
-  - 总体包形态、非 MCP 主接口、Python 包主交付：Task 1, 4, 5, 6
+  - 总体独立服务形态、非 MCP 主接口、包内领域实现：Task 1, 4, 5, 6
   - A 股 + 港股英文第一阶段范围：Task 2, 6, 7
   - `candidate -> normalized -> canonical -> derived`：Task 3, 4
   - `Period / MetricRegistry / UnitPolicy / EvidenceBundle`：Task 1, 2, 4
   - `TTM` 作为 derived fact 且可追溯：Task 3, 4, 7
-  - `TradingAgents-CN` 受控接入与 `quality_gate`：Task 5, 6
+  - `TradingAgents-CN` 与 `report/` 共享 HTTP contract：Task 5, 6, 7
   - 关系型友好对象与 object storage artifact 协议：Task 4
 - Placeholder scan:
   - 未保留计划占位符
@@ -1195,8 +1244,8 @@ git commit -m "docs: align report analysis implementation and regression coverag
 
 ## Notes Before Execution
 
-- 如果 Task 3 中的最小实现无法兼容现有 `content_extractor.py` 的事实输出，优先在 `report/src/handlers/pdf_handler.py` 加一层 legacy-to-candidate 映射，而不是把新模型倒灌回旧 extractor。
-- 如果 API 层需要避免污染现有 `/extract/content` 契约，可以在 Task 6 改为新增 `/extract/analysis` 路由，但必须同步更新 `report/tests/integration/test_financial_report_analysis_api.py` 与 adapter schema。
+- 如果 Task 3 中的最小实现无法兼容现有 `content_extractor.py` 的事实输出，优先在 `financial-report-analysis` 服务内部加 legacy-to-candidate 映射，而不是把新模型倒灌回旧 extractor。
+- `report/` 在 Task 6 之后只承担转发与错误映射职责，不应直接 import `financial_report_analysis.pipeline` 或 `ReportAdapter`。
 - 如果第一阶段无法立即引入真实数据库，请先实现 `financial-report-analysis/src/financial_report_analysis/storage/repositories.py` 中的内存实现，但接口命名必须保持关系型友好。
 
 Plan complete and saved to `docs/superpowers/plans/2026-04-18-financial-report-analysis-implementation-plan.md`. Two execution options:
