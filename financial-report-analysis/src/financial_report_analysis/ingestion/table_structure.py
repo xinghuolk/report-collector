@@ -106,9 +106,23 @@ class PdfTableStructureAdapter:
         candidates = self._TITLE_PATTERNS_BY_MARKET.get(market or "", self._TITLE_PATTERNS)
         for _title, patterns in candidates:
             if any(re.search(pattern, page_text, re.IGNORECASE) for pattern in patterns):
-                return block.page_text.strip() or " ".join(
-                    cell for row in block.rows for cell in row if cell
-                )
+                for row in block.rows:
+                    row_text = " ".join(cell for cell in row if cell).strip()
+                    normalized_row_text = re.sub(r"\s+", " ", row_text).lower()
+                    if any(
+                        re.search(pattern, normalized_row_text, re.IGNORECASE)
+                        for pattern in patterns
+                    ):
+                        return row_text
+                for line in block.page_text.splitlines():
+                    line_text = line.strip()
+                    normalized_line_text = re.sub(r"\s+", " ", line_text).lower()
+                    if any(
+                        re.search(pattern, normalized_line_text, re.IGNORECASE)
+                        for pattern in patterns
+                    ):
+                        return line_text
+                return self._first_non_empty_row_text(block) or block.page_text.strip()
 
         for row in block.rows[:2]:
             row_text = re.sub(r"\s+", " ", " ".join(cell for cell in row if cell)).lower()
@@ -116,7 +130,15 @@ class PdfTableStructureAdapter:
                 if any(re.search(pattern, row_text, re.IGNORECASE) for pattern in patterns):
                     return " ".join(cell for cell in row if cell)
 
-        return block.rows[0][0] if block.rows and block.rows[0] else block.page_text
+        return self._first_non_empty_row_text(block) or block.page_text
+
+    @staticmethod
+    def _first_non_empty_row_text(block: RawTableBlock) -> str:
+        for row in block.rows:
+            row_text = " ".join(cell for cell in row if cell).strip()
+            if row_text:
+                return row_text
+        return ""
 
     @staticmethod
     def _select_header_rows(rows: list[list[str]]) -> list[list[str]]:
