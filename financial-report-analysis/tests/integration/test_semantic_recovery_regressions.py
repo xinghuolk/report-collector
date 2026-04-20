@@ -179,15 +179,38 @@ def test_hk_annual_2025_anchor_preserves_deterministic_unit_currency_provenance(
         min_confidence=0.8,
     )
 
-    table_semantic_candidates = [
-        fact
-        for fact in ingestion_payload["candidate_facts"]
-        if fact.get("extraction_method") == "table_semantics"
-    ]
-
-    assert table_semantic_candidates
+    parsed_tables = ingestion_payload["document_metadata"]["parsed_tables"]
+    assert parsed_tables
     assert any(
-        fact["extensions"].get("unit_semantic_source") == "deterministic"
-        and fact["extensions"].get("currency_semantic_source") == "deterministic"
-        for fact in table_semantic_candidates
+        table.get("unit_semantic_source") == "deterministic"
+        and table.get("currency_semantic_source") == "deterministic"
+        for table in parsed_tables
+    )
+
+
+def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+    )
+
+    assert {table.table_kind for table in tables} >= {
+        "income_statement",
+        "balance_sheet",
+        "cash_flow_statement",
+    }
+
+    semantics_tables = [normalize_table_semantics(table) for table in tables]
+    assert semantics_tables
+    assert all(table.semantic_source == "deterministic" for table in semantics_tables)
+    assert all(table.unit_semantic_source == "deterministic" for table in semantics_tables)
+    assert all(
+        table.currency_semantic_source == "deterministic"
+        for table in semantics_tables
+    )
+    assert all(
+        table.table_currency in {"HKD", "USD", "unknown"}
+        for table in semantics_tables
     )

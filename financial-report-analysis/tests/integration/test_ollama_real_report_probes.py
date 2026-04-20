@@ -13,6 +13,7 @@ from financial_report_analysis.semantic_fallback import (
     RowLabelFallbackRequest,
     SemanticFallbackSettings,
     build_semantic_fallback_service,
+    load_semantic_fallback_settings,
     supported_row_label_outputs,
 )
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -35,6 +36,17 @@ class ProbeEvaluationSummary:
     negative_total: int
     negative_hits: int
     failures: tuple[str, ...]
+
+
+def _real_ollama_settings() -> SemanticFallbackSettings:
+    loaded = load_semantic_fallback_settings()
+    return SemanticFallbackSettings(
+        enabled=True,
+        provider="ollama",
+        base_url=loaded.base_url,
+        model=loaded.model,
+        timeout_seconds=loaded.timeout_seconds,
+    )
 
 
 def test_real_report_row_label_probe_dataset_covers_target_outputs() -> None:
@@ -67,13 +79,7 @@ def test_local_ollama_real_report_row_label_probe_dataset() -> None:
     }:
         pytest.skip("set FRA_RUN_OLLAMA_REAL_REPORT_PROBES=1 to run real probe evaluation")
 
-    settings = SemanticFallbackSettings(
-        enabled=True,
-        provider="ollama",
-        base_url="http://127.0.0.1:11434",
-        model="qwen3.5:9b",
-        timeout_seconds=30.0,
-    )
+    settings = _real_ollama_settings()
     if not _ollama_available(settings.base_url, settings.model):
         pytest.skip("local Ollama endpoint or model is unavailable")
 
@@ -102,13 +108,7 @@ def test_real_report_probe_evaluation_reports_positive_and_negative_hit_rates() 
 
 
 def run_real_probe_evaluation() -> ProbeEvaluationSummary:
-    settings = SemanticFallbackSettings(
-        enabled=True,
-        provider="ollama",
-        base_url="http://127.0.0.1:11434",
-        model="qwen3.5:9b",
-        timeout_seconds=30.0,
-    )
+    settings = _real_ollama_settings()
     if not _ollama_available(settings.base_url, settings.model):
         pytest.skip("local Ollama endpoint or model is unavailable")
 

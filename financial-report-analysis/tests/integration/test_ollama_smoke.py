@@ -10,6 +10,7 @@ from financial_report_analysis.semantic_fallback import (
     RowLabelFallbackRequest,
     SemanticFallbackSettings,
     build_semantic_fallback_service,
+    load_semantic_fallback_settings,
     supported_row_label_outputs,
 )
 
@@ -26,14 +27,19 @@ PROBE_SPEC.loader.exec_module(PROBE_MODULE)
 PROMOTED_REAL_REPORT_PROBE_CASES = PROBE_MODULE.PROMOTED_REAL_REPORT_PROBE_CASES
 
 
-def test_local_ollama_row_label_fallback_smoke() -> None:
-    settings = SemanticFallbackSettings(
+def _real_ollama_settings() -> SemanticFallbackSettings:
+    loaded = load_semantic_fallback_settings()
+    return SemanticFallbackSettings(
         enabled=True,
         provider="ollama",
-        base_url="http://127.0.0.1:11434",
-        model="qwen3.5:9b",
-        timeout_seconds=30.0,
+        base_url=loaded.base_url,
+        model=loaded.model,
+        timeout_seconds=loaded.timeout_seconds,
     )
+
+
+def test_local_ollama_row_label_fallback_smoke() -> None:
+    settings = _real_ollama_settings()
 
     if not _ollama_available(settings.base_url, settings.model):
         pytest.skip("local Ollama endpoint or model is unavailable")
@@ -85,13 +91,7 @@ def test_local_ollama_row_label_capability_probe_cases(
     local_context: str,
     expected_value: str,
 ) -> None:
-    settings = SemanticFallbackSettings(
-        enabled=True,
-        provider="ollama",
-        base_url="http://127.0.0.1:11434",
-        model="qwen3.5:9b",
-        timeout_seconds=30.0,
-    )
+    settings = _real_ollama_settings()
 
     if not _ollama_available(settings.base_url, settings.model):
         pytest.skip("local Ollama endpoint or model is unavailable")
@@ -142,13 +142,7 @@ def resolve_row_label_with_real_ollama(
     table_kind: str,
     local_context: str,
 ):
-    settings = SemanticFallbackSettings(
-        enabled=True,
-        provider="ollama",
-        base_url="http://127.0.0.1:11434",
-        model="qwen3.5:9b",
-        timeout_seconds=30.0,
-    )
+    settings = _real_ollama_settings()
 
     if not _ollama_available(settings.base_url, settings.model):
         pytest.skip("local Ollama endpoint or model is unavailable")

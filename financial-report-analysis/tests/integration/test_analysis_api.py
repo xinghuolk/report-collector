@@ -9,6 +9,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
+from financial_report_analysis.semantic_fallback import load_semantic_fallback_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAIN_REPO_ROOT = REPO_ROOT.parent.parent
@@ -80,6 +81,11 @@ def _ollama_model_available(*, base_url: str, model: str) -> bool:
     payload = response.json()
     models = payload.get("models", [])
     return any(entry.get("name") == model for entry in models if isinstance(entry, dict))
+
+
+def _real_ollama_endpoint() -> tuple[str, str]:
+    settings = load_semantic_fallback_settings()
+    return settings.base_url, settings.model
 
 
 def test_health_endpoint_reports_ready() -> None:
@@ -420,10 +426,8 @@ def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(
         ParsedTable,
     )
 
-    if not _ollama_model_available(
-        base_url="http://127.0.0.1:11434",
-        model="qwen3.5:9b",
-    ):
+    base_url, model = _real_ollama_endpoint()
+    if not _ollama_model_available(base_url=base_url, model=model):
         pytest.skip("local Ollama qwen3.5:9b is unavailable")
 
     table = ParsedTable(
@@ -476,8 +480,8 @@ def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(
     )
     monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_ENABLED", "true")
     monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_PROVIDER", "ollama")
-    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_BASE_URL", "http://127.0.0.1:11434")
-    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_MODEL", "qwen3.5:9b")
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_BASE_URL", base_url)
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_MODEL", model)
     monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_TIMEOUT_SECONDS", "30")
 
     from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
