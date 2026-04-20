@@ -214,6 +214,27 @@ def test_normalized_table_semantics_emit_deterministic_unit_currency_provenance(
     assert semantics.currency_semantic_source == "deterministic"
 
 
+def test_normalized_table_semantics_emit_unknown_sentinels_for_unresolved_unit_currency() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:unknown-unit-currency",
+            document_id="doc",
+            page_range=(13, 13),
+            table_kind="income_statement",
+            title_text="Consolidated Income Statement",
+            statement_scope_guess="consolidated",
+            table_unit=None,
+            table_currency=None,
+            body_rows=[],
+        )
+    )
+
+    assert semantics.table_unit == "unknown"
+    assert semantics.table_currency == "unknown"
+    assert semantics.unit_semantic_source == "deterministic"
+    assert semantics.currency_semantic_source == "deterministic"
+
+
 def test_cn_annual_row_label_normalization_strips_numbering_prefixes() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(

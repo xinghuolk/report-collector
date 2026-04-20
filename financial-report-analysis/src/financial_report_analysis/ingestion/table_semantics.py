@@ -35,8 +35,8 @@ def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
         table_kind=table.table_kind,
         title_text=table.title_text,
         statement_scope_guess=table.statement_scope_guess,
-        table_unit=table.table_unit,
-        table_currency=table.table_currency,
+        table_unit=_normalized_semantic_value(table.table_unit),
+        table_currency=_normalized_semantic_value(table.table_currency),
         unit_semantic_source="deterministic",
         currency_semantic_source="deterministic",
         semantic_source="deterministic",
@@ -93,3 +93,10 @@ def _normalize_label(raw_label: str) -> str | None:
     normalized = re.sub(r"^[IVXLCM]+\.\s*", "", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
     return normalized or None
+
+
+def _normalized_semantic_value(value: str | None) -> str:
+    if value is None:
+        return "unknown"
+    normalized = value.strip()
+    return normalized or "unknown"

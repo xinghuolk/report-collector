@@ -62,7 +62,7 @@ def _build_candidate_payload(
         "comparison_axis": value.comparison_axis or "current",
         "adjustment_basis": "reported",
         "period_id": value.period_id,
-        "currency": table.table_currency or _default_currency(market),
+        "currency": table.table_currency,
         "raw_value": value.raw_text,
         "numeric_value": value.numeric_value,
         "raw_unit": table.table_unit,
@@ -98,15 +98,6 @@ def _entity_scope(statement_scope_guess: str) -> str:
     if statement_scope_guess == "consolidated":
         return "consolidated"
     return "other"
-
-
-def _default_currency(market: str) -> str:
-    if market == "HK":
-        return "HKD"
-    if market == "US":
-        return "USD"
-    return "CNY"
-
 
 def _source_rank_hint(table_kind: str) -> int:
     if table_kind == "income_statement":
