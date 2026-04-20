@@ -67,11 +67,11 @@ def test_extract_raw_table_blocks_preserve_grid_and_page_metadata(
             _FakeTable(
                 cells=[
                     [
-                        _FakeCell("椤圭洰", 10.0, 20.0, 40.0, 30.0, 0, 0),
-                        _FakeCell("2024骞村害", 40.0, 20.0, 70.0, 30.0, 0, 1),
+                        _FakeCell("项目", 10.0, 20.0, 40.0, 30.0, 0, 0),
+                        _FakeCell("2024年度", 40.0, 20.0, 70.0, 30.0, 0, 1),
                     ],
                     [
-                        _FakeCell("钀ヤ笟鏀跺叆", 10.0, 30.0, 40.0, 40.0, 1, 0),
+                        _FakeCell("营业收入", 10.0, 30.0, 40.0, 40.0, 1, 0),
                         _FakeCell("3,638,911,068.29", 40.0, 30.0, 70.0, 40.0, 1, 1),
                     ],
                 ]
@@ -89,10 +89,10 @@ def test_extract_raw_table_blocks_preserve_grid_and_page_metadata(
     block = blocks[0]
     assert block.page_index == 7
     assert block.page_range == (7, 7)
-    assert block.rows == [["椤圭洰", "2024骞村害"], ["钀ヤ笟鏀跺叆", "3,638,911,068.29"]]
+    assert block.rows == [["项目", "2024年度"], ["营业收入", "3,638,911,068.29"]]
     assert block.cells[1][1].text == "3,638,911,068.29"
     assert block.bbox == (10.0, 20.0, 70.0, 40.0)
-    assert block.local_context == "椤圭洰 2024骞村害\n钀ヤ笟鏀跺叆 3,638,911,068.29"
+    assert block.local_context == "项目 2024年度\n营业收入 3,638,911,068.29"
     assert "Intro text" not in block.local_context
 
 
@@ -107,11 +107,11 @@ def test_extract_raw_table_blocks_preserve_blank_header_cells(
             _FakeTable(
                 cells=[
                     [
-                        _FakeCell("椤圭洰", 10.0, 20.0, 40.0, 30.0, 0, 0),
+                        _FakeCell("项目", 10.0, 20.0, 40.0, 30.0, 0, 0),
                         _FakeCell(None, 40.0, 20.0, 50.0, 30.0, 0, 1),
-                        _FakeCell("2024骞村害", 50.0, 20.0, 80.0, 30.0, 0, 2),
+                        _FakeCell("2024年度", 50.0, 20.0, 80.0, 30.0, 0, 2),
                         _FakeCell(None, 80.0, 20.0, 90.0, 30.0, 0, 3),
-                        _FakeCell("2023骞村害", 90.0, 20.0, 120.0, 30.0, 0, 4),
+                        _FakeCell("2023年度", 90.0, 20.0, 120.0, 30.0, 0, 4),
                     ]
                 ]
             )
@@ -124,5 +124,5 @@ def test_extract_raw_table_blocks_preserve_blank_header_cells(
     source = table_source.PdfTableSource()
     blocks = source.extract_raw_table_blocks(pdf_path="/tmp/fake.pdf", pdf_url=None)
 
-    assert blocks[0].rows[0] == ["椤圭洰", "", "2024骞村害", "", "2023骞村害"]
-    assert blocks[0].local_context == "椤圭洰 2024骞村害 2023骞村害"
+    assert blocks[0].rows[0] == ["项目", "", "2024年度", "", "2023年度"]
+    assert blocks[0].local_context == "项目 2024年度 2023年度"

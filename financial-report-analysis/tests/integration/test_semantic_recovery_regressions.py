@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
@@ -52,6 +53,36 @@ def test_cn_annual_semantics_expose_normalized_row_labels() -> None:
     semantics = normalize_table_semantics(income_statement)
 
     assert any(row.normalized_row_label for row in semantics.rows)
+
+
+@pytest.mark.parametrize(
+    ("stock_code", "filename"),
+    [
+        ("600519", "2024_年度报告.pdf"),
+        ("600519", "2025_年度报告.pdf"),
+        ("601919", "2025_年度报告.pdf"),
+        ("688008", "2024_年度报告.pdf"),
+        ("688008", "2025_年度报告.pdf"),
+    ],
+)
+def test_cn_annual_reference_semantics_preserve_deterministic_provenance(
+    stock_code: str,
+    filename: str,
+) -> None:
+    pdf_path = _resolve_sample("cn_stocks", stock_code, "annual", filename)
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="CN",
+    )
+
+    income_statement = next(table for table in tables if table.table_kind == "income_statement")
+    semantics = normalize_table_semantics(income_statement)
+
+    assert semantics.semantic_source == "deterministic"
+    assert any(row.normalized_row_label for row in semantics.rows)
+    assert semantics.unit_semantic_source == "deterministic"
+    assert semantics.currency_semantic_source == "deterministic"
 
 
 def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
@@ -118,6 +149,29 @@ def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
 
 def test_hk_annual_anchor_preserves_deterministic_unit_currency_provenance() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+    ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    table_semantic_candidates = [
+        fact
+        for fact in ingestion_payload["candidate_facts"]
+        if fact.get("extraction_method") == "table_semantics"
+    ]
+
+    assert table_semantic_candidates
+    assert any(
+        fact["extensions"].get("unit_semantic_source") == "deterministic"
+        and fact["extensions"].get("currency_semantic_source") == "deterministic"
+        for fact in table_semantic_candidates
+    )
+
+
+def test_hk_annual_2025_anchor_preserves_deterministic_unit_currency_provenance() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
     ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
         pdf_path=str(pdf_path),
         pdf_url=None,

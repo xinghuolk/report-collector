@@ -968,6 +968,49 @@ def test_extract_endpoint_accepts_cn_annual_sample_pdf() -> None:
     assert payload["key_facts"]
 
 
+@pytest.mark.parametrize(
+    ("stock_code", "filename"),
+    [
+        ("600519", "2024_年度报告.pdf"),
+        ("600519", "2025_年度报告.pdf"),
+        ("601919", "2025_年度报告.pdf"),
+        ("688008", "2024_年度报告.pdf"),
+        ("688008", "2025_年度报告.pdf"),
+    ],
+)
+def test_extract_endpoint_accepts_cn_annual_reference_pdfs(
+    stock_code: str,
+    filename: str,
+) -> None:
+    sample_pdf = _resolve_sample_path(
+        "report",
+        "downloads",
+        "cn_stocks",
+        stock_code,
+        "annual",
+        filename,
+    )
+    if sample_pdf is None or not sample_pdf.exists():
+        pytest.skip("CN annual reference sample PDF not found")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(sample_pdf),
+            "market": "CN",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["pdf_path"] == str(sample_pdf)
+    assert payload["document"]["metadata"]["parsed_tables"]
+    assert payload["quality_gate"] in {"pass", "review"}
+    assert payload["key_facts"]
+
+
 def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
     sample_pdf = _resolve_cn_annual_sample()
     if sample_pdf is None or not sample_pdf.exists():
@@ -1003,6 +1046,7 @@ def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
         ("02498", "2022_annual_en.pdf"),
         ("06862", "2024_annual_en.pdf"),
         ("09987", "2024_annual_en.pdf"),
+        ("09987", "2025_annual_en.pdf"),
     ],
 )
 def test_extract_endpoint_accepts_hk_annual_anchor_pdfs(

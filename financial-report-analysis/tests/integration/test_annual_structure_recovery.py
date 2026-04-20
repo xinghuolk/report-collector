@@ -31,6 +31,14 @@ def _cn_primary_anchor() -> Path:
         raise AssertionError(f"Sample PDF not found in {annual_dir}") from exc
 
 
+def _resolve_first_pdf(*relative_parts: str) -> Path:
+    directory = _resolve_sample(*relative_parts)
+    try:
+        return next(candidate for candidate in sorted(directory.glob("*.pdf")) if candidate.is_file())
+    except StopIteration as exc:  # pragma: no cover - defensive fixture resolution
+        raise AssertionError(f"Sample PDF not found in {directory}") from exc
+
+
 @pytest.mark.parametrize(
     ("stock_code", "filename", "expected_kinds", "expect_income_rows"),
     [
@@ -132,3 +140,55 @@ def test_cn_annual_anchor_preserves_local_unit_context_without_page_bleed() -> N
     assert unit_table.table_currency == "CNY"
     assert unit_table.body_rows
 
+
+@pytest.mark.parametrize(
+    ("stock_code", "filename"),
+    [
+        ("600519", "2024_年度报告.pdf"),
+        ("600519", "2025_年度报告.pdf"),
+        ("601919", "2025_年度报告.pdf"),
+        ("688008", "2024_年度报告.pdf"),
+        ("688008", "2025_年度报告.pdf"),
+    ],
+)
+def test_cn_annual_reference_set_exposes_non_empty_statement_rows(
+    stock_code: str,
+    filename: str,
+) -> None:
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(_resolve_sample("cn_stocks", stock_code, "annual", filename)),
+        pdf_url=None,
+        market="CN",
+    )
+
+    assert {table.table_kind for table in tables} >= {
+        "income_statement",
+        "balance_sheet",
+        "cash_flow_statement",
+    }
+    assert any(table.statement_scope_guess == "consolidated" for table in tables)
+    assert any(
+        table.body_rows and any(row.label_raw.strip() for row in table.body_rows)
+        for table in tables
+        if table.table_kind in {"income_statement", "balance_sheet", "cash_flow_statement"}
+    )
+
+
+def test_hk_annual_2025_anchor_exposes_non_empty_statement_rows() -> None:
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(_resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")),
+        pdf_url=None,
+        market="HK",
+    )
+
+    assert {table.table_kind for table in tables} >= {
+        "income_statement",
+        "balance_sheet",
+        "cash_flow_statement",
+    }
+    assert any(table.statement_scope_guess == "consolidated" for table in tables)
+    assert any(
+        table.body_rows and any(row.label_raw.strip() for row in table.body_rows)
+        for table in tables
+        if table.table_kind in {"income_statement", "balance_sheet", "cash_flow_statement"}
+    )
