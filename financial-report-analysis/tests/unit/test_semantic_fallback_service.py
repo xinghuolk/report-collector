@@ -1,8 +1,10 @@
 from financial_report_analysis.semantic_fallback import (
+    CurrencyFallbackRequest,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     SemanticFallbackService,
     TableKindFallbackRequest,
+    UnitFallbackRequest,
 )
 
 
@@ -10,6 +12,8 @@ class _StubFallbackClient:
     def __init__(self) -> None:
         self.table_kind_calls = 0
         self.row_label_calls = 0
+        self.currency_calls = 0
+        self.unit_calls = 0
 
     def classify_table_kind(self, request: TableKindFallbackRequest) -> SemanticFallbackResult:
         self.table_kind_calls += 1
@@ -26,6 +30,24 @@ class _StubFallbackClient:
             value="net_profit",
             semantic_source="llm_fallback",
             semantic_confidence=0.77,
+            fallback_reason=request.ambiguity_reason,
+        )
+
+    def interpret_currency(self, request: CurrencyFallbackRequest) -> SemanticFallbackResult:
+        self.currency_calls += 1
+        return SemanticFallbackResult(
+            value="HKD",
+            semantic_source="llm_fallback",
+            semantic_confidence=0.71,
+            fallback_reason=request.ambiguity_reason,
+        )
+
+    def interpret_unit(self, request: UnitFallbackRequest) -> SemanticFallbackResult:
+        self.unit_calls += 1
+        return SemanticFallbackResult(
+            value="million",
+            semantic_source="llm_fallback",
+            semantic_confidence=0.69,
             fallback_reason=request.ambiguity_reason,
         )
 
@@ -69,3 +91,37 @@ def test_semantic_fallback_service_does_not_run_without_ambiguity() -> None:
     assert result.semantic_source == "deterministic"
     assert result.value == "revenue"
     assert client.row_label_calls == 0
+
+
+def test_semantic_fallback_service_only_allows_supported_currency_outputs() -> None:
+    service = SemanticFallbackService(client=_StubFallbackClient())
+
+    result = service.resolve_currency(
+        CurrencyFallbackRequest(
+            raw_text="Currency: HKD",
+            local_context="footer",
+            deterministic_candidates=(),
+            ambiguity_reason="ambiguous_currency_marker",
+        )
+    )
+
+    assert result.semantic_source == "llm_fallback"
+    assert result.value in {"CNY", "HKD", "USD", "unknown"}
+
+
+def test_semantic_fallback_service_does_not_run_unit_without_ambiguity() -> None:
+    client = _StubFallbackClient()
+    service = SemanticFallbackService(client=client)
+
+    result = service.resolve_unit(
+        UnitFallbackRequest(
+            raw_text="Unit: RMB million",
+            local_context="clear unit note",
+            deterministic_candidates=("million",),
+            ambiguity_reason=None,
+        )
+    )
+
+    assert result.semantic_source == "deterministic"
+    assert result.value == "million"
+    assert client.unit_calls == 0

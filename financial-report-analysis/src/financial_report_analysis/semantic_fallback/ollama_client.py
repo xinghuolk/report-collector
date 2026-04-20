@@ -5,11 +5,15 @@ import json
 import httpx
 
 from financial_report_analysis.semantic_fallback.models import (
+    CurrencyFallbackRequest,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     TableKindFallbackRequest,
+    UnitFallbackRequest,
+    supported_currency_outputs,
     supported_row_label_outputs,
     supported_table_kind_outputs,
+    supported_unit_outputs,
 )
 
 
@@ -83,6 +87,61 @@ class OllamaSemanticFallbackClient:
             payload.get("value", ""),
             allowed=supported_row_label_outputs(),
             default="none",
+        )
+        confidence = _parse_confidence(payload.get("confidence"))
+        return SemanticFallbackResult(
+            value=value,
+            semantic_source="llm_fallback",
+            semantic_confidence=confidence,
+            fallback_reason=request.ambiguity_reason,
+        )
+
+    def interpret_currency(
+        self,
+        request: CurrencyFallbackRequest,
+    ) -> SemanticFallbackResult:
+        prompt = (
+            "Classify the local financial-report currency marker into exactly one "
+            f"value from this set: {', '.join(supported_currency_outputs())}.\n"
+            "Only return CNY, HKD, USD, or unknown.\n"
+            f"Raw text: {request.raw_text}\n"
+            f"Context: {request.local_context}\n"
+            f"Deterministic candidates: {', '.join(request.deterministic_candidates) or 'none'}\n"
+            'Return exactly JSON like {"value":"HKD","confidence":0.95}.'
+        )
+        payload = self._invoke(prompt)
+        value = _normalize_choice(
+            payload.get("value", ""),
+            allowed=supported_currency_outputs(),
+            default="unknown",
+        )
+        confidence = _parse_confidence(payload.get("confidence"))
+        return SemanticFallbackResult(
+            value=value,
+            semantic_source="llm_fallback",
+            semantic_confidence=confidence,
+            fallback_reason=request.ambiguity_reason,
+        )
+
+    def interpret_unit(
+        self,
+        request: UnitFallbackRequest,
+    ) -> SemanticFallbackResult:
+        prompt = (
+            "Classify the local financial-report unit marker into exactly one "
+            f"value from this set: {', '.join(supported_unit_outputs())}.\n"
+            "Only return yuan, thousand, million, billion, percent, or unknown.\n"
+            "This is a local semantic interpretation only; do not infer propagation strategy.\n"
+            f"Raw text: {request.raw_text}\n"
+            f"Context: {request.local_context}\n"
+            f"Deterministic candidates: {', '.join(request.deterministic_candidates) or 'none'}\n"
+            'Return exactly JSON like {"value":"million","confidence":0.95}.'
+        )
+        payload = self._invoke(prompt)
+        value = _normalize_choice(
+            payload.get("value", ""),
+            allowed=supported_unit_outputs(),
+            default="unknown",
         )
         confidence = _parse_confidence(payload.get("confidence"))
         return SemanticFallbackResult(

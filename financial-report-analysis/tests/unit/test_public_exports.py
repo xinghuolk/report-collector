@@ -9,12 +9,16 @@ from financial_report_analysis.models import (
 from financial_report_analysis.models import table_semantics
 from financial_report_analysis.registries import MetricMappingDefinition, load_metric_registry
 from financial_report_analysis.semantic_fallback import (
+    CurrencyFallbackRequest,
     OllamaSemanticFallbackClient,
     SemanticFallbackSettings,
     SemanticFallbackResult,
     SemanticFallbackService,
+    UnitFallbackRequest,
     build_semantic_fallback_service,
     load_semantic_fallback_settings,
+    supported_currency_outputs,
+    supported_unit_outputs,
 )
 
 
@@ -49,5 +53,16 @@ def test_semantic_fallback_package_exports_public_entry_points() -> None:
     assert SemanticFallbackSettings.__name__ == "SemanticFallbackSettings"
     assert SemanticFallbackService.__name__ == "SemanticFallbackService"
     assert SemanticFallbackResult.__name__ == "SemanticFallbackResult"
+    assert CurrencyFallbackRequest.__name__ == "CurrencyFallbackRequest"
+    assert UnitFallbackRequest.__name__ == "UnitFallbackRequest"
     assert callable(build_semantic_fallback_service)
     assert callable(load_semantic_fallback_settings)
+    assert supported_currency_outputs() == ("CNY", "HKD", "USD", "unknown")
+    assert supported_unit_outputs() == (
+        "yuan",
+        "thousand",
+        "million",
+        "billion",
+        "percent",
+        "unknown",
+    )

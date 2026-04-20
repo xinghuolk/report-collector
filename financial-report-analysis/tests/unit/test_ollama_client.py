@@ -8,8 +8,10 @@ from financial_report_analysis.semantic_fallback.ollama_client import (
     OllamaSemanticFallbackClient,
 )
 from financial_report_analysis.semantic_fallback.models import (
+    CurrencyFallbackRequest,
     RowLabelFallbackRequest,
     TableKindFallbackRequest,
+    UnitFallbackRequest,
 )
 
 
@@ -71,3 +73,53 @@ def test_ollama_client_bounds_invalid_row_label_output_to_none(monkeypatch) -> N
     )
 
     assert result.value == "none"
+
+
+def test_ollama_client_bounds_invalid_currency_output_to_unknown(monkeypatch) -> None:
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        del url, json, timeout
+        return _FakeResponse({"response": '{"value": "JPY", "confidence": 0.61}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.interpret_currency(
+        CurrencyFallbackRequest(
+            raw_text="Currency: Japanese Yen",
+            local_context="summary table footer",
+            deterministic_candidates=(),
+            ambiguity_reason="ambiguous_currency_marker",
+        )
+    )
+
+    assert result.value == "unknown"
+    assert result.semantic_source == "llm_fallback"
+    assert result.semantic_confidence == 0.61
+
+
+def test_ollama_client_bounds_invalid_unit_output_to_unknown(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        captured["json"] = json
+        del url, timeout
+        return _FakeResponse({"response": '{"value": "crore", "confidence": 0.57}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.interpret_unit(
+        UnitFallbackRequest(
+            raw_text="Unit: HK$'000",
+            local_context="table header and nearby notes",
+            deterministic_candidates=("thousand",),
+            ambiguity_reason="ambiguous_unit_marker",
+        )
+    )
+
+    assert "yuan, thousand, million, billion, percent, unknown" in str(
+        captured["json"]["prompt"]
+    )
+    assert result.value == "unknown"
+    assert result.semantic_source == "llm_fallback"
+    assert result.semantic_confidence == 0.57

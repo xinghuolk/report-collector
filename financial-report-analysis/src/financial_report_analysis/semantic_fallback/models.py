@@ -22,6 +22,22 @@ _ROW_LABEL_OUTPUTS = (
     "none",
 )
 
+_CURRENCY_OUTPUTS = (
+    "CNY",
+    "HKD",
+    "USD",
+    "unknown",
+)
+
+_UNIT_OUTPUTS = (
+    "yuan",
+    "thousand",
+    "million",
+    "billion",
+    "percent",
+    "unknown",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TableKindFallbackRequest:
@@ -41,6 +57,22 @@ class RowLabelFallbackRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class CurrencyFallbackRequest:
+    raw_text: str
+    local_context: str
+    deterministic_candidates: tuple[str, ...]
+    ambiguity_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class UnitFallbackRequest:
+    raw_text: str
+    local_context: str
+    deterministic_candidates: tuple[str, ...]
+    ambiguity_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticFallbackResult:
     value: str
     semantic_source: str
@@ -54,3 +86,11 @@ def supported_table_kind_outputs() -> tuple[str, ...]:
 
 def supported_row_label_outputs() -> tuple[str, ...]:
     return _ROW_LABEL_OUTPUTS
+
+
+def supported_currency_outputs() -> tuple[str, ...]:
+    return _CURRENCY_OUTPUTS
+
+
+def supported_unit_outputs() -> tuple[str, ...]:
+    return _UNIT_OUTPUTS
