@@ -15,6 +15,18 @@ class OllamaRowLabelProbeCase:
     expectation_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class OllamaSemanticProbeCase:
+    market: str
+    report_family: str
+    semantic_kind: str
+    title_text: str
+    raw_text: str
+    local_context: str
+    expected_value: str
+    expectation_type: str
+
+
 REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
     OllamaRowLabelProbeCase(
         market="HK",
@@ -165,4 +177,88 @@ def promoted_real_report_probe_cases() -> tuple[OllamaRowLabelProbeCase, ...]:
 
 PROMOTED_REAL_REPORT_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
     promoted_real_report_probe_cases()
+)
+
+
+REAL_REPORT_SEMANTIC_PROBE_CASES: tuple[OllamaSemanticProbeCase, ...] = (
+    OllamaSemanticProbeCase(
+        market="HK",
+        report_family="annual",
+        semantic_kind="currency",
+        title_text="Consolidated Statement of Financial Position",
+        raw_text="HK$ million",
+        local_context=(
+            "Consolidated Statement of Financial Position\n"
+            "Presented in HK$ million unless otherwise stated"
+        ),
+        expected_value="HKD",
+        expectation_type="positive",
+    ),
+    OllamaSemanticProbeCase(
+        market="HK",
+        report_family="annual",
+        semantic_kind="unit",
+        title_text="Consolidated Statement of Financial Position",
+        raw_text="HK$'000",
+        local_context=(
+            "Consolidated Statement of Financial Position\n"
+            "Amounts expressed in thousands of Hong Kong dollars"
+        ),
+        expected_value="thousand",
+        expectation_type="positive",
+    ),
+    OllamaSemanticProbeCase(
+        market="CN",
+        report_family="annual",
+        semantic_kind="currency",
+        title_text="Consolidated Income Statement",
+        raw_text="not specified",
+        local_context=(
+            "Consolidated Income Statement\n"
+            "Currency is not specified in this excerpt"
+        ),
+        expected_value="unknown",
+        expectation_type="negative",
+    ),
+    OllamaSemanticProbeCase(
+        market="HK",
+        report_family="quarterly",
+        semantic_kind="unit",
+        title_text="Condensed Consolidated Statement of Profit or Loss",
+        raw_text="items",
+        local_context=(
+            "Condensed Consolidated Statement of Profit or Loss\n"
+            "Counts of stores and employees, not monetary units"
+        ),
+        expected_value="unknown",
+        expectation_type="negative",
+    ),
+)
+
+PROMOTED_REAL_REPORT_SEMANTIC_PROBE_IDENTITIES: tuple[
+    tuple[str, str, str, str, str], ...
+] = (
+    ("HK", "annual", "currency", "HK$ million", "HKD"),
+    ("HK", "annual", "unit", "HK$'000", "thousand"),
+)
+
+
+def promoted_real_report_semantic_probe_cases() -> tuple[OllamaSemanticProbeCase, ...]:
+    case_index = {
+        (
+            case.market,
+            case.report_family,
+            case.semantic_kind,
+            case.raw_text,
+            case.expected_value,
+        ): case
+        for case in REAL_REPORT_SEMANTIC_PROBE_CASES
+    }
+    return tuple(
+        case_index[identity] for identity in PROMOTED_REAL_REPORT_SEMANTIC_PROBE_IDENTITIES
+    )
+
+
+PROMOTED_REAL_REPORT_SEMANTIC_PROBE_CASES: tuple[OllamaSemanticProbeCase, ...] = (
+    promoted_real_report_semantic_probe_cases()
 )

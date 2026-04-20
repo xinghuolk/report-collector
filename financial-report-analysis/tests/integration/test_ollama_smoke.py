@@ -25,6 +25,9 @@ PROBE_MODULE = importlib.util.module_from_spec(PROBE_SPEC)
 sys.modules.setdefault("ollama_real_report_probes", PROBE_MODULE)
 PROBE_SPEC.loader.exec_module(PROBE_MODULE)
 PROMOTED_REAL_REPORT_PROBE_CASES = PROBE_MODULE.PROMOTED_REAL_REPORT_PROBE_CASES
+PROMOTED_REAL_REPORT_SEMANTIC_PROBE_CASES = (
+    PROBE_MODULE.PROMOTED_REAL_REPORT_SEMANTIC_PROBE_CASES
+)
 
 
 def _real_ollama_settings() -> SemanticFallbackSettings:
@@ -123,6 +126,15 @@ def test_local_ollama_promoted_real_report_cases() -> None:
         assert result.value == case.expected_value
 
 
+def test_local_ollama_promoted_unit_currency_cases() -> None:
+    promoted = PROMOTED_REAL_REPORT_SEMANTIC_PROBE_CASES
+    assert promoted
+
+    for case in promoted:
+        result = resolve_unit_or_currency_with_real_ollama(case)
+        assert result.value == case.expected_value
+
+
 def test_promoted_real_report_cases_are_selected_by_identity() -> None:
     promoted = PROBE_MODULE.promoted_real_report_probe_cases()
     assert [
@@ -134,6 +146,16 @@ def test_promoted_real_report_cases_are_selected_by_identity() -> None:
         ("Cash and cash equivalents", "cash"),
         ("Revenue growth", "none"),
         ("Gross margin", "none"),
+    ]
+
+
+def test_promoted_real_report_semantic_cases_are_selected_by_identity() -> None:
+    promoted = PROBE_MODULE.promoted_real_report_semantic_probe_cases()
+    assert [
+        (case.semantic_kind, case.raw_text, case.expected_value) for case in promoted
+    ] == [
+        ("currency", "HK$ million", "HKD"),
+        ("unit", "HK$'000", "thousand"),
     ]
 
 
@@ -155,6 +177,39 @@ def resolve_row_label_with_real_ollama(
             raw_label=raw_label,
             table_kind=table_kind,
             local_context=local_context,
+            deterministic_candidates=(),
+            ambiguity_reason="real_report_promoted_probe",
+        )
+    )
+
+
+def resolve_unit_or_currency_with_real_ollama(case):
+    settings = _real_ollama_settings()
+
+    if not _ollama_available(settings.base_url, settings.model):
+        pytest.skip("local Ollama endpoint or model is unavailable")
+
+    service = build_semantic_fallback_service(settings)
+    assert service is not None
+
+    if case.semantic_kind == "currency":
+        from financial_report_analysis.semantic_fallback import CurrencyFallbackRequest
+
+        return service.resolve_currency(
+            CurrencyFallbackRequest(
+                raw_text=case.raw_text,
+                local_context=case.local_context,
+                deterministic_candidates=(),
+                ambiguity_reason="real_report_promoted_probe",
+            )
+        )
+
+    from financial_report_analysis.semantic_fallback import UnitFallbackRequest
+
+    return service.resolve_unit(
+        UnitFallbackRequest(
+            raw_text=case.raw_text,
+            local_context=case.local_context,
             deterministic_candidates=(),
             ambiguity_reason="real_report_promoted_probe",
         )
