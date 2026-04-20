@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import textwrap
 
 from financial_report_analysis.semantic_fallback import (
     OllamaSemanticFallbackClient,
@@ -9,6 +10,7 @@ from financial_report_analysis.semantic_fallback import (
 from financial_report_analysis.semantic_fallback.config import (
     SemanticFallbackSettings,
     build_semantic_fallback_service,
+    load_semantic_fallback_settings,
 )
 
 
@@ -50,3 +52,53 @@ def test_integration_ollama_tests_do_not_hardcode_localhost_endpoint() -> None:
 
     for path in target_files:
         assert "http://127.0.0.1:11434" not in path.read_text(encoding="utf-8")
+
+
+def test_load_semantic_fallback_settings_reads_base_url_from_dotenv(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        textwrap.dedent(
+            """
+            FRA_SEMANTIC_FALLBACK_ENABLED=true
+            FRA_SEMANTIC_FALLBACK_BASE_URL=http://192.168.10.103:11434
+            FRA_SEMANTIC_FALLBACK_MODEL=qwen3.5:9b
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_ENABLED", raising=False)
+    monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_BASE_URL", raising=False)
+    monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_MODEL", raising=False)
+    monkeypatch.setattr(
+        "financial_report_analysis.semantic_fallback.config._project_root",
+        lambda: tmp_path,
+    )
+
+    settings = load_semantic_fallback_settings()
+
+    assert settings.enabled is True
+    assert settings.base_url == "http://192.168.10.103:11434"
+    assert settings.model == "qwen3.5:9b"
+
+
+def test_load_semantic_fallback_settings_prefers_environment_over_dotenv(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text(
+        "FRA_SEMANTIC_FALLBACK_BASE_URL=http://192.168.10.103:11434\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_BASE_URL", "http://127.0.0.1:11434")
+    monkeypatch.setattr(
+        "financial_report_analysis.semantic_fallback.config._project_root",
+        lambda: tmp_path,
+    )
+
+    settings = load_semantic_fallback_settings()
+
+    assert settings.base_url == "http://127.0.0.1:11434"

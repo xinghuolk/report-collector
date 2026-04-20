@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 
 from financial_report_analysis.semantic_fallback.ollama_client import (
     OllamaSemanticFallbackClient,
@@ -19,17 +20,32 @@ class SemanticFallbackSettings:
 
 
 def load_semantic_fallback_settings() -> SemanticFallbackSettings:
+    dotenv_values = _load_dotenv_values(_project_root() / ".env")
     return SemanticFallbackSettings(
-        enabled=_env_bool("FRA_SEMANTIC_FALLBACK_ENABLED", default=False),
-        provider=os.getenv("FRA_SEMANTIC_FALLBACK_PROVIDER", "ollama").strip().casefold(),
-        base_url=os.getenv(
+        enabled=_env_bool(
+            "FRA_SEMANTIC_FALLBACK_ENABLED",
+            default=False,
+            dotenv_values=dotenv_values,
+        ),
+        provider=_env_text(
+            "FRA_SEMANTIC_FALLBACK_PROVIDER",
+            default="ollama",
+            dotenv_values=dotenv_values,
+        ).casefold(),
+        base_url=_env_text(
             "FRA_SEMANTIC_FALLBACK_BASE_URL",
-            "http://127.0.0.1:11434",
-        ).strip(),
-        model=os.getenv("FRA_SEMANTIC_FALLBACK_MODEL", "qwen3.5:9b").strip(),
+            default="http://127.0.0.1:11434",
+            dotenv_values=dotenv_values,
+        ),
+        model=_env_text(
+            "FRA_SEMANTIC_FALLBACK_MODEL",
+            default="qwen3.5:9b",
+            dotenv_values=dotenv_values,
+        ),
         timeout_seconds=_env_float(
             "FRA_SEMANTIC_FALLBACK_TIMEOUT_SECONDS",
             default=30.0,
+            dotenv_values=dotenv_values,
         ),
     )
 
@@ -53,8 +69,47 @@ def build_semantic_fallback_service(
     )
 
 
-def _env_bool(name: str, *, default: bool) -> bool:
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _load_dotenv_values(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def _env_text(
+    name: str,
+    *,
+    default: str,
+    dotenv_values: dict[str, str],
+) -> str:
     raw_value = os.getenv(name)
+    if raw_value is None:
+        raw_value = dotenv_values.get(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip()
+
+
+def _env_bool(
+    name: str,
+    *,
+    default: bool,
+    dotenv_values: dict[str, str],
+) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        raw_value = dotenv_values.get(name)
     if raw_value is None:
         return default
     normalized = raw_value.strip().casefold()
@@ -65,8 +120,15 @@ def _env_bool(name: str, *, default: bool) -> bool:
     return default
 
 
-def _env_float(name: str, *, default: float) -> float:
+def _env_float(
+    name: str,
+    *,
+    default: float,
+    dotenv_values: dict[str, str],
+) -> float:
     raw_value = os.getenv(name)
+    if raw_value is None:
+        raw_value = dotenv_values.get(name)
     if raw_value is None:
         return default
     try:
