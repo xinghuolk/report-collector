@@ -27,6 +27,22 @@ PROBE_SPEC.loader.exec_module(PROBE_MODULE)
 REAL_REPORT_ROW_LABEL_PROBE_CASES = PROBE_MODULE.REAL_REPORT_ROW_LABEL_PROBE_CASES
 
 
+def test_real_report_row_label_probe_dataset_covers_target_outputs() -> None:
+    positive_expected_values = {
+        case.expected_value
+        for case in REAL_REPORT_ROW_LABEL_PROBE_CASES
+        if case.expectation_type == "positive"
+    }
+    negative_cases = [
+        case
+        for case in REAL_REPORT_ROW_LABEL_PROBE_CASES
+        if case.expectation_type == "negative"
+    ]
+
+    assert positive_expected_values == set(supported_row_label_outputs()) - {"none"}
+    assert negative_cases
+
+
 def test_local_ollama_real_report_row_label_probe_dataset() -> None:
     if os.getenv("FRA_RUN_OLLAMA_REAL_REPORT_PROBES", "").strip().casefold() not in {
         "1",

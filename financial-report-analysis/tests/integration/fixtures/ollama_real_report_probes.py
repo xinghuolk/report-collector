@@ -77,6 +77,19 @@ REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
         expectation_type="positive",
     ),
     OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
+        table_kind="cash_flow_statement",
+        title_text="Consolidated Statement of Cash Flows",
+        raw_label="Net cash from operating activities",
+        local_context=(
+            "Consolidated Statement of Cash Flows\n"
+            "Net cash from operating activities"
+        ),
+        expected_value="operating_cash_flow",
+        expectation_type="positive",
+    ),
+    OllamaRowLabelProbeCase(
         market="CN",
         report_family="annual",
         table_kind="income_statement",
