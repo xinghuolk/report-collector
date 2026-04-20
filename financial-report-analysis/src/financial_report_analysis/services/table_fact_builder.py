@@ -52,6 +52,10 @@ def _build_candidate_payload(
     value: Any,
     market: str,
 ) -> dict[str, Any]:
+    semantic_source, semantic_confidence, fallback_reason = _fact_semantic_provenance(
+        table=table,
+        row=row,
+    )
     return {
         "fact_id": f"{document_id}:candidate:{candidate_index}",
         "fact_kind": "candidate",
@@ -73,9 +77,9 @@ def _build_candidate_payload(
             "market": market,
             "accounting_standard": "OTHER",
             "statement_scope_guess": table.statement_scope_guess,
-            "semantic_source": row.semantic_source,
-            "semantic_confidence": row.semantic_confidence,
-            "fallback_reason": row.fallback_reason,
+            "semantic_source": semantic_source,
+            "semantic_confidence": semantic_confidence,
+            "fallback_reason": fallback_reason,
             "unit_semantic_source": table.unit_semantic_source,
             "currency_semantic_source": table.currency_semantic_source,
             "table_semantic_ambiguity_reason": table.semantic_ambiguity_reason,
@@ -98,6 +102,34 @@ def _entity_scope(statement_scope_guess: str) -> str:
     if statement_scope_guess == "consolidated":
         return "consolidated"
     return "other"
+
+
+def _fact_semantic_provenance(
+    *,
+    table: NormalizedTableSemantics,
+    row: Any,
+) -> tuple[str, float | None, str | None]:
+    fallback_confidences = [
+        confidence
+        for confidence in (table.semantic_confidence, row.semantic_confidence)
+        if confidence is not None
+    ]
+    fallback_reason = row.fallback_reason or table.semantic_ambiguity_reason
+
+    if (
+        table.semantic_source == "llm_fallback"
+        or row.semantic_source == "llm_fallback"
+        or table.unit_semantic_source == "llm_fallback"
+        or table.currency_semantic_source == "llm_fallback"
+    ):
+        return (
+            "llm_fallback",
+            max(fallback_confidences, default=None),
+            fallback_reason,
+        )
+
+    return ("deterministic", None, None)
+
 
 def _source_rank_hint(table_kind: str) -> int:
     if table_kind == "income_statement":

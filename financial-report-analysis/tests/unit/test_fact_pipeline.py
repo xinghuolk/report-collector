@@ -743,6 +743,64 @@ def test_table_candidate_facts_preserve_unit_currency_semantic_provenance() -> N
     )
 
 
+def test_table_candidate_facts_preserve_table_level_llm_provenance() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-1",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="million",
+                table_currency="HKD",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.81,
+                semantic_ambiguity_reason="ambiguous_table_kind",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-1",
+                        label_raw="Revenue",
+                        normalized_row_label="revenue",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="1,000",
+                                numeric_value=1000.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert candidate_facts[0]["extensions"]["semantic_source"] == "llm_fallback"
+    assert candidate_facts[0]["extensions"]["semantic_confidence"] == 0.81
+    assert candidate_facts[0]["extensions"]["fallback_reason"] == "ambiguous_table_kind"
+
+
 def test_table_candidate_facts_do_not_fabricate_market_default_currency() -> None:
     candidate_facts = build_table_candidate_facts(
         [

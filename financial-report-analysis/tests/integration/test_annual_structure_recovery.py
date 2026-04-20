@@ -21,6 +21,9 @@ def _resolve_sample(*relative_parts: str) -> Path:
 
 def _cn_primary_anchor() -> Path:
     annual_dir = _resolve_sample("cn_stocks", "601919", "annual")
+    preferred = annual_dir / "2024_年度报告.pdf"
+    if preferred.exists():
+        return preferred
     try:
         return next(
             candidate

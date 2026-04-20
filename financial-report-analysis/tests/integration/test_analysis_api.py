@@ -406,6 +406,227 @@ def test_pdf_ingestion_applies_gated_row_label_fallback_for_ambiguous_table(
     assert payload["document_metadata"]["parsed_tables"][0]["semantic_source"] == "llm_fallback"
 
 
+def test_pdf_ingestion_applies_gated_currency_fallback_for_ambiguous_unknown_currency(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        CurrencyFallbackRequest,
+        SemanticFallbackResult,
+        SemanticFallbackService,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:currency",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason="numeric_only_statement_block",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency=None,
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "",
+    )
+
+    class _StubFallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.currency_requests: list[CurrencyFallbackRequest] = []
+
+        def resolve_currency(
+            self,
+            request: CurrencyFallbackRequest,
+        ) -> SemanticFallbackResult:
+            self.currency_requests.append(request)
+            return SemanticFallbackResult(
+                value="HKD",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.74,
+                fallback_reason=request.ambiguity_reason,
+            )
+
+    fallback_service = _StubFallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert fallback_service.currency_requests
+    assert payload["candidate_facts"][0]["currency"] == "HKD"
+    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    assert (
+        payload["candidate_facts"][0]["extensions"]["currency_semantic_source"]
+        == "llm_fallback"
+    )
+    assert (
+        payload["document_metadata"]["parsed_tables"][0]["currency_semantic_source"]
+        == "llm_fallback"
+    )
+
+
+def test_pdf_ingestion_applies_row_label_fallback_for_unmapped_normalized_label(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        RowLabelFallbackRequest,
+        SemanticFallbackResult,
+        SemanticFallbackService,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:unmapped-label",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason=None,
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Business revenue",
+                normalized_label_hint="business revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "",
+    )
+
+    class _StubFallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.requests: list[RowLabelFallbackRequest] = []
+
+        def resolve_row_label(
+            self,
+            request: RowLabelFallbackRequest,
+        ) -> SemanticFallbackResult:
+            self.requests.append(request)
+            return SemanticFallbackResult(
+                value="revenue",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.82,
+                fallback_reason=request.ambiguity_reason,
+            )
+
+    fallback_service = _StubFallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert fallback_service.requests
+    assert fallback_service.requests[0].ambiguity_reason == "unmapped_normalized_row_label"
+    assert payload["candidate_facts"][0]["metric_id"] == "revenue"
+    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+
+
 def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(
     monkeypatch,
 ) -> None:

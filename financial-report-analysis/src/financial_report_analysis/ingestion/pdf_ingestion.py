@@ -19,9 +19,11 @@ from financial_report_analysis.models import (
 )
 from financial_report_analysis.registries import load_metric_registry
 from financial_report_analysis.semantic_fallback import (
+    CurrencyFallbackRequest,
     RowLabelFallbackRequest,
     SemanticFallbackService,
     TableKindFallbackRequest,
+    UnitFallbackRequest,
 )
 from financial_report_analysis.services import build_table_candidate_facts
 
@@ -457,47 +459,104 @@ class PdfIngestionAdapter:
                 ambiguity_reason=table.semantic_ambiguity_reason,
             )
         )
+        table_with_kind = replace(
+            table,
+            table_kind=table_kind_result.value,
+            semantic_source=table_kind_result.semantic_source,
+            semantic_confidence=self._merged_confidence(
+                table.semantic_confidence,
+                table_kind_result.semantic_confidence,
+            ),
+            semantic_ambiguity_reason=(
+                table_kind_result.fallback_reason or table.semantic_ambiguity_reason
+            ),
+        )
+        table_with_local_semantics = self._apply_local_semantic_fallback(
+            table=table_with_kind,
+            local_context=local_context,
+        )
 
         rows = [
             self._apply_row_label_fallback(
-                table=table,
+                table=table_with_local_semantics,
                 row=row,
                 local_context=local_context,
                 market=market,
                 registry=registry,
             )
-            for row in table.rows
+            for row in table_with_local_semantics.rows
         ]
 
-        row_fallbacks = [row for row in rows if row.semantic_source == "llm_fallback"]
-        if table_kind_result.semantic_source == "llm_fallback":
-            semantic_source = "llm_fallback"
-            semantic_confidence = table_kind_result.semantic_confidence
-            fallback_reason = table_kind_result.fallback_reason
-        elif row_fallbacks:
-            semantic_source = "llm_fallback"
-            semantic_confidence = max(
-                (
-                    row.semantic_confidence
-                    for row in row_fallbacks
-                    if row.semantic_confidence is not None
-                ),
-                default=None,
-            )
-            fallback_reason = row_fallbacks[0].fallback_reason
-        else:
-            semantic_source = table.semantic_source
-            semantic_confidence = table.semantic_confidence
-            fallback_reason = table.semantic_ambiguity_reason
-
         return replace(
-            table,
-            table_kind=table_kind_result.value,
-            semantic_source=semantic_source,
-            semantic_confidence=semantic_confidence,
-            semantic_ambiguity_reason=fallback_reason,
+            table_with_local_semantics,
+            semantic_source=self._table_semantic_source(
+                table=table_with_local_semantics,
+                rows=rows,
+            ),
+            semantic_confidence=self._table_semantic_confidence(
+                table=table_with_local_semantics,
+                rows=rows,
+            ),
+            semantic_ambiguity_reason=self._table_fallback_reason(
+                table=table_with_local_semantics,
+                rows=rows,
+            ),
             rows=rows,
         )
+
+    def _apply_local_semantic_fallback(
+        self,
+        *,
+        table: NormalizedTableSemantics,
+        local_context: str,
+    ) -> NormalizedTableSemantics:
+        currency_ambiguity_reason = self._currency_ambiguity_reason(table)
+        if currency_ambiguity_reason is not None:
+            currency_result = self._semantic_fallback_service.resolve_currency(
+                CurrencyFallbackRequest(
+                    raw_text=table.table_currency or "unknown",
+                    local_context=local_context,
+                    deterministic_candidates=tuple(
+                        candidate
+                        for candidate in [table.table_currency]
+                        if candidate is not None
+                    ),
+                    ambiguity_reason=currency_ambiguity_reason,
+                )
+            )
+            table = replace(
+                table,
+                table_currency=currency_result.value,
+                currency_semantic_source=currency_result.semantic_source,
+                semantic_confidence=self._merged_confidence(
+                    table.semantic_confidence,
+                    currency_result.semantic_confidence,
+                ),
+            )
+
+        unit_ambiguity_reason = self._unit_ambiguity_reason(table)
+        if unit_ambiguity_reason is not None:
+            unit_result = self._semantic_fallback_service.resolve_unit(
+                UnitFallbackRequest(
+                    raw_text=table.table_unit or "unknown",
+                    local_context=local_context,
+                    deterministic_candidates=tuple(
+                        candidate for candidate in [table.table_unit] if candidate is not None
+                    ),
+                    ambiguity_reason=unit_ambiguity_reason,
+                )
+            )
+            table = replace(
+                table,
+                table_unit=unit_result.value,
+                unit_semantic_source=unit_result.semantic_source,
+                semantic_confidence=self._merged_confidence(
+                    table.semantic_confidence,
+                    unit_result.semantic_confidence,
+                ),
+            )
+
+        return table
 
     def _apply_row_label_fallback(
         self,
@@ -561,9 +620,71 @@ class PdfIngestionAdapter:
             ):
                 return None
 
-        if table.semantic_ambiguity_reason is None:
+        return table.semantic_ambiguity_reason or "unmapped_normalized_row_label"
+
+    @staticmethod
+    def _currency_ambiguity_reason(table: NormalizedTableSemantics) -> str | None:
+        if table.table_currency != "unknown" or table.semantic_ambiguity_reason is None:
             return None
-        return table.semantic_ambiguity_reason
+        return table.semantic_ambiguity_reason or "unknown_table_currency"
+
+    @staticmethod
+    def _unit_ambiguity_reason(table: NormalizedTableSemantics) -> str | None:
+        if table.table_unit != "unknown" or table.semantic_ambiguity_reason is None:
+            return None
+        return table.semantic_ambiguity_reason or "unknown_table_unit"
+
+    @staticmethod
+    def _merged_confidence(*confidences: float | None) -> float | None:
+        resolved = [confidence for confidence in confidences if confidence is not None]
+        return max(resolved, default=None)
+
+    @staticmethod
+    def _table_semantic_source(
+        *,
+        table: NormalizedTableSemantics,
+        rows: list[NormalizedTableRow],
+    ) -> str:
+        if (
+            table.semantic_source == "llm_fallback"
+            or table.unit_semantic_source == "llm_fallback"
+            or table.currency_semantic_source == "llm_fallback"
+            or any(row.semantic_source == "llm_fallback" for row in rows)
+        ):
+            return "llm_fallback"
+        return "deterministic"
+
+    @staticmethod
+    def _table_semantic_confidence(
+        *,
+        table: NormalizedTableSemantics,
+        rows: list[NormalizedTableRow],
+    ) -> float | None:
+        return max(
+            [
+                confidence
+                for confidence in [
+                    table.semantic_confidence,
+                    *[row.semantic_confidence for row in rows],
+                ]
+                if confidence is not None
+            ],
+            default=None,
+        )
+
+    @staticmethod
+    def _table_fallback_reason(
+        *,
+        table: NormalizedTableSemantics,
+        rows: list[NormalizedTableRow],
+    ) -> str | None:
+        for reason in [
+            *[row.fallback_reason for row in rows if row.fallback_reason is not None],
+            table.semantic_ambiguity_reason,
+        ]:
+            if reason is not None:
+                return reason
+        return None
 
     @staticmethod
     def _normalized_table_context(table: NormalizedTableSemantics) -> str:
