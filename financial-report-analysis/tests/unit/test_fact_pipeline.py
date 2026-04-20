@@ -641,6 +641,8 @@ def test_analyze_report_promotes_supported_table_metrics_to_canonical_facts() ->
                 statement_scope_guess="consolidated",
                 table_unit="thousand",
                 table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
                 columns=[
                     NormalizedTableColumn(
                         column_id="column-1",
@@ -683,6 +685,62 @@ def test_analyze_report_promotes_supported_table_metrics_to_canonical_facts() ->
     )
 
     assert any(f.metric_id == "revenue" for f in result.canonical_facts)
+
+
+def test_table_candidate_facts_preserve_unit_currency_semantic_provenance() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-1",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="million",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-1",
+                        label_raw="Revenue",
+                        normalized_row_label="revenue",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="1,000",
+                                numeric_value=1000.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert candidate_facts[0]["extensions"]["unit_semantic_source"] == "deterministic"
+    assert (
+        candidate_facts[0]["extensions"]["currency_semantic_source"] == "deterministic"
+    )
 
 
 def test_evidence_repository_round_trips_bundle_through_links() -> None:

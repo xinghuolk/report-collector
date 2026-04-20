@@ -193,6 +193,27 @@ def test_normalized_table_semantics_preserve_statement_scope_and_ambiguity() -> 
     assert semantics.semantic_ambiguity_reason == "numeric_only_statement_block"
 
 
+def test_normalized_table_semantics_emit_deterministic_unit_currency_provenance() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:unit-currency",
+            document_id="doc",
+            page_range=(12, 12),
+            table_kind="balance_sheet",
+            title_text="Consolidated Balance Sheet",
+            statement_scope_guess="consolidated",
+            table_unit="million",
+            table_currency="HKD",
+            body_rows=[],
+        )
+    )
+
+    assert semantics.table_unit == "million"
+    assert semantics.table_currency == "HKD"
+    assert semantics.unit_semantic_source == "deterministic"
+    assert semantics.currency_semantic_source == "deterministic"
+
+
 def test_cn_annual_row_label_normalization_strips_numbering_prefixes() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(

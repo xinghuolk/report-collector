@@ -37,6 +37,8 @@ def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
         statement_scope_guess=table.statement_scope_guess,
         table_unit=table.table_unit,
         table_currency=table.table_currency,
+        unit_semantic_source="deterministic",
+        currency_semantic_source="deterministic",
         semantic_source="deterministic",
         semantic_confidence=None,
         semantic_ambiguity_reason=table.semantic_ambiguity_reason,

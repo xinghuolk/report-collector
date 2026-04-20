@@ -76,6 +76,8 @@ def _build_candidate_payload(
             "semantic_source": row.semantic_source,
             "semantic_confidence": row.semantic_confidence,
             "fallback_reason": row.fallback_reason,
+            "unit_semantic_source": table.unit_semantic_source,
+            "currency_semantic_source": table.currency_semantic_source,
             "table_semantic_ambiguity_reason": table.semantic_ambiguity_reason,
         },
         "document_id": document_id,

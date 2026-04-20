@@ -596,6 +596,8 @@ class PdfIngestionAdapter:
                 }
                 for column in table.columns
             ],
+            "unit_semantic_source": table.unit_semantic_source,
+            "currency_semantic_source": table.currency_semantic_source,
             "semantic_source": table.semantic_source,
             "semantic_confidence": table.semantic_confidence,
             "fallback_reason": table.semantic_ambiguity_reason,

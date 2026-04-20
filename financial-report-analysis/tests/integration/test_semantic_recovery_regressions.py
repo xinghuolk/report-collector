@@ -108,3 +108,32 @@ def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
         table.get("semantic_source") in {"deterministic", "llm_fallback"}
         for table in payload["document"]["metadata"]["parsed_tables"]
     )
+    assert any(
+        table.get("unit_semantic_source") == "deterministic"
+        and table.get("currency_semantic_source") == "deterministic"
+        for table in payload["document"]["metadata"]["parsed_tables"]
+        if table.get("table_unit") or table.get("table_currency")
+    )
+
+
+def test_hk_annual_anchor_preserves_deterministic_unit_currency_provenance() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+    ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    table_semantic_candidates = [
+        fact
+        for fact in ingestion_payload["candidate_facts"]
+        if fact.get("extraction_method") == "table_semantics"
+    ]
+
+    assert table_semantic_candidates
+    assert any(
+        fact["extensions"].get("unit_semantic_source") == "deterministic"
+        and fact["extensions"].get("currency_semantic_source") == "deterministic"
+        for fact in table_semantic_candidates
+    )

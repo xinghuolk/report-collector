@@ -46,6 +46,8 @@ class NormalizedTableSemantics:
     statement_scope_guess: str
     table_unit: str | None
     table_currency: str | None
+    unit_semantic_source: str = "deterministic"
+    currency_semantic_source: str = "deterministic"
     semantic_source: str = "deterministic"
     semantic_confidence: float | None = None
     semantic_ambiguity_reason: str | None = None
