@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
 from financial_report_analysis.ingestion import (
+    PdfIngestionAdapter,
     PdfTableStructureAdapter,
     normalize_table_semantics,
 )
@@ -55,6 +56,17 @@ def test_cn_annual_semantics_expose_normalized_row_labels() -> None:
 
 def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+    ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+    assert any(
+        fact.get("extraction_method") == "table_semantics"
+        for fact in ingestion_payload["candidate_facts"]
+    )
+
     client = TestClient(create_app())
 
     response = client.post(
@@ -69,6 +81,11 @@ def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["key_facts"]
+    assert any(
+        fact.get("statement_type") == "balance_sheet"
+        and fact.get("period_id") in {"2021FY", "2022FY"}
+        for fact in payload["key_facts"]
+    )
 
 
 def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:

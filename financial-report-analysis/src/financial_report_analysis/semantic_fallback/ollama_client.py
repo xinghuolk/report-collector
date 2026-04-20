@@ -17,11 +17,13 @@ class OllamaSemanticFallbackClient:
     def __init__(
         self,
         *,
-        base_url: str = "http://localhost:11434",
-        model: str = "qwen3:8b",
+        base_url: str = "http://127.0.0.1:11434",
+        model: str = "qwen3.5:9b",
+        timeout_seconds: float = 30.0,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._timeout_seconds = timeout_seconds
 
     def classify_table_kind(
         self,
@@ -54,13 +56,27 @@ class OllamaSemanticFallbackClient:
         request: RowLabelFallbackRequest,
     ) -> SemanticFallbackResult:
         prompt = (
-            "Choose exactly one normalized row label from this set: "
+            "Classify the financial statement row label into exactly one canonical "
+            "label from this set: "
             f"{', '.join(supported_row_label_outputs())}.\n"
+            "Use these mappings when they apply:\n"
+            "- revenue, turnover, business revenue, core revenue -> revenue\n"
+            "- operating income, operating profit, profit from operations -> operating_profit\n"
+            "- profit for the period, profit attributable to owners -> net_profit\n"
+            "- net cash from operating activities -> operating_cash_flow\n"
+            "- cash and cash equivalents, funds on hand -> cash\n"
+            "- total assets -> total_assets\n"
+            "- total liabilities -> total_liabilities\n"
+            "Always choose none for non-metric variants such as:\n"
+            "- revenue growth, revenue increase, growth rate, margin, ratio -> none\n"
+            "- deferred revenue, contract liabilities -> none\n"
+            "- net assets, equity, book value -> none\n"
+            "If the row label does not clearly match one of these meanings, choose none.\n"
             f"Table kind: {request.table_kind}\n"
             f"Raw label: {request.raw_label}\n"
             f"Context: {request.local_context}\n"
             f"Deterministic candidates: {', '.join(request.deterministic_candidates) or 'none'}\n"
-            "Return JSON with keys value and confidence."
+            'Return exactly JSON like {"value":"revenue","confidence":0.95}.'
         )
         payload = self._invoke(prompt)
         value = _normalize_choice(
@@ -84,8 +100,9 @@ class OllamaSemanticFallbackClient:
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
+                "think": False,
             },
-            timeout=30.0,
+            timeout=self._timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()

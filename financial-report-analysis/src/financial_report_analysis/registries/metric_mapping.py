@@ -86,7 +86,8 @@ def _definition_labels(
 
 
 def _normalize_label(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip().casefold()
+    normalized = value.replace("_", " ")
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
 
 
 def _value_time_shape_matches(*, expected: str, actual: str | None) -> bool:

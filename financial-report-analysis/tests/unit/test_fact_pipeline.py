@@ -635,6 +635,7 @@ def test_analyze_report_promotes_supported_table_metrics_to_canonical_facts() ->
             NormalizedTableSemantics(
                 table_id="table-1",
                 document_id="doc-1",
+                page_range=(1, 1),
                 table_kind="income_statement",
                 title_text="Consolidated Income Statement",
                 statement_scope_guess="consolidated",

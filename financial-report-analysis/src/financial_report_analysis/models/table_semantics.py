@@ -40,6 +40,7 @@ class NormalizedTableRow:
 class NormalizedTableSemantics:
     table_id: str
     document_id: str
+    page_range: tuple[int, int]
     table_kind: str
     title_text: str
     statement_scope_guess: str

@@ -31,6 +31,7 @@ def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
     return NormalizedTableSemantics(
         table_id=table.table_id,
         document_id=table.document_id,
+        page_range=table.page_range,
         table_kind=table.table_kind,
         title_text=table.title_text,
         statement_scope_guess=table.statement_scope_guess,

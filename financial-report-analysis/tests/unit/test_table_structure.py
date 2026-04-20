@@ -112,10 +112,30 @@ def test_build_parsed_table_recovers_rows_from_numeric_only_statement_page_text(
     assert table is not None
     assert table.semantic_ambiguity_reason == "numeric_only_statement_block"
     assert table.table_kind == "balance_sheet"
-    assert table.header_rows == [["Item Note 31 December 2022 31 December 2021"]]
+    assert table.header_rows == [["Item Note", "31 December 2022", "31 December 2021"]]
     assert [row.label_raw for row in table.body_rows[:2]] == [
         "Monetary funds VII.1",
         "Notes receivable VII.2",
     ]
-    assert table.period_columns[0].period_id == "2022FY"
-    assert table.period_columns[0].value_time_shape == "point"
+    assert [
+        (column.column_index, column.period_id, column.value_time_shape)
+        for column in table.period_columns
+    ] == [
+        (1, "2022FY", "point"),
+        (2, "2021FY", "point"),
+    ]
+    first_row_period_ids = {
+        cell.column_index: next(
+            (
+                column.period_id
+                for column in table.period_columns
+                if column.column_index == cell.column_index
+            ),
+            None,
+        )
+        for cell in table.body_rows[0].value_cells
+    }
+    assert first_row_period_ids == {
+        1: "2022FY",
+        2: "2021FY",
+    }

@@ -10,8 +10,11 @@ from financial_report_analysis.models import table_semantics
 from financial_report_analysis.registries import MetricMappingDefinition, load_metric_registry
 from financial_report_analysis.semantic_fallback import (
     OllamaSemanticFallbackClient,
+    SemanticFallbackSettings,
     SemanticFallbackResult,
     SemanticFallbackService,
+    build_semantic_fallback_service,
+    load_semantic_fallback_settings,
 )
 
 
@@ -43,5 +46,8 @@ def test_registries_package_exports_metric_mapping_registry() -> None:
 
 def test_semantic_fallback_package_exports_public_entry_points() -> None:
     assert OllamaSemanticFallbackClient.__name__ == "OllamaSemanticFallbackClient"
+    assert SemanticFallbackSettings.__name__ == "SemanticFallbackSettings"
     assert SemanticFallbackService.__name__ == "SemanticFallbackService"
     assert SemanticFallbackResult.__name__ == "SemanticFallbackResult"
+    assert callable(build_semantic_fallback_service)
+    assert callable(load_semantic_fallback_settings)

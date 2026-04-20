@@ -16,6 +16,7 @@ def test_table_fact_builder_emits_candidate_fact_for_hk_q3_revenue() -> None:
             NormalizedTableSemantics(
                 table_id="table-1",
                 document_id="09987-q3",
+                page_range=(1, 1),
                 table_kind="income_statement",
                 title_text="Condensed Consolidated Statements of Income",
                 statement_scope_guess="consolidated",

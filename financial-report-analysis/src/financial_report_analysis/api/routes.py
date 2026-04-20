@@ -9,6 +9,7 @@ from financial_report_analysis.ingestion.pdf_ingestion import (
     PdfIngestionAdapter,
     PdfIngestionInputError,
 )
+from financial_report_analysis.semantic_fallback import build_semantic_fallback_service
 from financial_report_analysis.api.schemas import (
     AnalysisExtractRequest,
     AnalysisExtractResponse,
@@ -51,8 +52,11 @@ def extract_analysis(request: AnalysisExtractRequest) -> dict[str, Any]:
         "market": request.market,
         "min_confidence": request.min_confidence,
     }
+    ingestion_adapter = PdfIngestionAdapter(
+        semantic_fallback_service=build_semantic_fallback_service(),
+    )
     try:
-        extracted_payload = PdfIngestionAdapter().extract_candidate_facts(
+        extracted_payload = ingestion_adapter.extract_candidate_facts(
             pdf_path=pdf_path,
             pdf_url=pdf_url,
             market=request.market,

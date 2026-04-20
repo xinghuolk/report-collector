@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from io import BytesIO
 import re
 from pathlib import Path
@@ -10,9 +11,18 @@ from pypdf import PdfReader
 
 from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
 from financial_report_analysis.ingestion.table_structure import PdfTableStructureAdapter
-from financial_report_analysis.models import ParsedRow, ParsedTable
+from financial_report_analysis.models import (
+    NormalizedTableRow,
+    NormalizedTableSemantics,
+    ParsedRow,
+    ParsedTable,
+)
 from financial_report_analysis.registries import load_metric_registry
-from financial_report_analysis.semantic_fallback import SemanticFallbackService
+from financial_report_analysis.semantic_fallback import (
+    RowLabelFallbackRequest,
+    SemanticFallbackService,
+    TableKindFallbackRequest,
+)
 from financial_report_analysis.services import build_table_candidate_facts
 
 
@@ -90,9 +100,18 @@ class PdfIngestionAdapter:
             text,
         )
 
+        registry = load_metric_registry()
+        normalized_tables = [
+            self._apply_semantic_fallback(
+                normalize_table_semantics(table),
+                market=market or "CN",
+                registry=registry,
+            )
+            for table in parsed_tables
+        ]
         candidate_facts = build_table_candidate_facts(
-            [normalize_table_semantics(table) for table in parsed_tables],
-            registry=load_metric_registry(),
+            normalized_tables,
+            registry=registry,
             document_id=document_id,
             market=market or "CN",
         )
@@ -120,7 +139,7 @@ class PdfIngestionAdapter:
                 "language": language,
                 "parsed_tables": [
                     self._serialize_parsed_table(table)
-                    for table in parsed_tables
+                    for table in normalized_tables
                 ],
             },
         }
@@ -419,8 +438,145 @@ class PdfIngestionAdapter:
             if part
         )
 
+    def _apply_semantic_fallback(
+        self,
+        table: NormalizedTableSemantics,
+        *,
+        market: str,
+        registry: Any,
+    ) -> NormalizedTableSemantics:
+        if self._semantic_fallback_service is None:
+            return table
+
+        local_context = self._normalized_table_context(table)
+        table_kind_result = self._semantic_fallback_service.resolve_table_kind(
+            TableKindFallbackRequest(
+                title_text=table.title_text,
+                local_context=local_context,
+                deterministic_candidates=(table.table_kind,),
+                ambiguity_reason=table.semantic_ambiguity_reason,
+            )
+        )
+
+        rows = [
+            self._apply_row_label_fallback(
+                table=table,
+                row=row,
+                local_context=local_context,
+                market=market,
+                registry=registry,
+            )
+            for row in table.rows
+        ]
+
+        row_fallbacks = [row for row in rows if row.semantic_source == "llm_fallback"]
+        if table_kind_result.semantic_source == "llm_fallback":
+            semantic_source = "llm_fallback"
+            semantic_confidence = table_kind_result.semantic_confidence
+            fallback_reason = table_kind_result.fallback_reason
+        elif row_fallbacks:
+            semantic_source = "llm_fallback"
+            semantic_confidence = max(
+                (
+                    row.semantic_confidence
+                    for row in row_fallbacks
+                    if row.semantic_confidence is not None
+                ),
+                default=None,
+            )
+            fallback_reason = row_fallbacks[0].fallback_reason
+        else:
+            semantic_source = table.semantic_source
+            semantic_confidence = table.semantic_confidence
+            fallback_reason = table.semantic_ambiguity_reason
+
+        return replace(
+            table,
+            table_kind=table_kind_result.value,
+            semantic_source=semantic_source,
+            semantic_confidence=semantic_confidence,
+            semantic_ambiguity_reason=fallback_reason,
+            rows=rows,
+        )
+
+    def _apply_row_label_fallback(
+        self,
+        *,
+        table: NormalizedTableSemantics,
+        row: NormalizedTableRow,
+        local_context: str,
+        market: str,
+        registry: Any,
+    ) -> NormalizedTableRow:
+        ambiguity_reason = self._row_label_ambiguity_reason(
+            table=table,
+            row=row,
+            market=market,
+            registry=registry,
+        )
+        result = self._semantic_fallback_service.resolve_row_label(
+            RowLabelFallbackRequest(
+                raw_label=row.label_raw,
+                table_kind=table.table_kind,
+                local_context="\n".join([local_context, row.label_raw]).strip(),
+                deterministic_candidates=tuple(
+                    candidate
+                    for candidate in [row.normalized_row_label]
+                    if candidate is not None
+                ),
+                ambiguity_reason=ambiguity_reason,
+            )
+        )
+        if result.semantic_source != "llm_fallback":
+            return row
+        return replace(
+            row,
+            normalized_row_label=result.value,
+            semantic_source=result.semantic_source,
+            semantic_confidence=result.semantic_confidence,
+            fallback_reason=result.fallback_reason,
+        )
+
     @staticmethod
-    def _serialize_parsed_table(table: ParsedTable) -> dict[str, Any]:
+    def _row_label_ambiguity_reason(
+        *,
+        table: NormalizedTableSemantics,
+        row: NormalizedTableRow,
+        market: str,
+        registry: Any,
+    ) -> str | None:
+        if row.normalized_row_label is None:
+            return table.semantic_ambiguity_reason or "unknown_row_label"
+
+        for value in row.values:
+            if (
+                registry.match(
+                    table_kind=table.table_kind,
+                    normalized_row_label=row.normalized_row_label,
+                    value_time_shape=value.value_time_shape,
+                    statement_scope_guess=table.statement_scope_guess,
+                    market=market,
+                )
+                is not None
+            ):
+                return None
+
+        if table.semantic_ambiguity_reason is None:
+            return None
+        return table.semantic_ambiguity_reason
+
+    @staticmethod
+    def _normalized_table_context(table: NormalizedTableSemantics) -> str:
+        header_text = "\n".join(column.header_text for column in table.columns if column.header_text)
+        row_labels = "\n".join(row.label_raw for row in table.rows[:10] if row.label_raw)
+        return "\n".join(
+            part
+            for part in [table.title_text, header_text, row_labels]
+            if part
+        )
+
+    @staticmethod
+    def _serialize_parsed_table(table: NormalizedTableSemantics) -> dict[str, Any]:
         return {
             "table_id": table.table_id,
             "document_id": table.document_id,
@@ -432,17 +588,16 @@ class PdfIngestionAdapter:
             "period_columns": [
                 {
                     "column_id": column.column_id,
-                    "column_index": column.column_index,
                     "header_text": column.header_text,
                     "period_id": column.period_id,
                     "comparison_axis": column.comparison_axis,
                     "is_current": column.is_current,
                     "is_comparison": column.is_comparison,
                 }
-                for column in table.period_columns
+                for column in table.columns
             ],
-            "semantic_source": "deterministic",
-            "semantic_confidence": None,
+            "semantic_source": table.semantic_source,
+            "semantic_confidence": table.semantic_confidence,
             "fallback_reason": table.semantic_ambiguity_reason,
         }
 

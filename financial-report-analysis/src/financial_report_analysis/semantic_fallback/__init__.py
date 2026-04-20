@@ -1,4 +1,9 @@
 from financial_report_analysis.semantic_fallback.client import SemanticFallbackClient
+from financial_report_analysis.semantic_fallback.config import (
+    SemanticFallbackSettings,
+    build_semantic_fallback_service,
+    load_semantic_fallback_settings,
+)
 from financial_report_analysis.semantic_fallback.models import (
     RowLabelFallbackRequest,
     SemanticFallbackResult,
@@ -15,9 +20,12 @@ __all__ = [
     "OllamaSemanticFallbackClient",
     "RowLabelFallbackRequest",
     "SemanticFallbackClient",
+    "SemanticFallbackSettings",
     "SemanticFallbackResult",
     "SemanticFallbackService",
     "TableKindFallbackRequest",
+    "build_semantic_fallback_service",
+    "load_semantic_fallback_settings",
     "supported_row_label_outputs",
     "supported_table_kind_outputs",
 ]

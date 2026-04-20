@@ -16,6 +16,14 @@ from financial_report_analysis.ingestion.table_stitcher import bind_body_rows, s
 from financial_report_analysis.models import PageTextBlock, ParsedTable
 from financial_report_analysis.models.table import ParsedColumn
 
+_NUMERIC_CELL_PATTERN = re.compile(
+    r"(?<![\w.])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+)
+_HK_ANNUAL_DATE_PATTERN = re.compile(
+    r"\d{1,2}\s+[A-Za-z]+\s+20\d{2}",
+    re.IGNORECASE,
+)
+
 
 class PdfTableStructureAdapter:
     def __init__(self, *, table_source: PdfTableSource | None = None) -> None:
@@ -214,8 +222,27 @@ class PdfTableStructureAdapter:
                 continue
             if line.startswith("II. ") or line.startswith("I. "):
                 continue
-            rows.append([line])
+            recovered_row = PdfTableStructureAdapter._recover_structured_row(line)
+            if recovered_row:
+                rows.append(recovered_row)
         return rows
+
+    @staticmethod
+    def _recover_structured_row(line: str) -> list[str]:
+        annual_dates = _HK_ANNUAL_DATE_PATTERN.findall(line)
+        if annual_dates:
+            prefix = line[: line.find(annual_dates[0])].strip()
+            if prefix:
+                return [prefix, *annual_dates]
+
+        matches = list(_NUMERIC_CELL_PATTERN.finditer(line))
+        if not matches:
+            return [line]
+
+        label_raw = line[: matches[0].start()].strip()
+        if not label_raw:
+            return [line]
+        return [label_raw, *(match.group(0) for match in matches)]
 
     @staticmethod
     def _guess_statement_scope(*, title_text: str, local_context: str) -> str:

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
@@ -68,6 +69,17 @@ def _resolve_hk_non_english_sample() -> Path:
     )
     assert resolved is not None
     return resolved
+
+
+def _ollama_model_available(*, base_url: str, model: str) -> bool:
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=3.0)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return False
+    payload = response.json()
+    models = payload.get("models", [])
+    return any(entry.get("name") == model for entry in models if isinstance(entry, dict))
 
 
 def test_health_endpoint_reports_ready() -> None:
@@ -277,6 +289,220 @@ def test_pdf_ingestion_prefers_parsed_tables_over_text_regex(
     assert payload["candidate_facts"][0]["currency"] == "HKD"
     assert payload["candidate_facts"][0]["raw_unit"] == "thousand"
     assert payload["candidate_facts"][0]["numeric_value"] == 1234.0
+
+
+def test_pdf_ingestion_applies_gated_row_label_fallback_for_ambiguous_table(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        RowLabelFallbackRequest,
+        SemanticFallbackResult,
+        SemanticFallbackService,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:ambiguous",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="balance_sheet",
+        title_text="Consolidated Statement of Financial Position",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason="numeric_only_statement_block",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Assets total",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="point",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "",
+    )
+
+    class _StubFallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.requests: list[RowLabelFallbackRequest] = []
+
+        def resolve_row_label(
+            self,
+            request: RowLabelFallbackRequest,
+        ) -> SemanticFallbackResult:
+            self.requests.append(request)
+            return SemanticFallbackResult(
+                value="total_assets",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.83,
+                fallback_reason=request.ambiguity_reason,
+            )
+
+    fallback_service = _StubFallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert fallback_service.requests
+    assert payload["candidate_facts"][0]["metric_id"] == "total_assets"
+    assert payload["candidate_facts"][0]["extraction_method"] == "table_semantics"
+    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    assert payload["candidate_facts"][0]["extensions"]["fallback_reason"] == "numeric_only_statement_block"
+    assert payload["document_metadata"]["parsed_tables"][0]["semantic_source"] == "llm_fallback"
+
+
+def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(
+    monkeypatch,
+) -> None:
+    """Smoke test only.
+
+    This verifies that a real local Ollama fallback call can reach the API main
+    path, mark parsed-table provenance as llm_fallback, and surface a non-empty
+    analysis result. It is intentionally not a gold-standard semantic quality
+    test for difficult labels.
+    """
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    if not _ollama_model_available(
+        base_url="http://127.0.0.1:11434",
+        model="qwen3.5:9b",
+    ):
+        pytest.skip("local Ollama qwen3.5:9b is unavailable")
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:ollama",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Statement of Profit or Loss",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason="numeric_only_statement_block",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Business revenue",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_PROVIDER", "ollama")
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_BASE_URL", "http://127.0.0.1:11434")
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_MODEL", "qwen3.5:9b")
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_TIMEOUT_SECONDS", "30")
+
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "",
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": "ignored.pdf",
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["key_facts"]
+    assert any(fact["statement_type"] == "income_statement" for fact in payload["key_facts"])
+    assert payload["document"]["metadata"]["parsed_tables"][0]["semantic_source"] == "llm_fallback"
 
 
 def test_pdf_ingestion_uses_revenue_table_period_over_earlier_table_period(
