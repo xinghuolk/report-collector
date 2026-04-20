@@ -114,6 +114,7 @@ class OllamaSemanticFallbackClient:
             payload.get("value", ""),
             allowed=supported_currency_outputs(),
             default="unknown",
+            case="upper",
         )
         confidence = _parse_confidence(payload.get("confidence"))
         return SemanticFallbackResult(
@@ -176,8 +177,18 @@ class OllamaSemanticFallbackClient:
         return {}
 
 
-def _normalize_choice(value: object, *, allowed: tuple[str, ...], default: str) -> str:
-    normalized = str(value).strip().casefold()
+def _normalize_choice(
+    value: object,
+    *,
+    allowed: tuple[str, ...],
+    default: str,
+    case: str = "casefold",
+) -> str:
+    normalized = str(value).strip()
+    if case == "upper":
+        normalized = normalized.upper()
+    else:
+        normalized = normalized.casefold()
     return normalized if normalized in allowed else default
 
 

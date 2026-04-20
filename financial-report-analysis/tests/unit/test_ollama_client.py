@@ -97,6 +97,28 @@ def test_ollama_client_bounds_invalid_currency_output_to_unknown(monkeypatch) ->
     assert result.semantic_confidence == 0.61
 
 
+def test_ollama_client_preserves_supported_uppercase_currency_output(monkeypatch) -> None:
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        del url, json, timeout
+        return _FakeResponse({"response": '{"value": "HKD", "confidence": 0.88}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.interpret_currency(
+        CurrencyFallbackRequest(
+            raw_text="Currency: HKD",
+            local_context="statement footer",
+            deterministic_candidates=(),
+            ambiguity_reason="ambiguous_currency_marker",
+        )
+    )
+
+    assert result.value == "HKD"
+    assert result.semantic_source == "llm_fallback"
+    assert result.semantic_confidence == 0.88
+
+
 def test_ollama_client_bounds_invalid_unit_output_to_unknown(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
