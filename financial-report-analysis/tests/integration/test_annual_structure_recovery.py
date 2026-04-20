@@ -94,19 +94,23 @@ def test_hk_quarterly_anchor_preserves_header_value_binding() -> None:
     )
 
     income_statement = next(table for table in tables if table.table_kind == "income_statement")
-    assert income_statement.header_rows
-    assert income_statement.period_columns
-    assert income_statement.body_rows
-    assert income_statement.source_blocks
+    assert income_statement.header_rows[0][2] == "9/30/2025"
+    assert income_statement.header_rows[0][6] == "9/30/2024"
 
-    first_row = income_statement.body_rows[0]
-    period_column_indices = {
-        column.column_index for column in income_statement.period_columns
-    }
-    value_column_indices = {cell.column_index for cell in first_row.value_cells}
-
-    assert period_column_indices <= value_column_indices
-    assert "Condensed Consolidated Statements of Income" in income_statement.source_blocks[0].raw_text
+    company_sales = next(
+        row for row in income_statement.body_rows if row.label_raw == "Company sales $"
+    )
+    assert [cell.column_index for cell in company_sales.value_cells] == [1, 2, 3, 4, 5, 6]
+    assert [cell.text_raw for cell in company_sales.value_cells] == [
+        "2,998",
+        "2,895",
+        "4",
+        "8,412",
+        "8,217",
+        "2",
+    ]
+    assert income_statement.period_columns[0].header_text == "9/30/2025"
+    assert income_statement.period_columns[1].header_text == "9/30/2024"
 
 
 def test_cn_annual_anchor_preserves_local_unit_context_without_page_bleed() -> None:
@@ -119,9 +123,12 @@ def test_cn_annual_anchor_preserves_local_unit_context_without_page_bleed() -> N
     unit_table = next(
         table
         for table in tables
-        if table.table_unit == "亿元" and table.table_currency == "CNY"
+        if table.header_rows
+        and table.header_rows[0][:2]
+        == ["涉及重要性标准判断的披露事项", "重要性标准确定方法和选择依据"]
     )
 
+    assert unit_table.table_unit == "亿元"
+    assert unit_table.table_currency == "CNY"
     assert unit_table.body_rows
-    assert unit_table.header_rows
-    assert unit_table.statement_scope_guess in {"consolidated", "parent_only", "unknown"}
+

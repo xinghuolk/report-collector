@@ -27,11 +27,8 @@ def test_build_parsed_table_prefers_table_local_unit_and_currency_context() -> N
     )
 
     assert table is not None
-    assert table.table_unit is not None
+    assert table.table_unit == "万元"
     assert table.table_currency == "CNY"
-    assert table.source_blocks[0].raw_text.startswith("合并利润表")
-    assert "单位：百万元" not in table.source_blocks[0].raw_text
-    assert "USD million" not in table.source_blocks[0].raw_text
 
 
 def test_build_parsed_table_preserves_local_context_in_source_block() -> None:
