@@ -113,8 +113,8 @@ class PdfTableStructureAdapter:
             source_blocks=[
                 PageTextBlock(
                     page_index=block.page_index,
-                    lines=block.rows and [" ".join(cell for cell in row if cell).strip() for row in block.rows] or [],
-                    raw_text="\n".join(block.rows and [" ".join(cell for cell in row if cell).strip() for row in block.rows] or []),
+                    lines=self._source_block_lines(block=block),
+                    raw_text=self._source_block_text(block=block),
                 )
             ],
         )
@@ -243,6 +243,24 @@ class PdfTableStructureAdapter:
         if not label_raw:
             return [line]
         return [label_raw, *(match.group(0) for match in matches)]
+
+    @staticmethod
+    def _source_block_lines(*, block: RawTableBlock) -> list[str]:
+        page_lines = [line.strip() for line in block.page_text.splitlines() if line.strip()]
+        if page_lines:
+            return page_lines
+        return [
+            " ".join(cell for cell in row if cell).strip()
+            for row in block.rows
+            if any(cell.strip() for cell in row)
+        ]
+
+    @staticmethod
+    def _source_block_text(*, block: RawTableBlock) -> str:
+        page_text = block.page_text.strip()
+        if page_text:
+            return page_text
+        return "\n".join(PdfTableStructureAdapter._source_block_lines(block=block))
 
     @staticmethod
     def _guess_statement_scope(*, title_text: str, local_context: str) -> str:

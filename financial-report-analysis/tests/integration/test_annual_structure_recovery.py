@@ -76,6 +76,21 @@ def test_hk_annual_anchor_exposes_non_empty_statement_rows(
         )
 
 
+def test_hk_quarterly_anchor_preserves_page_level_context_in_source_block() -> None:
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(
+            _resolve_sample("hk_stocks", "09987", "quarterly", "2025_quarterly_q3_en.pdf")
+        ),
+        pdf_url=None,
+        market="HK",
+    )
+
+    income_statement = next(table for table in tables if table.table_kind == "income_statement")
+    assert income_statement.source_blocks
+    assert income_statement.source_blocks[0].raw_text.startswith("Yum China Holdings, Inc.")
+    assert "Condensed Consolidated Statements of Income" in income_statement.source_blocks[0].raw_text
+
+
 def test_cn_annual_anchor_exposes_non_empty_period_columns() -> None:
     tables = PdfTableStructureAdapter().extract_tables(
         pdf_path=str(_cn_primary_anchor()),

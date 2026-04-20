@@ -31,6 +31,39 @@ def test_build_parsed_table_prefers_table_local_unit_and_currency_context() -> N
     assert table.table_currency == "CNY"
 
 
+def test_build_parsed_table_preserves_page_text_context_in_source_block() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:2:table:1",
+        page_index=2,
+        page_range=(2, 2),
+        rows=[
+            ["Condensed Consolidated Statement of Profit or Loss"],
+            ["Item", "Three months ended 30 September 2025"],
+            ["Revenue", "10,000"],
+        ],
+        page_text=(
+            "Quarterly Report Context\n"
+            "Prepared by management\n"
+            "Condensed Consolidated Statement of Profit or Loss\n"
+            "Item Three months ended 30 September 2025\n"
+            "Revenue 10,000"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.source_blocks
+    assert table.source_blocks[0].raw_text == block.page_text
+    assert "Quarterly Report Context" in table.source_blocks[0].raw_text
+
+
 def test_infer_table_title_prefers_title_row_over_full_page_text() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(
