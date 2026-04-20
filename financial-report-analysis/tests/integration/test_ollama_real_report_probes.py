@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import sys
 
@@ -25,6 +26,15 @@ PROBE_MODULE = importlib.util.module_from_spec(PROBE_SPEC)
 sys.modules.setdefault("ollama_real_report_probes", PROBE_MODULE)
 PROBE_SPEC.loader.exec_module(PROBE_MODULE)
 REAL_REPORT_ROW_LABEL_PROBE_CASES = PROBE_MODULE.REAL_REPORT_ROW_LABEL_PROBE_CASES
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeEvaluationSummary:
+    positive_total: int
+    positive_hits: int
+    negative_total: int
+    negative_hits: int
+    failures: tuple[str, ...]
 
 
 def test_real_report_row_label_probe_dataset_covers_target_outputs() -> None:
@@ -57,6 +67,41 @@ def test_local_ollama_real_report_row_label_probe_dataset() -> None:
     }:
         pytest.skip("set FRA_RUN_OLLAMA_REAL_REPORT_PROBES=1 to run real probe evaluation")
 
+    settings = SemanticFallbackSettings(
+        enabled=True,
+        provider="ollama",
+        base_url="http://127.0.0.1:11434",
+        model="qwen3.5:9b",
+        timeout_seconds=30.0,
+    )
+    if not _ollama_available(settings.base_url, settings.model):
+        pytest.skip("local Ollama endpoint or model is unavailable")
+
+    results = run_real_probe_evaluation()
+
+    assert results.positive_total > 0
+    assert results.negative_total > 0
+    assert results.positive_hits / results.positive_total >= 0.66, results.failures
+    assert results.negative_hits / results.negative_total >= 0.66, results.failures
+
+
+def test_real_report_probe_evaluation_reports_positive_and_negative_hit_rates() -> None:
+    if os.getenv("FRA_RUN_OLLAMA_REAL_REPORT_PROBES", "").strip().casefold() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        pytest.skip("set FRA_RUN_OLLAMA_REAL_REPORT_PROBES=1 to run real probe evaluation")
+
+    results = run_real_probe_evaluation()
+    assert results.positive_total >= 7
+    assert results.negative_total >= 4
+    assert results.positive_hits >= 5
+    assert results.negative_hits >= 3
+
+
+def run_real_probe_evaluation() -> ProbeEvaluationSummary:
     settings = SemanticFallbackSettings(
         enabled=True,
         provider="ollama",
@@ -104,10 +149,13 @@ def test_local_ollama_real_report_row_label_probe_dataset() -> None:
                 f"(expected {case.expected_value})"
             )
 
-    assert positive_total > 0
-    assert negative_total > 0
-    assert positive_hits / positive_total >= 0.66, failures
-    assert negative_hits / negative_total >= 0.66, failures
+    return ProbeEvaluationSummary(
+        positive_total=positive_total,
+        positive_hits=positive_hits,
+        negative_total=negative_total,
+        negative_hits=negative_hits,
+        failures=tuple(failures),
+    )
 
 
 def _ollama_available(base_url: str, model: str) -> bool:
