@@ -72,17 +72,11 @@ class PdfTableStructureAdapter:
         header_rows = self._select_header_rows(recovered_rows)
         body_rows = recovered_rows[len(header_rows) :]
         body_lines = [" ".join(cell for cell in row if cell).strip() for row in body_rows]
-        local_context = "\n".join(
-            line
-            for line in [
-                title_text.strip(),
-                *[
-                    " ".join(cell for cell in row if cell).strip()
-                    for row in header_rows
-                ],
-                *body_lines,
-            ]
-            if line
+        local_context = self._table_local_context(
+            block=block,
+            title_text=title_text,
+            header_rows=header_rows,
+            body_lines=body_lines,
         )
 
         return ParsedTable(
@@ -113,8 +107,8 @@ class PdfTableStructureAdapter:
             source_blocks=[
                 PageTextBlock(
                     page_index=block.page_index,
-                    lines=self._source_block_lines(block=block),
-                    raw_text=self._source_block_text(block=block),
+                    lines=local_context.splitlines(),
+                    raw_text=local_context,
                 )
             ],
         )
@@ -245,22 +239,31 @@ class PdfTableStructureAdapter:
         return [label_raw, *(match.group(0) for match in matches)]
 
     @staticmethod
-    def _source_block_lines(*, block: RawTableBlock) -> list[str]:
-        page_lines = [line.strip() for line in block.page_text.splitlines() if line.strip()]
-        if page_lines:
-            return page_lines
-        return [
-            " ".join(cell for cell in row if cell).strip()
-            for row in block.rows
-            if any(cell.strip() for cell in row)
-        ]
+    def _table_local_context(
+        *,
+        block: RawTableBlock,
+        title_text: str,
+        header_rows: list[list[str]],
+        body_lines: list[str],
+    ) -> str:
+        segments: list[str] = []
+        seen: set[str] = set()
 
-    @staticmethod
-    def _source_block_text(*, block: RawTableBlock) -> str:
-        page_text = block.page_text.strip()
-        if page_text:
-            return page_text
-        return "\n".join(PdfTableStructureAdapter._source_block_lines(block=block))
+        def add_segment(segment: str) -> None:
+            cleaned = segment.strip()
+            if not cleaned or cleaned in seen:
+                return
+            seen.add(cleaned)
+            segments.append(cleaned)
+
+        for line in block.local_context.splitlines():
+            add_segment(line)
+        add_segment(title_text)
+        for row in header_rows:
+            add_segment(" ".join(cell for cell in row if cell).strip())
+        for line in body_lines:
+            add_segment(line)
+        return "\n".join(segments)
 
     @staticmethod
     def _guess_statement_scope(*, title_text: str, local_context: str) -> str:

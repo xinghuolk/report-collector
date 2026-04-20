@@ -27,6 +27,7 @@ class RawTableBlock:
     cells: list[list[RawTableCell]] = field(default_factory=list)
     bbox: tuple[float, float, float, float] | None = None
     page_text: str = ""
+    local_context: str = ""
 
 
 class PdfTableSource:
@@ -66,6 +67,7 @@ class PdfTableSource:
                             cells=cells,
                             bbox=bbox,
                             page_text=page_text,
+                            local_context=self._table_local_context(rows),
                         )
                     )
             return raw_blocks
@@ -171,6 +173,15 @@ class PdfTableSource:
             if normalized_grid:
                 normalized_grids.append(normalized_grid)
         return normalized_grids
+
+    @staticmethod
+    def _table_local_context(rows: list[list[str]]) -> str:
+        segments = [
+            " ".join(cell for cell in row if cell).strip()
+            for row in rows[:3]
+            if any(cell.strip() for cell in row)
+        ]
+        return "\n".join(segment for segment in segments if segment)
 
     def _normalize_cells(
         self,

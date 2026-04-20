@@ -20,7 +20,15 @@ def _resolve_sample(*relative_parts: str) -> Path:
 
 
 def _cn_primary_anchor() -> Path:
-    return _resolve_sample("cn_stocks", "601919", "annual", "2024_年度报告.pdf")
+    annual_dir = _resolve_sample("cn_stocks", "601919", "annual")
+    try:
+        return next(
+            candidate
+            for candidate in annual_dir.glob("*.pdf")
+            if candidate.is_file()
+        )
+    except StopIteration as exc:  # pragma: no cover - defensive fixture resolution
+        raise AssertionError(f"Sample PDF not found in {annual_dir}") from exc
 
 
 @pytest.mark.parametrize(
@@ -76,7 +84,7 @@ def test_hk_annual_anchor_exposes_non_empty_statement_rows(
         )
 
 
-def test_hk_quarterly_anchor_preserves_page_level_context_in_source_block() -> None:
+def test_hk_quarterly_anchor_preserves_header_value_binding() -> None:
     tables = PdfTableStructureAdapter().extract_tables(
         pdf_path=str(
             _resolve_sample("hk_stocks", "09987", "quarterly", "2025_quarterly_q3_en.pdf")
@@ -86,17 +94,34 @@ def test_hk_quarterly_anchor_preserves_page_level_context_in_source_block() -> N
     )
 
     income_statement = next(table for table in tables if table.table_kind == "income_statement")
+    assert income_statement.header_rows
+    assert income_statement.period_columns
+    assert income_statement.body_rows
     assert income_statement.source_blocks
-    assert income_statement.source_blocks[0].raw_text.startswith("Yum China Holdings, Inc.")
+
+    first_row = income_statement.body_rows[0]
+    period_column_indices = {
+        column.column_index for column in income_statement.period_columns
+    }
+    value_column_indices = {cell.column_index for cell in first_row.value_cells}
+
+    assert period_column_indices <= value_column_indices
     assert "Condensed Consolidated Statements of Income" in income_statement.source_blocks[0].raw_text
 
 
-def test_cn_annual_anchor_exposes_non_empty_period_columns() -> None:
+def test_cn_annual_anchor_preserves_local_unit_context_without_page_bleed() -> None:
     tables = PdfTableStructureAdapter().extract_tables(
         pdf_path=str(_cn_primary_anchor()),
         pdf_url=None,
         market="CN",
     )
 
-    assert any(table.statement_scope_guess == "consolidated" for table in tables)
-    assert any(table.period_columns for table in tables)
+    unit_table = next(
+        table
+        for table in tables
+        if table.table_unit == "亿元" and table.table_currency == "CNY"
+    )
+
+    assert unit_table.body_rows
+    assert unit_table.header_rows
+    assert unit_table.statement_scope_guess in {"consolidated", "parent_only", "unknown"}

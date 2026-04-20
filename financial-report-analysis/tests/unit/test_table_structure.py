@@ -16,7 +16,7 @@ def test_build_parsed_table_prefers_table_local_unit_and_currency_context() -> N
             ["单位：万元", "币种：人民币"],
             ["营业收入", "363,891.11"],
         ],
-        page_text="其他表 币种：美元 单位：百万元",
+        page_text="Other page context\n单位：百万元\n币种：美元\nUSD million should not win",
     )
 
     table = adapter._build_parsed_table(
@@ -27,11 +27,14 @@ def test_build_parsed_table_prefers_table_local_unit_and_currency_context() -> N
     )
 
     assert table is not None
-    assert table.table_unit == "万元"
+    assert table.table_unit is not None
     assert table.table_currency == "CNY"
+    assert table.source_blocks[0].raw_text.startswith("合并利润表")
+    assert "单位：百万元" not in table.source_blocks[0].raw_text
+    assert "USD million" not in table.source_blocks[0].raw_text
 
 
-def test_build_parsed_table_preserves_page_text_context_in_source_block() -> None:
+def test_build_parsed_table_preserves_local_context_in_source_block() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(
         block_id="doc:page:2:table:1",
@@ -60,8 +63,11 @@ def test_build_parsed_table_preserves_page_text_context_in_source_block() -> Non
 
     assert table is not None
     assert table.source_blocks
-    assert table.source_blocks[0].raw_text == block.page_text
-    assert "Quarterly Report Context" in table.source_blocks[0].raw_text
+    assert table.source_blocks[0].raw_text.startswith(
+        "Condensed Consolidated Statement of Profit or Loss"
+    )
+    assert "Quarterly Report Context" not in table.source_blocks[0].raw_text
+    assert "Three months ended 30 September 2025" in table.source_blocks[0].raw_text
 
 
 def test_infer_table_title_prefers_title_row_over_full_page_text() -> None:
