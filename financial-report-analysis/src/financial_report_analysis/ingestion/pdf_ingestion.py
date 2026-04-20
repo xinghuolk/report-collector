@@ -33,6 +33,12 @@ class PdfIngestionInputError(ValueError):
 
 
 class PdfIngestionAdapter:
+    _INCOME_STATEMENT_CORE_METRICS: tuple[str, ...] = (
+        "revenue",
+        "operating_cost",
+        "operating_profit",
+        "net_profit",
+    )
     _REVENUE_TABLE_KINDS: tuple[str, ...] = (
         "income_statement",
         "key_metrics",
@@ -117,6 +123,7 @@ class PdfIngestionAdapter:
             document_id=document_id,
             market=market or "CN",
         )
+        candidate_facts = self._prefer_main_income_statement_facts(candidate_facts)
         if not candidate_facts:
             revenue_fact = self._extract_revenue_fact_from_text(
                 document_id=document_id,
@@ -604,6 +611,9 @@ class PdfIngestionAdapter:
         market: str,
         registry: Any,
     ) -> str | None:
+        if PdfIngestionAdapter._is_summary_growth_or_ratio_row(row.label_raw):
+            return None
+
         if row.normalized_row_label is None:
             return table.semantic_ambiguity_reason or "unknown_row_label"
 
@@ -694,6 +704,68 @@ class PdfIngestionAdapter:
             part
             for part in [table.title_text, header_text, row_labels]
             if part
+        )
+
+    @classmethod
+    def _prefer_main_income_statement_facts(
+        cls,
+        candidate_facts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        best_income_statement_rank: dict[tuple[str, str, str, str], int] = {}
+        for fact in candidate_facts:
+            if not cls._is_income_statement_core_fact(fact):
+                continue
+            key = cls._income_statement_fact_key(fact)
+            rank = int(fact.get("source_rank_hint", 0))
+            current_best = best_income_statement_rank.get(key)
+            if current_best is None or rank > current_best:
+                best_income_statement_rank[key] = rank
+
+        prioritized_facts: list[dict[str, Any]] = []
+        seen_income_statement_keys: set[tuple[str, str, str, str]] = set()
+        for fact in candidate_facts:
+            if not cls._is_income_statement_core_fact(fact):
+                prioritized_facts.append(fact)
+                continue
+
+            key = cls._income_statement_fact_key(fact)
+            best_rank = best_income_statement_rank.get(key, 0)
+            rank = int(fact.get("source_rank_hint", 0))
+            if best_rank > rank:
+                continue
+            if best_rank >= 30 and key in seen_income_statement_keys:
+                continue
+            prioritized_facts.append(fact)
+            if best_rank >= 30:
+                seen_income_statement_keys.add(key)
+
+        return prioritized_facts
+
+    @classmethod
+    def _is_income_statement_core_fact(cls, fact: dict[str, Any]) -> bool:
+        return (
+            fact.get("extraction_method") == "table_semantics"
+            and fact.get("statement_type") == "income_statement"
+            and fact.get("metric_id") in cls._INCOME_STATEMENT_CORE_METRICS
+        )
+
+    @staticmethod
+    def _income_statement_fact_key(fact: dict[str, Any]) -> tuple[str, str, str, str]:
+        return (
+            str(fact.get("metric_id") or ""),
+            str(fact.get("period_id") or ""),
+            str(fact.get("comparison_axis") or "current"),
+            str(fact.get("entity_scope") or "other"),
+        )
+
+    @staticmethod
+    def _is_summary_growth_or_ratio_row(label_raw: str) -> bool:
+        normalized = re.sub(r"\s+", " ", label_raw).strip().casefold()
+        if not normalized:
+            return False
+        return (
+            re.search(r"\b(growth|margin|ratio)\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"(增长率|增长|比率|利润率|毛利率)", normalized) is not None
         )
 
     @staticmethod

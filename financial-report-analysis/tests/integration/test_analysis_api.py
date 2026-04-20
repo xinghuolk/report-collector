@@ -1143,6 +1143,148 @@ def test_pdf_ingestion_prefers_income_statement_over_key_metrics_growth_rows(
     assert payload["candidate_facts"][0]["raw_unit"] == "thousand"
 
 
+def test_extract_endpoint_prefers_income_statement_over_key_metrics_summary_rows(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    key_metrics_table = ParsedTable(
+        table_id="doc:parsed-table:summary",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="key_metrics",
+        title_text="Key Financial Metrics",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="9,999",
+                        numeric_value=9999.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-2",
+                row_index=2,
+                label_raw="Operating profit margin",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="18.5",
+                        numeric_value=18.5,
+                        page_index=1,
+                    )
+                ],
+            ),
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-0",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+    income_statement_table = ParsedTable(
+        table_id="doc:parsed-table:income",
+        document_id="doc",
+        page_range=(2, 2),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="Operating Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=2,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [key_metrics_table, income_statement_table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "2024 Annual Report Revenue 9,999 RMB'000",
+    )
+
+    payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    revenue_candidates = [
+        fact for fact in payload["candidate_facts"] if fact["metric_id"] == "revenue"
+    ]
+
+    assert len(revenue_candidates) == 1
+    assert revenue_candidates[0]["metric_label_raw"] == "Operating Revenue"
+    assert all(
+        "margin" not in fact["metric_label_raw"].lower()
+        for fact in payload["candidate_facts"]
+    )
+
+
 def test_pdf_ingestion_does_not_silence_unexpected_table_parser_errors(
     monkeypatch,
 ) -> None:
@@ -1388,6 +1530,127 @@ def test_extract_endpoint_promotes_table_semantic_candidates_to_canonical_facts(
     payload = response.json()
     assert payload["quality_gate"] == "pass"
     assert any(fact["metric_id"] == "revenue" for fact in payload["key_facts"])
+
+
+def test_extract_endpoint_promotes_income_statement_core_metrics_to_key_facts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:income-core",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-revenue",
+                row_index=1,
+                label_raw="Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-cost",
+                row_index=2,
+                label_raw="Cost of sales",
+                normalized_label_hint="cost of sales",
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="800",
+                        numeric_value=800.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-net-profit",
+                row_index=3,
+                label_raw="Profit attributable to equity holders",
+                normalized_label_hint="profit attributable to equity holders",
+                value_cells=[
+                    ParsedCell(
+                        row_index=3,
+                        column_index=1,
+                        text_raw="120",
+                        numeric_value=120.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "2024 Annual Report Revenue 9,999 RMB'000",
+    )
+
+    pdf_path = tmp_path / "income-core.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "pass"
+    assert {fact["metric_id"] for fact in payload["key_facts"]} >= {
+        "revenue",
+        "operating_cost",
+        "net_profit",
+    }
 
 
 def test_extract_endpoint_accepts_cn_quarterly_sample_pdf() -> None:

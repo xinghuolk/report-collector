@@ -801,6 +801,189 @@ def test_table_candidate_facts_preserve_table_level_llm_provenance() -> None:
     assert candidate_facts[0]["extensions"]["fallback_reason"] == "ambiguous_table_kind"
 
 
+def test_table_candidate_facts_match_income_statement_core_metric_aliases() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-income-core",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-cost",
+                        label_raw="Cost of sales",
+                        normalized_row_label="cost of sales",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="800",
+                                numeric_value=800.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-operating-profit",
+                        label_raw="Profit from operations",
+                        normalized_row_label="profit from operations",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="200",
+                                numeric_value=200.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-net-profit",
+                        label_raw="Profit attributable to equity holders",
+                        normalized_row_label="profit attributable to equity holders",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=3,
+                                column_index=1,
+                                raw_text="120",
+                                numeric_value=120.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "operating_cost",
+        "operating_profit",
+        "net_profit",
+    }
+
+
+def test_analyze_report_promotes_income_statement_core_metrics_to_canonical_facts() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-income-pipeline",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-revenue",
+                        label_raw="Revenue",
+                        normalized_row_label="revenue",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="1,000",
+                                numeric_value=1000.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-cost",
+                        label_raw="Cost of sales",
+                        normalized_row_label="cost of sales",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="800",
+                                numeric_value=800.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-net-profit",
+                        label_raw="Profit attributable to equity holders",
+                        normalized_row_label="profit attributable to equity holders",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=3,
+                                column_index=1,
+                                raw_text="120",
+                                numeric_value=120.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert {fact.metric_id for fact in result.canonical_facts} >= {
+        "revenue",
+        "operating_cost",
+        "net_profit",
+    }
+
+
 def test_table_candidate_facts_do_not_fabricate_market_default_currency() -> None:
     candidate_facts = build_table_candidate_facts(
         [

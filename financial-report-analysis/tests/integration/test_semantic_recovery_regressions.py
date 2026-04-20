@@ -214,3 +214,31 @@ def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> No
         table.table_currency in {"HKD", "USD", "unknown"}
         for table in semantics_tables
     )
+
+
+@pytest.mark.parametrize(
+    ("stock_code", "filename"),
+    [
+        ("02498", "2022_annual_en.pdf"),
+        ("09987", "2025_annual_en.pdf"),
+    ],
+)
+def test_hk_anchor_candidate_facts_do_not_map_growth_margin_ratio_rows(
+    stock_code: str,
+    filename: str,
+) -> None:
+    pdf_path = _resolve_sample("hk_stocks", stock_code, "annual", filename)
+
+    ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    suppressed_tokens = ("growth", "margin", "ratio")
+    assert all(
+        not any(token in fact["metric_label_raw"].lower() for token in suppressed_tokens)
+        for fact in ingestion_payload["candidate_facts"]
+        if fact["metric_id"] in {"revenue", "operating_cost", "operating_profit", "net_profit"}
+    )

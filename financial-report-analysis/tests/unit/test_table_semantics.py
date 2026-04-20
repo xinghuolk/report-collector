@@ -258,3 +258,68 @@ def test_cn_annual_row_label_normalization_strips_numbering_prefixes() -> None:
 
     assert semantics.rows[0].normalized_row_label == "营业收入"
     assert semantics.rows[0].semantic_source == "deterministic"
+
+
+def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:hk-income-costs",
+            document_id="doc",
+            page_range=(14, 14),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="Cost of Sales",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-2",
+                    row_index=2,
+                    label_raw="Cost of Revenue",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "operating cost",
+        "operating cost",
+    ]
+
+
+def test_normalize_table_semantics_suppresses_growth_and_ratio_rows() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:hk-key-metrics",
+            document_id="doc",
+            page_range=(15, 15),
+            table_kind="key_metrics",
+            title_text="Key Financial Metrics",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="Revenue growth",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-2",
+                    row_index=2,
+                    label_raw="Operating profit margin",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [None, None]

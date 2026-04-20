@@ -11,6 +11,18 @@ from financial_report_analysis.models import (
     ParsedTable,
 )
 
+_SUPPRESSED_SUMMARY_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(growth|margin|ratio)\b", re.IGNORECASE),
+    re.compile(r"(增长率|增长|比率|利润率|毛利率)"),
+)
+
+_ROW_LABEL_ALIASES: dict[str, str] = {
+    "cost of sales": "operating cost",
+    "cost of revenue": "operating cost",
+    "profit attributable to equity holders": "net profit",
+    "profit attributable to shareholders": "net profit",
+}
+
 
 def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
     all_columns = [*table.period_columns, *table.comparison_columns]
@@ -92,7 +104,15 @@ def _normalize_label(raw_label: str) -> str | None:
     normalized = re.sub(r"^[（(]?\d+[)）\.、]\s*", "", normalized)
     normalized = re.sub(r"^[IVXLCM]+\.\s*", "", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
-    return normalized or None
+    if not normalized:
+        return None
+
+    # Keep ratio / growth style rows fact-agnostic so they do not compete with
+    # core statement metrics in summary or key-metrics tables.
+    if any(pattern.search(normalized) for pattern in _SUPPRESSED_SUMMARY_PATTERNS):
+        return None
+
+    return _ROW_LABEL_ALIASES.get(normalized, normalized)
 
 
 def _normalized_semantic_value(value: str | None) -> str:

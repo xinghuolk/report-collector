@@ -9,6 +9,15 @@ from financial_report_analysis.unit_policy import UnitPolicy
 
 _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
     "revenue": ["Revenue", "营业收入", "turnover"],
+    "operating_cost": ["Cost of sales", "Cost of revenue", "营业成本"],
+    "operating_profit": ["Operating profit", "Profit from operations", "营业利润"],
+    "net_profit": [
+        "Net profit",
+        "Profit for the period",
+        "Profit attributable to shareholders",
+        "Profit attributable to equity holders",
+        "净利润",
+    ],
 }
 
 
