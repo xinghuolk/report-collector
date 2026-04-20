@@ -131,11 +131,24 @@ REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
     ),
 )
 
+PROMOTED_REAL_REPORT_PROBE_IDENTITIES: tuple[tuple[str, str, str], ...] = (
+    ("income_statement", "Business revenue", "revenue"),
+    ("income_statement", "Operating income", "operating_profit"),
+    ("income_statement", "Profit attributable to owners", "net_profit"),
+    ("balance_sheet", "Cash and cash equivalents", "cash"),
+    ("income_statement", "Revenue growth", "none"),
+    ("income_statement", "Gross margin", "none"),
+)
+
+
+def promoted_real_report_probe_cases() -> tuple[OllamaRowLabelProbeCase, ...]:
+    case_index = {
+        (case.table_kind, case.raw_label, case.expected_value): case
+        for case in REAL_REPORT_ROW_LABEL_PROBE_CASES
+    }
+    return tuple(case_index[identity] for identity in PROMOTED_REAL_REPORT_PROBE_IDENTITIES)
+
+
 PROMOTED_REAL_REPORT_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
-    REAL_REPORT_ROW_LABEL_PROBE_CASES[0],
-    REAL_REPORT_ROW_LABEL_PROBE_CASES[1],
-    REAL_REPORT_ROW_LABEL_PROBE_CASES[2],
-    REAL_REPORT_ROW_LABEL_PROBE_CASES[3],
-    REAL_REPORT_ROW_LABEL_PROBE_CASES[7],
-    REAL_REPORT_ROW_LABEL_PROBE_CASES[10],
+    promoted_real_report_probe_cases()
 )

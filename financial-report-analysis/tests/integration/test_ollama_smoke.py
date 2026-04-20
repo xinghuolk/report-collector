@@ -123,6 +123,20 @@ def test_local_ollama_promoted_real_report_cases() -> None:
         assert result.value == case.expected_value
 
 
+def test_promoted_real_report_cases_are_selected_by_identity() -> None:
+    promoted = PROBE_MODULE.promoted_real_report_probe_cases()
+    assert [
+        (case.raw_label, case.expected_value) for case in promoted
+    ] == [
+        ("Business revenue", "revenue"),
+        ("Operating income", "operating_profit"),
+        ("Profit attributable to owners", "net_profit"),
+        ("Cash and cash equivalents", "cash"),
+        ("Revenue growth", "none"),
+        ("Gross margin", "none"),
+    ]
+
+
 def resolve_row_label_with_real_ollama(
     raw_label: str,
     table_kind: str,
