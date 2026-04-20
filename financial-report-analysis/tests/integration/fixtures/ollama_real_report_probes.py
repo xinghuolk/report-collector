@@ -119,4 +119,14 @@ REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
         expected_value="none",
         expectation_type="negative",
     ),
+    OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
+        table_kind="income_statement",
+        title_text="Consolidated Statement of Profit or Loss",
+        raw_label="Gross margin",
+        local_context="Consolidated Statement of Profit or Loss\nGross margin",
+        expected_value="none",
+        expectation_type="negative",
+    ),
 )

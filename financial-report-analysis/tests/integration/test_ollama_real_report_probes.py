@@ -38,9 +38,14 @@ def test_real_report_row_label_probe_dataset_covers_target_outputs() -> None:
         for case in REAL_REPORT_ROW_LABEL_PROBE_CASES
         if case.expectation_type == "negative"
     ]
+    negative_raw_labels = {case.raw_label.casefold() for case in negative_cases}
 
     assert positive_expected_values == set(supported_row_label_outputs()) - {"none"}
     assert negative_cases
+    assert any(
+        "margin" in raw_label or "ratio" in raw_label
+        for raw_label in negative_raw_labels
+    )
 
 
 def test_local_ollama_real_report_row_label_probe_dataset() -> None:
