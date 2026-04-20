@@ -1,3 +1,5 @@
+import httpx
+
 from financial_report_analysis.semantic_fallback import (
     CurrencyFallbackRequest,
     RowLabelFallbackRequest,
@@ -125,3 +127,31 @@ def test_semantic_fallback_service_does_not_run_unit_without_ambiguity() -> None
     assert result.semantic_source == "deterministic"
     assert result.value == "million"
     assert client.unit_calls == 0
+
+
+class _TimeoutFallbackClient(_StubFallbackClient):
+    def normalize_row_label(self, request: RowLabelFallbackRequest) -> SemanticFallbackResult:
+        del request
+        self.row_label_calls += 1
+        raise httpx.ReadTimeout("timed out")
+
+
+def test_semantic_fallback_service_soft_degrades_when_client_times_out() -> None:
+    client = _TimeoutFallbackClient()
+    service = SemanticFallbackService(client=client)
+
+    result = service.resolve_row_label(
+        RowLabelFallbackRequest(
+            raw_label="利润总额",
+            table_kind="income_statement",
+            local_context="ambiguous row label from annual report",
+            deterministic_candidates=(),
+            ambiguity_reason="unknown_row_label",
+        )
+    )
+
+    assert client.row_label_calls == 1
+    assert result.semantic_source == "deterministic"
+    assert result.value == "none"
+    assert result.semantic_confidence is None
+    assert result.fallback_reason is None
