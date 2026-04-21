@@ -297,14 +297,14 @@ def test_metric_mapping_registry_matches_phase1_cash_flow_detail_aliases() -> No
 
     capex = registry.match(
         table_kind="cash_flow_statement",
-        normalized_row_label="购建固定资产、无形资产和其他长期资产支付的现金",
+        normalized_row_label="payments for acquisition and construction of long-term assets",
         value_time_shape="duration",
         statement_scope_guess="consolidated",
-        market="CN",
+        market="HK",
     )
     depreciation = registry.match(
         table_kind="cash_flow_statement",
-        normalized_row_label="depreciation of property, plant and equipment",
+        normalized_row_label="depreciation of fixed assets oil and gas assets and productive biological assets",
         value_time_shape="duration",
         statement_scope_guess="consolidated",
         market="HK",
@@ -325,7 +325,7 @@ def test_metric_mapping_registry_matches_phase1_cash_flow_detail_aliases() -> No
     )
     dividends_paid = registry.match(
         table_kind="cash_flow_statement",
-        normalized_row_label="dividends paid",
+        normalized_row_label="cash paid for distribution of dividends or profits and interest expenses",
         value_time_shape="duration",
         statement_scope_guess="consolidated",
         market="HK",
@@ -341,6 +341,16 @@ def test_metric_mapping_registry_matches_phase1_cash_flow_detail_aliases() -> No
     assert deferred_amortisation.metric_id == "lt_amort_deferred_exp"
     assert dividends_paid is not None
     assert dividends_paid.metric_id == "c_pay_dist_dpcp_int_exp"
+
+    cn_capex = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label="购建固定资产、无形资产和其他长期资产支付的现金",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="CN",
+    )
+    assert cn_capex is not None
+    assert cn_capex.metric_id == "c_pay_acq_const_fiolta"
 
 
 def test_metric_mapping_registry_does_not_match_cash_flow_summary_rows() -> None:

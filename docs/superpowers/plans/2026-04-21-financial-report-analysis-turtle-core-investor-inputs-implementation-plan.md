@@ -11,6 +11,33 @@
 
 **Tech Stack:** Python 3.12、dataclasses、pytest、Ruff、现有 `financial_report_analysis` ingestion / semantic / registry / pipeline 架构、CN/HK 年报与季度样本。
 
+## Progress Note
+
+截至 `2026-04-21`，本计划已经完成第一轮实现与轻量回归：
+
+- 已落地 Task A/B 的主链路代码：
+  - Phase 1 的 11 个字段已进入 deterministic normalization 与 registry
+  - `basic_eps` 已按 `value_type = per_share`、`unit_expectation = per_share_amount` 建模
+  - candidate 层已保留 `period_scope`、`value_type`、`unit_expectation`、`sign_rule`
+  - `n_income_attr_p` 与 `basic_eps` 已稳定进入 API `key_facts`
+- 已补轻量回归与 mocked integration coverage：
+  - `must-reach-candidate` 字段断言
+  - `must-reach-canonical` 字段断言
+  - `must-be-api-visible` 字段断言
+  - diluted EPS / narrative cash-flow noise 抑制断言
+  - HK 英文长别名 cash-flow detail 断言
+- 已通过的定向验证：
+  - `uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics.py tests/unit/test_fact_pipeline.py -v`
+  - `uv run pytest tests/integration/test_analysis_api.py -k 'phase1_api_visible_metrics or runs_ingestion_path_for_pdf_input or extract_endpoint_runs_ingestion_path_for_pdf_input' -v`
+  - `uv run pytest tests/integration/test_semantic_recovery_regressions.py -k 'phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise or pipeline_prefers_main_statement_provenance_when_source_ranks_tie' -v`
+  - `uv run ruff check ...`
+
+当前仍未完成的部分：
+
+- 尚未按共享样本矩阵跑完真实 PDF 的 Phase 1 字段命中验证
+- 仍未包含耗时较长的 `ollama` / real-PDF semantic fallback 长测
+- 因此本计划当前状态应视为“主链路已实现并通过轻量回归”，而不是“已完成全部样本收口”
+
 ---
 
 ## 范围与边界
@@ -225,7 +252,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics
 - [ ] **Step 2: 为 must-reach-candidate 字段补显式字段断言**
 - [ ] **Step 3: 为 must-reach-canonical 字段补显式字段断言**
 - [ ] **Step 4: 为 must-be-api-visible 字段补显式字段断言**
-- [ ] **Step 3: 为 attribution / EPS / cash-flow detail 补 provenance 稳定性测试**
+- [ ] **Step 5: 为 attribution / EPS / cash-flow detail 补 provenance 稳定性测试**
 
 ### B2：实现最小 pipeline 支撑
 

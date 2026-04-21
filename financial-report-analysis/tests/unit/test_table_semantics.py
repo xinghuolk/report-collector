@@ -497,14 +497,17 @@ def test_normalize_table_semantics_maps_phase1_cash_flow_detail_variants() -> No
                 ParsedRow(
                     row_id="row-capex",
                     row_index=1,
-                    label_raw="购建固定资产、无形资产和其他长期资产支付的现金",
+                    label_raw="Payments for acquisition and construction of long-term assets",
                     normalized_label_hint=None,
                     value_cells=[],
                 ),
                 ParsedRow(
                     row_id="row-depreciation",
                     row_index=2,
-                    label_raw="Depreciation of property, plant and equipment",
+                    label_raw=(
+                        "Depreciation of fixed assets oil and gas assets and "
+                        "productive biological assets"
+                    ),
                     normalized_label_hint=None,
                     value_cells=[],
                 ),
@@ -525,7 +528,7 @@ def test_normalize_table_semantics_maps_phase1_cash_flow_detail_variants() -> No
                 ParsedRow(
                     row_id="row-dividends",
                     row_index=5,
-                    label_raw="Dividends paid",
+                    label_raw="Cash paid for distribution of dividends or profits and interest expenses",
                     normalized_label_hint=None,
                     value_cells=[],
                 ),

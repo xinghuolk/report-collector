@@ -439,6 +439,334 @@ def test_pipeline_prefers_main_statement_provenance_when_source_ranks_tie(
     assert canonical.extensions["semantic_source"] == "deterministic"
 
 
+def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    income_statement = ParsedTable(
+        table_id="doc:parsed-table:income",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-net-income-attr",
+                row_index=1,
+                label_raw="Profit attributable to owners of the parent",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="123",
+                        numeric_value=123.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-basic-eps",
+                row_index=2,
+                label_raw="Basic EPS",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="1.23",
+                        numeric_value=1.23,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-diluted-eps",
+                row_index=3,
+                label_raw="Diluted EPS",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=3,
+                        column_index=1,
+                        text_raw="1.11",
+                        numeric_value=1.11,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-finance-exp",
+                row_index=4,
+                label_raw="Finance costs",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=4,
+                        column_index=1,
+                        text_raw="45",
+                        numeric_value=45.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-total-profit",
+                row_index=5,
+                label_raw="Profit before tax",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=5,
+                        column_index=1,
+                        text_raw="200",
+                        numeric_value=200.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-income-tax",
+                row_index=6,
+                label_raw="Income tax expense",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=6,
+                        column_index=1,
+                        text_raw="30",
+                        numeric_value=30.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-minority-gain",
+                row_index=7,
+                label_raw="Profit attributable to non-controlling interests",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=7,
+                        column_index=1,
+                        text_raw="5",
+                        numeric_value=5.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+        ],
+        table_unit="million",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-income",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+    cash_flow_statement = ParsedTable(
+        table_id="doc:parsed-table:cashflow",
+        document_id="doc",
+        page_range=(2, 2),
+        table_kind="cash_flow_statement",
+        title_text="Consolidated Cash Flow Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-capex",
+                row_index=1,
+                label_raw="Payments for acquisition and construction of long-term assets",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="80",
+                        numeric_value=80.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-depr",
+                row_index=2,
+                label_raw=(
+                    "Depreciation of fixed assets oil and gas assets and "
+                    "productive biological assets"
+                ),
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="20",
+                        numeric_value=20.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-amort-intang",
+                row_index=3,
+                label_raw="Amortization of intangible assets",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=3,
+                        column_index=1,
+                        text_raw="5",
+                        numeric_value=5.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-amort-lt-deferred",
+                row_index=4,
+                label_raw="Amortization of long-term deferred expenses",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=4,
+                        column_index=1,
+                        text_raw="2",
+                        numeric_value=2.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-dividends-paid",
+                row_index=5,
+                label_raw="Cash paid for distribution of dividends or profits and interest expenses",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=5,
+                        column_index=1,
+                        text_raw="12",
+                        numeric_value=12.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-narrative-cfo",
+                row_index=6,
+                label_raw="Cash flows before changes in working capital",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=6,
+                        column_index=1,
+                        text_raw="999",
+                        numeric_value=999.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+        ],
+        table_unit="million",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-cashflow",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [income_statement, cash_flow_statement],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "",
+    )
+
+    payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+    candidate_metric_ids = {
+        fact["metric_id"]
+        for fact in payload["candidate_facts"]
+        if fact.get("extraction_method") == "table_semantics"
+    }
+    assert {
+        "n_income_attr_p",
+        "basic_eps",
+        "finance_exp",
+        "total_profit",
+        "income_tax",
+        "minority_gain",
+        "c_pay_acq_const_fiolta",
+        "depr_fa_coga_dpba",
+        "amort_intang_assets",
+        "lt_amort_deferred_exp",
+        "c_pay_dist_dpcp_int_exp",
+    } <= candidate_metric_ids
+    assert all(
+        fact["metric_label_raw"] != "Diluted EPS"
+        and fact["metric_label_raw"] != "Cash flows before changes in working capital"
+        for fact in payload["candidate_facts"]
+    )
+
+    result = analyze_report(
+        {
+            "document_id": "ignored.pdf",
+            "pdf_path": "ignored.pdf",
+            "pdf_url": None,
+            "market": "HK",
+            "language": payload["document_metadata"]["language"],
+            "metadata": payload["document_metadata"],
+        },
+        payload,
+    )
+
+    canonical_metric_ids = {fact.metric_id for fact in result.canonical_facts}
+    assert {
+        "n_income_attr_p",
+        "basic_eps",
+        "finance_exp",
+        "total_profit",
+        "income_tax",
+        "minority_gain",
+    } <= canonical_metric_ids
+    basic_eps = next(fact for fact in result.canonical_facts if fact.metric_id == "basic_eps")
+    assert basic_eps.normalized_unit == "per_share_amount"
+    assert basic_eps.extensions["value_type"] == "per_share"
+
+
 @pytest.mark.parametrize(
     ("stock_code", "filename"),
     [

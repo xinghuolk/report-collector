@@ -305,6 +305,7 @@ _DEFAULT_DEFINITIONS = (
             "capital expenditure cash outflow",
             "payments for acquisition of property, plant and equipment",
             "payments for acquisition of property, plant and equipment and intangible assets",
+            "payments for acquisition and construction of long-term assets",
         ),
         period_scope="duration",
         value_type="amount",
@@ -315,6 +316,7 @@ _DEFAULT_DEFINITIONS = (
             "HK": (
                 "payments for acquisition of property, plant and equipment",
                 "payments for acquisition of property, plant and equipment and intangible assets",
+                "payments for acquisition and construction of long-term assets",
             ),
         },
     ),
@@ -325,6 +327,7 @@ _DEFAULT_DEFINITIONS = (
         normalized_row_labels=(
             "depreciation of fixed assets",
             "depreciation of property, plant and equipment",
+            "depreciation of fixed assets oil and gas assets and productive biological assets",
         ),
         period_scope="duration",
         value_type="amount",
@@ -332,7 +335,10 @@ _DEFAULT_DEFINITIONS = (
         sign_rule="non_negative",
         aliases_by_market={
             "CN": ("固定资产折旧",),
-            "HK": ("depreciation of property, plant and equipment",),
+            "HK": (
+                "depreciation of property, plant and equipment",
+                "depreciation of fixed assets oil and gas assets and productive biological assets",
+            ),
         },
     ),
     MetricMappingDefinition(
@@ -383,6 +389,7 @@ _DEFAULT_DEFINITIONS = (
             "cash paid for dividends or interest",
             "dividends paid",
             "dividends and interest paid",
+            "cash paid for distribution of dividends or profits and interest expenses",
         ),
         period_scope="duration",
         value_type="amount",
@@ -390,7 +397,11 @@ _DEFAULT_DEFINITIONS = (
         sign_rule="non_negative",
         aliases_by_market={
             "CN": ("分配股利、利润或偿付利息支付的现金",),
-            "HK": ("dividends paid", "dividends and interest paid"),
+            "HK": (
+                "dividends paid",
+                "dividends and interest paid",
+                "cash paid for distribution of dividends or profits and interest expenses",
+            ),
         },
     ),
     MetricMappingDefinition(

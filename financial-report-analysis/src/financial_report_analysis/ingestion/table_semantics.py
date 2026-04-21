@@ -71,9 +71,11 @@ _ROW_LABEL_ALIASES: dict[str, str] = {
     "payments for acquisition of property plant and equipment": "capital expenditure cash outflow",
     "payments for acquisition of property, plant and equipment and intangible assets": "capital expenditure cash outflow",
     "payments for acquisition of property plant and equipment and intangible assets": "capital expenditure cash outflow",
+    "payments for acquisition and construction of long-term assets": "capital expenditure cash outflow",
     "购建固定资产、无形资产和其他长期资产支付的现金": "capital expenditure cash outflow",
     "depreciation of property, plant and equipment": "depreciation of fixed assets",
     "depreciation of property plant and equipment": "depreciation of fixed assets",
+    "depreciation of fixed assets oil and gas assets and productive biological assets": "depreciation of fixed assets",
     "固定资产折旧": "depreciation of fixed assets",
     "amortisation of intangible assets": "amortisation of intangible assets",
     "amortization of intangible assets": "amortisation of intangible assets",
@@ -84,6 +86,7 @@ _ROW_LABEL_ALIASES: dict[str, str] = {
     "dividends paid": "cash paid for dividends or interest",
     "dividends and interest paid": "cash paid for dividends or interest",
     "cash paid for dividends or interest": "cash paid for dividends or interest",
+    "cash paid for distribution of dividends or profits and interest expenses": "cash paid for dividends or interest",
     "分配股利、利润或偿付利息支付的现金": "cash paid for dividends or interest",
 }
 
