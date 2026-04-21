@@ -141,18 +141,22 @@ class FactNormalizer:
                 industry_slug=self._industry_slug(candidate),
                 parent_metric_id=self._parent_metric_id(candidate),
             )
+            resolved_metric_id = self._resolved_metric_id(
+                candidate=candidate,
+                resolved_metric_id=metric_entry.metric_id,
+            )
             normalized_value, normalized_currency, normalized_unit = self._normalize_value(
                 candidate=candidate,
-                metric_id=metric_entry.metric_id,
+                metric_id=resolved_metric_id,
             )
             normalized_extensions = dict(candidate.extensions)
-            if metric_entry.metric_id in _PER_SHARE_METRIC_IDS:
+            if resolved_metric_id in _PER_SHARE_METRIC_IDS:
                 normalized_extensions.setdefault("value_type", "per_share")
                 normalized_extensions.setdefault("unit_expectation", _PER_SHARE_UNIT)
             normalized_candidates.append(
                 replace(
                     candidate,
-                    metric_id=metric_entry.metric_id,
+                    metric_id=resolved_metric_id,
                     numeric_value=normalized_value,
                     currency=normalized_currency,
                     normalized_unit=normalized_unit,
@@ -168,8 +172,12 @@ class FactNormalizer:
         metric_id: str,
     ) -> tuple[float | int | None, str, str | None]:
         if self._is_per_share_candidate(candidate=candidate, metric_id=metric_id):
+            normalized_numeric_value = self._normalize_per_share_numeric_value(
+                numeric_value=candidate.numeric_value,
+                raw_unit=candidate.raw_unit,
+            )
             return (
-                candidate.numeric_value,
+                normalized_numeric_value,
                 candidate.currency,
                 str(candidate.extensions.get("unit_expectation") or _PER_SHARE_UNIT),
             )
@@ -194,6 +202,47 @@ class FactNormalizer:
             or value_type == "per_share"
             or unit_expectation == _PER_SHARE_UNIT
         )
+
+    @staticmethod
+    def _resolved_metric_id(*, candidate: CandidateFact, resolved_metric_id: str) -> str:
+        candidate_metric_id = str(candidate.metric_id or "").strip()
+        if (
+            candidate_metric_id
+            and not candidate_metric_id.startswith("custom::")
+            and not candidate_metric_id.startswith("raw_")
+        ):
+            return candidate_metric_id
+        return resolved_metric_id
+
+    @staticmethod
+    def _normalize_per_share_numeric_value(
+        *,
+        numeric_value: float | int | None,
+        raw_unit: str | None,
+    ) -> float | int | None:
+        if numeric_value is None or raw_unit is None:
+            return numeric_value
+
+        normalized_unit = raw_unit.strip().casefold()
+        normalized_unit = normalized_unit.replace(" ", "")
+        if any(
+            token in normalized_unit
+            for token in (
+                "cent/share",
+                "cents/share",
+                "centpershare",
+                "centspershare",
+                "hkcent/share",
+                "hkcents/share",
+                "hkcentpershare",
+                "hkcentspershare",
+                "港仙/股",
+                "仙/股",
+                "分/股",
+            )
+        ):
+            return numeric_value / 100.0
+        return numeric_value
 
     @staticmethod
     def _accounting_standard(candidate: CandidateFact) -> str:

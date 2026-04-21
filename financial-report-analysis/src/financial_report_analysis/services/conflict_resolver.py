@@ -5,16 +5,6 @@ from typing import Iterable
 
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 
-_API_VISIBLE_METRICS = {"n_income_attr_p", "basic_eps"}
-_PHASE1_CANONICAL_METRICS = {
-    "n_income_attr_p",
-    "basic_eps",
-    "finance_exp",
-    "total_profit",
-    "income_tax",
-    "minority_gain",
-}
-
 
 class ConflictResolver:
     def resolve(
@@ -62,7 +52,6 @@ class ConflictResolver:
                     evidence_bundle_id=winner.evidence_bundle_id,
                 )
             )
-        canonical_facts.sort(key=self._canonical_sort_key)
         return canonical_facts
 
     @staticmethod
@@ -116,20 +105,3 @@ class ConflictResolver:
         if semantic_source == "llm_fallback":
             return 1
         return 0
-
-    @staticmethod
-    def _canonical_sort_key(fact: CanonicalFact) -> tuple[int, int, int, str, str]:
-        if fact.metric_id in _API_VISIBLE_METRICS:
-            visibility_rank = 0
-        elif fact.metric_id in _PHASE1_CANONICAL_METRICS:
-            visibility_rank = 1
-        else:
-            visibility_rank = 2
-        resolution_score = fact.resolution_score if fact.resolution_score is not None else -1.0
-        return (
-            visibility_rank,
-            -int(fact.is_primary),
-            -int(round(resolution_score * 1000)),
-            fact.metric_id,
-            fact.period_id,
-        )

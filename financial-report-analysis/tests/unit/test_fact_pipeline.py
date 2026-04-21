@@ -226,6 +226,66 @@ def test_fact_pipeline_normalizes_basic_eps_as_per_share_metric() -> None:
     assert fact.extensions["unit_expectation"] == "per_share_amount"
 
 
+def test_fact_pipeline_preserves_deterministic_metric_id_when_label_alias_is_not_in_normalizer_table() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-capex",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=80.0,
+                metric_id="c_pay_acq_const_fiolta",
+                metric_label_raw="Payments for acquisition of property, plant and equipment",
+                statement_type="cash_flow_statement",
+                currency="HKD",
+                raw_unit="million",
+                extensions={
+                    "value_type": "amount",
+                    "unit_expectation": "currency_amount",
+                },
+            )
+        ]
+    )
+
+    fact = normalized[0]
+    assert fact.metric_id == "c_pay_acq_const_fiolta"
+    assert not fact.metric_id.startswith("custom::")
+    assert fact.numeric_value == 80_000_000.0
+    assert fact.normalized_unit == "HKD"
+
+
+def test_fact_pipeline_normalizes_basic_eps_from_cent_per_share_units() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-basic-eps-cents",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=123.0,
+                metric_id="basic_eps",
+                metric_label_raw="Basic EPS",
+                statement_type="income_statement",
+                currency="HKD",
+                raw_unit="HK cents/share",
+                extensions={
+                    "value_type": "per_share",
+                    "unit_expectation": "per_share_amount",
+                },
+            )
+        ]
+    )
+
+    fact = normalized[0]
+    assert fact.metric_id == "basic_eps"
+    assert fact.numeric_value == 1.23
+    assert fact.currency == "HKD"
+    assert fact.normalized_unit == "per_share_amount"
+
+
 def test_conflict_resolver_keeps_highest_priority_candidate() -> None:
     normalizer = FactNormalizer()
     resolver = ConflictResolver()
@@ -258,19 +318,19 @@ def test_conflict_resolver_keeps_highest_priority_candidate() -> None:
     assert canonical.evidence_bundle_id == "bundle-1"
 
 
-def test_conflict_resolver_prioritizes_api_visible_phase1_metrics() -> None:
+def test_conflict_resolver_keeps_business_key_order_without_phase_specific_reordering() -> None:
     normalizer = FactNormalizer()
     resolver = ConflictResolver()
 
     normalized = normalizer.normalize_candidates(
         [
             _candidate(
-                fact_id="candidate-custom",
+                fact_id="candidate-revenue",
                 period_id="2024FY",
                 source_rank_hint=1,
                 numeric_value=100.0,
-                metric_id="raw_metric",
-                metric_label_raw="Alpha metric",
+                metric_id="raw_revenue",
+                metric_label_raw="Revenue",
             ),
             _candidate(
                 fact_id="candidate-net-income",
@@ -303,10 +363,11 @@ def test_conflict_resolver_prioritizes_api_visible_phase1_metrics() -> None:
 
     canonical_facts = resolver.resolve(normalized)
 
-    assert {fact.metric_id for fact in canonical_facts[:2]} == {
+    assert [fact.metric_id for fact in canonical_facts] == [
         "basic_eps",
         "n_income_attr_p",
-    }
+        "revenue",
+    ]
     net_income_fact = next(fact for fact in canonical_facts if fact.metric_id == "n_income_attr_p")
     assert net_income_fact.extensions["semantic_source"] == "llm_fallback"
     assert net_income_fact.extensions["semantic_confidence"] == 0.72

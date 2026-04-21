@@ -4,6 +4,8 @@ from dataclasses import asdict, is_dataclass
 from collections.abc import Sequence
 from typing import Any, Mapping
 
+_API_VISIBLE_METRICS = {"n_income_attr_p", "basic_eps"}
+
 _KEY_FACT_FIELDS = {
     "fact_id",
     "metric_id",
@@ -42,9 +44,13 @@ class ReportAdapter:
         pipeline_result: Mapping[str, Any] | Any,
     ) -> dict[str, Any]:
         pipeline_data = self._to_mapping(pipeline_result)
-        canonical_facts = [
-            self._sanitize_fact(self._coerce_fact(fact), allowed_fields=_KEY_FACT_FIELDS)
+        canonical_fact_items = [
+            self._coerce_fact(fact)
             for fact in pipeline_data.get("canonical_facts", [])
+        ]
+        canonical_facts = [
+            self._sanitize_fact(fact, allowed_fields=_KEY_FACT_FIELDS)
+            for fact in canonical_fact_items
         ]
         derived_facts = [
             self._sanitize_fact(self._coerce_fact(fact), allowed_fields=_TTM_FACT_FIELDS)
@@ -63,7 +69,7 @@ class ReportAdapter:
             "derived_fact_set_id": pipeline_data["derived_fact_set_id"],
             "validation_report_id": pipeline_data["validation_report_id"],
             "quality_gate": quality_gate,
-            "key_facts": canonical_facts[:10],
+            "key_facts": self._select_key_facts(canonical_facts),
             "ttm_facts": [
                 fact for fact in derived_facts if fact.get("derivation_type") == "ttm"
             ],
@@ -126,6 +132,16 @@ class ReportAdapter:
             for key, value in fact.items()
             if key in allowed_fields
         }
+
+    @staticmethod
+    def _select_key_facts(canonical_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        prioritized = [
+            fact for fact in canonical_facts if fact.get("metric_id") in _API_VISIBLE_METRICS
+        ]
+        remainder = [
+            fact for fact in canonical_facts if fact.get("metric_id") not in _API_VISIBLE_METRICS
+        ]
+        return [*prioritized, *remainder][:10]
 
     @staticmethod
     def _quality_gate_from_validation_report(validation_report: Any) -> str:

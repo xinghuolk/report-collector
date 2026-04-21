@@ -102,6 +102,43 @@ def test_report_adapter_caps_key_facts_and_keeps_document() -> None:
     assert result["key_facts"][-1]["metric_id"] == "metric-9"
 
 
+def test_report_adapter_prioritizes_api_visible_metrics_without_mutating_canonical_order() -> None:
+    adapter = ReportAdapter()
+    pipeline_result = {
+        "canonical_fact_set_id": "doc-3b:canonical:v1",
+        "derived_fact_set_id": "doc-3b:derived:v1",
+        "validation_report_id": "doc-3b:validation:v1",
+        "quality_gate": "pass",
+        "canonical_facts": [
+            {"metric_id": f"metric-{index}", "numeric_value": float(index)}
+            for index in range(9)
+        ]
+        + [
+            {"metric_id": "n_income_attr_p", "numeric_value": 123.0},
+            {"metric_id": "basic_eps", "numeric_value": 1.23, "normalized_unit": "per_share_amount"},
+            {"metric_id": "metric-9", "numeric_value": 9.0},
+        ],
+        "derived_facts": [],
+        "validation_report": {"overall_status": "ok", "issues": []},
+    }
+
+    result = adapter.build_analysis_result(
+        document={"document_id": "doc-3b", "market": "HK"},
+        pipeline_result=pipeline_result,
+    )
+
+    assert [fact["metric_id"] for fact in result["key_facts"][:2]] == [
+        "n_income_attr_p",
+        "basic_eps",
+    ]
+    assert len(result["key_facts"]) == 10
+    assert [fact["metric_id"] for fact in pipeline_result["canonical_facts"][:3]] == [
+        "metric-0",
+        "metric-1",
+        "metric-2",
+    ]
+
+
 def test_report_adapter_preserves_pipeline_quality_gate() -> None:
     adapter = ReportAdapter()
 
