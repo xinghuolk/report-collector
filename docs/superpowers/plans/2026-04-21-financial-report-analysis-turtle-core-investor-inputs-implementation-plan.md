@@ -31,11 +31,11 @@
   - `uv run pytest tests/integration/test_analysis_api.py -k 'phase1_api_visible_metrics or runs_ingestion_path_for_pdf_input or extract_endpoint_runs_ingestion_path_for_pdf_input' -v`
   - `uv run pytest tests/integration/test_semantic_recovery_regressions.py -k 'phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise or pipeline_prefers_main_statement_provenance_when_source_ranks_tie' -v`
   - `uv run ruff check ...`
+- Real-PDF Ollama fallback performance blocker resolved by `docs/superpowers/plans/2026-04-21-real-pdf-ollama-fallback-gating-performance-fix-implementation-plan.md`; HK `09987` Q3 row-label fallback calls dropped from `124` to `11`, CN `601919` 2024 annual completed with `row_label = 2`, and the default real-PDF matrix now excludes Ollama nodes unless explicitly requested.
 
 当前仍未完成的部分：
 
 - 尚未按共享样本矩阵跑完真实 PDF 的 Phase 1 字段命中验证
-- 仍未包含耗时较长的 `ollama` / real-PDF semantic fallback 长测
 - 因此本计划当前状态应视为“主链路已实现并通过轻量回归”，而不是“已完成全部样本收口”
 
 ---

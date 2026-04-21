@@ -8,6 +8,18 @@
 
 **Tech Stack:** Python 3.12, dataclasses, pytest, Ruff, existing `financial_report_analysis` ingestion and semantic fallback stack, local Ollama HTTP API (`http://127.0.0.1:11434`, `qwen3.5:9b`), `scripts/run-real-pdf-matrix.sh`.
 
+## Closure Note
+
+Completed on `2026-04-21`.
+
+- HK `09987/quarterly/2025_quarterly_q3_en.pdf` row-label fallback calls: `124` before -> `11` after.
+- HK probe after fix: `{'table_kind': 3, 'row_label': 11, 'currency': 0, 'unit': 0}`, `budget_exhausted=False`, `candidate_facts=4`, `parsed_tables=3`.
+- CN `601919/annual/2024_年度报告.pdf` status: completed serial probe within the 600s timeout; output `{'table_kind': 22, 'row_label': 2, 'currency': 0, 'unit': 0}`, `budget_exhausted=False`, `candidate_facts=8`, `parsed_tables=22`.
+- Real-PDF Ollama opt-in node: `uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_q3_real_pdf_keeps_row_label_fallback_bounded -v -s` passed in `22.64s`.
+- Default real-PDF matrix: `PER_TEST_TIMEOUT_SECONDS=600 scripts/run-real-pdf-matrix.sh -s` passed `43` nodes with marker `real_pdf and not ollama and not external`.
+- Matrix collection guard: default `scripts/run-real-pdf-matrix.sh --list` excludes the Ollama node; `REAL_PDF_MARK_EXPR='real_pdf and ollama' scripts/run-real-pdf-matrix.sh --list` lists only `test_hk_09987_q3_real_pdf_keeps_row_label_fallback_bounded`.
+- Remaining risks: fallback anchor `sales` remains intentionally broad for `Business sales` / `Net sales`; add specific blocklist cases if real filings expose non-revenue sales labels beyond `cost of sales` / `cost of revenue`.
+
 ---
 
 ## Related Context
