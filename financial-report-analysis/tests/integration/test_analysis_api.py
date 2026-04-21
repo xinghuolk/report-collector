@@ -627,6 +627,8 @@ def test_pdf_ingestion_applies_row_label_fallback_for_unmapped_normalized_label(
     assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
 
 
+@pytest.mark.ollama
+@pytest.mark.external
 def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(
     monkeypatch,
 ) -> None:
@@ -1140,6 +1142,7 @@ def test_pdf_ingestion_prefers_income_statement_over_key_metrics_growth_rows(
     assert payload["candidate_facts"][0]["statement_type"] == "income_statement"
     assert payload["candidate_facts"][0]["metric_label_raw"] == "Operating Revenue"
     assert payload["candidate_facts"][0]["numeric_value"] == 1234.0
+    assert payload["candidate_facts"][0]["extensions"]["table_kind"] == "income_statement"
     assert payload["candidate_facts"][0]["raw_unit"] == "thousand"
 
 
@@ -1313,6 +1316,8 @@ def test_pdf_ingestion_does_not_silence_unexpected_table_parser_errors(
         )
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_extract_endpoint_accepts_cn_annual_sample_pdf() -> None:
     sample_pdf = _resolve_cn_annual_sample()
     if sample_pdf is None or not sample_pdf.exists():
@@ -1345,6 +1350,8 @@ def test_extract_endpoint_accepts_cn_annual_sample_pdf() -> None:
         ("688008", "2025_年度报告.pdf"),
     ],
 )
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_extract_endpoint_accepts_cn_annual_reference_pdfs(
     stock_code: str,
     filename: str,
@@ -1378,6 +1385,8 @@ def test_extract_endpoint_accepts_cn_annual_reference_pdfs(
     assert payload["key_facts"]
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
     sample_pdf = _resolve_cn_annual_sample()
     if sample_pdf is None or not sample_pdf.exists():
@@ -1416,6 +1425,8 @@ def test_extract_endpoint_includes_parsed_tables_for_cn_sample() -> None:
         ("09987", "2025_annual_en.pdf"),
     ],
 )
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_extract_endpoint_accepts_hk_annual_anchor_pdfs(
     stock_code: str,
     filename: str,
@@ -1653,6 +1664,338 @@ def test_extract_endpoint_promotes_income_statement_core_metrics_to_key_facts(
     }
 
 
+def test_extract_endpoint_promotes_cash_flow_primary_sections_to_key_facts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:cash-flow-core",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="cash_flow_statement",
+        title_text="Consolidated Statement of Cash Flows",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-operating",
+                row_index=1,
+                label_raw="Net cash generated from operating activities",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="500",
+                        numeric_value=500.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-investing",
+                row_index=2,
+                label_raw="Net cash from investing activities",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="-200",
+                        numeric_value=-200.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-financing",
+                row_index=3,
+                label_raw="Net cash from financing activities",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=3,
+                        column_index=1,
+                        text_raw="-100",
+                        numeric_value=-100.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "2024 Annual Report Cash flows 9,999 RMB'000",
+    )
+
+    pdf_path = tmp_path / "cash-flow-core.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "pass"
+    assert {fact["metric_id"] for fact in payload["key_facts"]} >= {
+        "operating_cash_flow",
+        "investing_cash_flow",
+        "financing_cash_flow",
+    }
+
+
+def test_extract_endpoint_promotes_gross_profit_to_key_facts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:gross-profit",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-gross-profit",
+                row_index=1,
+                label_raw="Gross profit for the period",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="456",
+                        numeric_value=456.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "2024 Annual Report Gross profit 456 HKD'000",
+    )
+
+    pdf_path = tmp_path / "gross-profit.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "pass"
+    assert {fact["metric_id"] for fact in payload["key_facts"]} == {"gross_profit"}
+
+
+def test_extract_endpoint_promotes_equity_metrics_to_key_facts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:equity",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="balance_sheet",
+        title_text="Consolidated Statement of Financial Position",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-equity",
+                row_index=1,
+                label_raw="所有者权益合计",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="3,500",
+                        numeric_value=3500.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-attributable-equity",
+                row_index=2,
+                label_raw="归属于母公司所有者权益",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="3,100",
+                        numeric_value=3100.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-equity-ratio",
+                row_index=3,
+                label_raw="权益比率",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=3,
+                        column_index=1,
+                        text_raw="43%",
+                        numeric_value=43.0,
+                        page_index=1,
+                    )
+                ],
+            ),
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="point",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "2024 Annual Report HK$3,500 HK$'000",
+    )
+
+    pdf_path = tmp_path / "equity.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "HK",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["quality_gate"] == "pass"
+    assert {fact["metric_id"] for fact in payload["key_facts"]} == {
+        "equity",
+        "equity_attributable_to_owners",
+    }
+    assert all(fact["statement_type"] == "balance_sheet" for fact in payload["key_facts"])
+    assert all(fact["entity_scope"] == "consolidated" for fact in payload["key_facts"])
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_extract_endpoint_accepts_cn_quarterly_sample_pdf() -> None:
     sample_pdf = _resolve_cn_quarterly_sample()
     if sample_pdf is None or not sample_pdf.exists():
@@ -1675,6 +2018,8 @@ def test_extract_endpoint_accepts_cn_quarterly_sample_pdf() -> None:
     assert payload["key_facts"]
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_extract_endpoint_marks_hk_non_english_input_as_unsupported_review() -> None:
     sample_pdf = _resolve_hk_non_english_sample()
     if not sample_pdf.exists():

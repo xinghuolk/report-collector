@@ -13,12 +13,45 @@ from financial_report_analysis.models import (
 
 _SUPPRESSED_SUMMARY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(growth|margin|ratio)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(free cash flow|cash flow trend|cash flow variance|cash flow ratio)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bper share\b", re.IGNORECASE),
+    re.compile(r"\bbook value\b", re.IGNORECASE),
+    re.compile(r"\bnet increase(?:/decrease)? in cash(?: and cash equivalents)?\b", re.IGNORECASE),
+    re.compile(r"\bsubtotal\b", re.IGNORECASE),
     re.compile(r"(增长率|增长|比率|利润率|毛利率)"),
+    re.compile(r"小计"),
+    re.compile(r"每股"),
 )
 
 _ROW_LABEL_ALIASES: dict[str, str] = {
     "cost of sales": "operating cost",
     "cost of revenue": "operating cost",
+    "gross profit for the period": "gross profit",
+    "gross profit attributable to operations": "gross profit",
+    "net cash from operating activities": "operating cash flow",
+    "net cash generated from operating activities": "operating cash flow",
+    "net cash used in operating activities": "operating cash flow",
+    "经营活动产生的现金流量净额": "operating cash flow",
+    "net cash generated from investing activities": "investing cash flow",
+    "net cash from investing activities": "investing cash flow",
+    "net cash used in investing activities": "investing cash flow",
+    "投资活动产生的现金流量净额": "investing cash flow",
+    "net cash generated from financing activities": "financing cash flow",
+    "net cash from financing activities": "financing cash flow",
+    "net cash used in financing activities": "financing cash flow",
+    "筹资活动产生的现金流量净额": "financing cash flow",
+    "毛利润": "gross profit",
+    "毛利": "gross profit",
+    "营业毛利": "gross profit",
+    "equity attributable to owners of the parent": "equity attributable to owners of the parent",
+    "equity attributable to equity holders of the company": "equity attributable to equity holders of the company",
+    "所有者权益合计": "equity",
+    "股东权益合计": "equity",
+    "归属于母公司股东权益": "equity attributable to owners of the parent",
+    "归属于母公司所有者权益": "equity attributable to owners of the parent",
     "profit attributable to equity holders": "net profit",
     "profit attributable to shareholders": "net profit",
 }
@@ -109,10 +142,22 @@ def _normalize_label(raw_label: str) -> str | None:
 
     # Keep ratio / growth style rows fact-agnostic so they do not compete with
     # core statement metrics in summary or key-metrics tables.
+    if _is_summary_style_core_metric_row(normalized):
+        return None
     if any(pattern.search(normalized) for pattern in _SUPPRESSED_SUMMARY_PATTERNS):
         return None
 
     return _ROW_LABEL_ALIASES.get(normalized, normalized)
+
+
+def _is_summary_style_core_metric_row(normalized_label: str) -> bool:
+    summary_match = re.fullmatch(
+        r"(revenue|gross profit|operating profit|net profit)\s+summary",
+        normalized_label,
+    )
+    if summary_match is not None:
+        return True
+    return normalized_label == "summary"
 
 
 def _normalized_semantic_value(value: str | None) -> str:

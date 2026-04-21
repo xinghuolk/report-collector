@@ -66,14 +66,42 @@ class ConflictResolver:
         )
 
     @staticmethod
-    def _priority_key(candidate: CandidateFact) -> tuple[int, float, int, str]:
+    def _priority_key(
+        candidate: CandidateFact,
+    ) -> tuple[int, int, int, float, int, str]:
         source_rank_hint = candidate.source_rank_hint
         rank = source_rank_hint if source_rank_hint is not None else -1
+        statement_rank = ConflictResolver._statement_rank(candidate)
+        semantic_rank = ConflictResolver._semantic_rank(candidate)
         confidence = candidate.confidence if candidate.confidence is not None else -1.0
-        return (rank, confidence, -candidate.page_index, candidate.fact_id)
+        return (rank, statement_rank, semantic_rank, confidence, -candidate.page_index, candidate.fact_id)
 
     @staticmethod
     def _resolution_score(candidate: CandidateFact) -> float:
         rank = candidate.source_rank_hint if candidate.source_rank_hint is not None else 0
+        statement_rank = ConflictResolver._statement_rank(candidate)
+        semantic_rank = ConflictResolver._semantic_rank(candidate)
         confidence = candidate.confidence if candidate.confidence is not None else 0.0
-        return confidence + float(rank)
+        return confidence + float(rank) + (statement_rank / 100.0) + (semantic_rank / 1000.0)
+
+    @staticmethod
+    def _statement_rank(candidate: CandidateFact) -> int:
+        table_kind = str(candidate.extensions.get("table_kind") or candidate.statement_type)
+        if table_kind == "income_statement":
+            return 40
+        if table_kind == "cash_flow_statement":
+            return 30
+        if table_kind == "balance_sheet":
+            return 20
+        if table_kind in {"key_metrics", "metrics"}:
+            return 10
+        return 0
+
+    @staticmethod
+    def _semantic_rank(candidate: CandidateFact) -> int:
+        semantic_source = str(candidate.extensions.get("semantic_source") or "")
+        if semantic_source == "deterministic":
+            return 2
+        if semantic_source == "llm_fallback":
+            return 1
+        return 0

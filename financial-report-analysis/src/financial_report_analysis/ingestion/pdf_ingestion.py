@@ -221,6 +221,7 @@ class PdfIngestionAdapter:
                 currency=table.table_currency or self._detect_currency(context, market),
                 raw_unit=table.table_unit or self._detect_raw_unit(context),
                 statement_type=table.table_kind if table.table_kind != "key_metrics" else "metrics",
+                table_kind=table.table_kind,
                 page_index=value_cell.page_index or table.page_range[0],
                 table_coord=(value_cell.row_index, value_cell.column_index),
                 extraction_method="table_structure",
@@ -256,6 +257,7 @@ class PdfIngestionAdapter:
             currency=self._detect_currency(revenue_context, market),
             raw_unit=self._detect_raw_unit(revenue_context),
             statement_type="income_statement",
+            table_kind="text_regex",
             page_index=0,
             table_coord=None,
             extraction_method="pdf_text_regex",
@@ -275,6 +277,7 @@ class PdfIngestionAdapter:
         currency: str,
         raw_unit: str | None,
         statement_type: str,
+        table_kind: str | None,
         page_index: int,
         table_coord: tuple[int, int] | None,
         extraction_method: str,
@@ -302,6 +305,7 @@ class PdfIngestionAdapter:
             "extensions": {
                 "market": market or "CN",
                 "accounting_standard": "OTHER",
+                "table_kind": table_kind,
             },
             "document_id": document_id,
             "block_id": f"{document_id}:block:1",
@@ -765,7 +769,11 @@ class PdfIngestionAdapter:
             return False
         return (
             re.search(r"\b(growth|margin|ratio)\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\bper share\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\bbook value\b", normalized, re.IGNORECASE) is not None
             or re.search(r"(增长率|增长|比率|利润率|毛利率)", normalized) is not None
+            or re.search(r"每股", normalized) is not None
+            or re.search(r"小计", normalized) is not None
         )
 
     @staticmethod

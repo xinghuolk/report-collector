@@ -260,6 +260,96 @@ def test_cn_annual_row_label_normalization_strips_numbering_prefixes() -> None:
     assert semantics.rows[0].semantic_source == "deterministic"
 
 
+def test_balance_sheet_equity_rows_normalize_to_separate_metrics() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:equity",
+            document_id="doc",
+            page_range=(14, 14),
+            table_kind="balance_sheet",
+            title_text="Consolidated Statement of Financial Position",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-equity",
+                    row_index=1,
+                    label_raw="所有者权益合计",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-attributable-equity",
+                    row_index=2,
+                    label_raw="归属于母公司股东权益",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-equity-ratio",
+                    row_index=3,
+                    label_raw="权益比率",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-per-share",
+                    row_index=4,
+                    label_raw="每股净资产",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-book-value",
+                    row_index=5,
+                    label_raw="book value per share",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label == "equity"
+    assert semantics.rows[1].normalized_row_label == "equity attributable to owners of the parent"
+    assert semantics.rows[2].normalized_row_label is None
+    assert semantics.rows[3].normalized_row_label is None
+    assert semantics.rows[4].normalized_row_label is None
+
+
+def test_balance_sheet_english_attributable_equity_maps_to_registered_phrase() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:equity-en",
+            document_id="doc",
+            page_range=(15, 15),
+            table_kind="balance_sheet",
+            title_text="Consolidated Statement of Financial Position",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-attributable-equity",
+                    row_index=1,
+                    label_raw="Equity attributable to owners of the parent",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-attributable-equity-alt",
+                    row_index=2,
+                    label_raw="Equity attributable to equity holders of the company",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "equity attributable to owners of the parent",
+        "equity attributable to equity holders of the company",
+    ]
+
+
 def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -292,6 +382,196 @@ def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
         "operating cost",
         "operating cost",
     ]
+
+
+def test_normalize_table_semantics_maps_gross_profit_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:gross-profit",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="Gross profit for the period",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-2",
+                    row_index=2,
+                    label_raw="毛利润",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "gross profit",
+        "gross profit",
+    ]
+
+
+def test_normalize_table_semantics_maps_cash_flow_primary_section_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:cash-flow-primary",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="cash_flow_statement",
+            title_text="Consolidated Statement of Cash Flows",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-operating",
+                    row_index=1,
+                    label_raw="Net cash generated from operating activities",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-investing",
+                    row_index=2,
+                    label_raw="net cash from investing activities",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-financing",
+                    row_index=3,
+                    label_raw="net cash from financing activities",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "operating cash flow",
+        "investing cash flow",
+        "financing cash flow",
+    ]
+
+
+def test_normalize_table_semantics_suppresses_gross_profit_summary_rows() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:gross-profit-summary",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="Gross profit summary",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [None]
+
+
+def test_normalize_table_semantics_suppresses_cash_flow_false_positive_rows() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:cash-flow-false-positives",
+            document_id="doc",
+            page_range=(18, 18),
+            table_kind="cash_flow_statement",
+            title_text="Consolidated Statement of Cash Flows",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-free-cash-flow",
+                    row_index=1,
+                    label_raw="Free cash flow",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-net-increase",
+                    row_index=2,
+                    label_raw="Net increase/decrease in cash and cash equivalents",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-ratio",
+                    row_index=3,
+                    label_raw="Cash flow ratio",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-trend",
+                    row_index=4,
+                    label_raw="Cash flow trend",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-other-trend",
+                    row_index=5,
+                    label_raw="Revenue trend",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-subtotal",
+                    row_index=6,
+                    label_raw="小计",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        None,
+        None,
+        None,
+        None,
+        "revenue trend",
+        None,
+    ]
+
+
+def test_normalize_table_semantics_keeps_non_metric_summary_labels() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:non-metric-summary",
+            document_id="doc",
+            page_range=(17, 17),
+            table_kind="balance_sheet",
+            title_text="Consolidated Statement of Financial Position",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-1",
+                    row_index=1,
+                    label_raw="Annual summary of operations",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label == "annual summary of operations"
 
 
 def test_normalize_table_semantics_suppresses_growth_and_ratio_rows() -> None:

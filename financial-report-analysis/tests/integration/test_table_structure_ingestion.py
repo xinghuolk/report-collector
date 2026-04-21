@@ -31,6 +31,8 @@ def _hk_annual_anchor(stock_code: str, filename: str) -> Path:
     return _sample_pdf("hk_stocks", stock_code, "annual", filename)
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_cn_primary_annual_anchor_exposes_income_statement_and_balance_sheet() -> None:
     adapter = PdfTableStructureAdapter()
 
@@ -68,6 +70,8 @@ def test_cn_primary_annual_anchor_exposes_income_statement_and_balance_sheet() -
         ),
     ],
 )
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_anchors_expose_non_empty_statement_rows(
     stock_code: str,
     filename: str,
@@ -95,6 +99,8 @@ def test_hk_annual_anchors_expose_non_empty_statement_rows(
         assert not income_tables
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_quarter_sample_exposes_non_empty_period_columns() -> None:
     adapter = PdfTableStructureAdapter()
 

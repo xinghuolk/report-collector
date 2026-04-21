@@ -15,6 +15,11 @@ def test_semantic_fallback_models_expose_expected_output_sets() -> None:
         "key_metrics",
         "unknown",
     )
+    assert "gross_profit" in supported_row_label_outputs()
+    assert "equity" in supported_row_label_outputs()
+    assert "equity_attributable_to_owners" in supported_row_label_outputs()
+    assert "investing_cash_flow" in supported_row_label_outputs()
+    assert "financing_cash_flow" in supported_row_label_outputs()
     assert supported_row_label_outputs()[-1] == "none"
 
 

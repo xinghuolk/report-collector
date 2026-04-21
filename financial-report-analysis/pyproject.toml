@@ -32,3 +32,9 @@ dev-dependencies = [
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = ["-v"]
+markers = [
+    "real_pdf: tests that parse real downloaded PDF samples; run separately from fast regression suites",
+    "slow: tests that are expected to take substantially longer than normal unit/integration tests",
+    "ollama: tests that require a live local Ollama model",
+    "external: tests that depend on a local or external service outside pytest",
+]

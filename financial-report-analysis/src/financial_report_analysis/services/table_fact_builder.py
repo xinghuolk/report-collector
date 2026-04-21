@@ -76,6 +76,7 @@ def _build_candidate_payload(
         "extensions": {
             "market": market,
             "accounting_standard": "OTHER",
+            "table_kind": table.table_kind,
             "statement_scope_guess": table.statement_scope_guess,
             "semantic_source": semantic_source,
             "semantic_confidence": semantic_confidence,

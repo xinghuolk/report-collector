@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ from financial_report_analysis.ingestion import (
     PdfTableStructureAdapter,
     normalize_table_semantics,
 )
+from financial_report_analysis.models import ParsedRow, ParsedTable
+from financial_report_analysis.pipeline import analyze_report
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -25,6 +28,8 @@ def _resolve_sample(*relative_parts: str) -> Path:
     raise AssertionError(f"Sample PDF not found for {relative_parts}")
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_semantics_preserve_statement_scope_and_ambiguity() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
     tables = PdfTableStructureAdapter().extract_tables(
@@ -41,6 +46,8 @@ def test_hk_annual_semantics_preserve_statement_scope_and_ambiguity() -> None:
     assert semantics.semantic_ambiguity_reason in {None, "numeric_only_statement_block"}
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_cn_annual_semantics_expose_normalized_row_labels() -> None:
     pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2024_年度报告.pdf")
     tables = PdfTableStructureAdapter().extract_tables(
@@ -65,6 +72,8 @@ def test_cn_annual_semantics_expose_normalized_row_labels() -> None:
         ("688008", "2025_年度报告.pdf"),
     ],
 )
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_cn_annual_reference_semantics_preserve_deterministic_provenance(
     stock_code: str,
     filename: str,
@@ -85,6 +94,8 @@ def test_cn_annual_reference_semantics_preserve_deterministic_provenance(
     assert semantics.currency_semantic_source == "deterministic"
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
     ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
@@ -119,6 +130,8 @@ def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
     )
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
     pdf_path = _resolve_sample("hk_stocks", "09987", "quarterly", "2025_quarterly_q3_en.pdf")
     client = TestClient(create_app())
@@ -147,6 +160,8 @@ def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
     )
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_anchor_preserves_deterministic_unit_currency_provenance() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
     ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
@@ -170,6 +185,8 @@ def test_hk_annual_anchor_preserves_deterministic_unit_currency_provenance() -> 
     )
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_2025_anchor_preserves_deterministic_unit_currency_provenance() -> None:
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
     ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
@@ -188,6 +205,8 @@ def test_hk_annual_2025_anchor_preserves_deterministic_unit_currency_provenance(
     )
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> None:
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
     tables = PdfTableStructureAdapter().extract_tables(
@@ -216,6 +235,210 @@ def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> No
     )
 
 
+def test_pipeline_prefers_main_statement_provenance_when_source_ranks_tie(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+
+    table_fact_builder = importlib.import_module(
+        "financial_report_analysis.services.table_fact_builder"
+    )
+    monkeypatch.setattr(table_fact_builder, "_source_rank_hint", lambda table_kind: 10)
+
+    income_statement = ParsedTable(
+        table_id="doc:parsed-table:income",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-income-revenue",
+                row_index=1,
+                label_raw="Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-income",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+    metrics_table = ParsedTable(
+        table_id="doc:parsed-table:metrics",
+        document_id="doc",
+        page_range=(2, 2),
+        table_kind="metrics",
+        title_text="Key Financial Metrics",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-metrics-revenue",
+                row_index=1,
+                label_raw="Revenue",
+                normalized_label_hint="revenue",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="9,999",
+                        numeric_value=9999.0,
+                        page_index=2,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-metrics-growth",
+                row_index=2,
+                label_raw="Revenue growth",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="18.5",
+                        numeric_value=18.5,
+                        page_index=2,
+                    )
+                ],
+            ),
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-metrics",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+    secondary_table = ParsedTable(
+        table_id="doc:parsed-table:secondary",
+        document_id="doc",
+        page_range=(3, 3),
+        table_kind="key_metrics",
+        title_text="Key Financial Summary",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-secondary-summary",
+                row_index=1,
+                label_raw="Operating profit margin",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="12.0",
+                        numeric_value=12.0,
+                        page_index=3,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-secondary",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [metrics_table, secondary_table, income_statement],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text",
+        lambda self, **kwargs: "",
+    )
+
+    payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+    result = analyze_report(
+        {
+            "document_id": "ignored.pdf",
+            "pdf_path": "ignored.pdf",
+            "pdf_url": None,
+            "market": "HK",
+            "language": payload["document_metadata"]["language"],
+            "metadata": payload["document_metadata"],
+        },
+        payload,
+    )
+
+    revenue_candidates = [
+        fact for fact in payload["candidate_facts"] if fact["metric_id"] == "revenue"
+    ]
+    assert len(revenue_candidates) == 2
+    assert all(
+        fact["extensions"]["table_kind"] in {"income_statement", "metrics"}
+        for fact in revenue_candidates
+    )
+    assert all(
+        "growth" not in fact["metric_label_raw"].lower()
+        for fact in payload["candidate_facts"]
+    )
+
+    assert len(result.canonical_facts) == 1
+    canonical = result.canonical_facts[0]
+    assert canonical.metric_id == "revenue"
+    assert canonical.numeric_value == 1_234_000.0
+    assert canonical.extensions["table_kind"] == "income_statement"
+    assert canonical.extensions["semantic_source"] == "deterministic"
+
+
 @pytest.mark.parametrize(
     ("stock_code", "filename"),
     [
@@ -223,6 +446,8 @@ def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> No
         ("09987", "2025_annual_en.pdf"),
     ],
 )
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_anchor_candidate_facts_do_not_map_growth_margin_ratio_rows(
     stock_code: str,
     filename: str,
@@ -242,3 +467,52 @@ def test_hk_anchor_candidate_facts_do_not_map_growth_margin_ratio_rows(
         for fact in ingestion_payload["candidate_facts"]
         if fact["metric_id"] in {"revenue", "operating_cost", "operating_profit", "net_profit"}
     )
+
+
+def test_balance_sheet_equity_semantics_preserve_scope_and_filter_false_positives() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:equity-regression",
+            document_id="doc",
+            page_range=(4, 4),
+            table_kind="balance_sheet",
+            title_text="Consolidated Statement of Financial Position",
+            statement_scope_guess="consolidated",
+            table_unit="thousand",
+            table_currency="HKD",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-equity",
+                    row_index=1,
+                    label_raw="总权益",
+                    normalized_label_hint="equity",
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-attributable-equity",
+                    row_index=2,
+                    label_raw="归属于母公司股东权益",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-book-value",
+                    row_index=3,
+                    label_raw="book value per share",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert semantics.statement_scope_guess == "consolidated"
+    assert semantics.semantic_source == "deterministic"
+    assert semantics.unit_semantic_source == "deterministic"
+    assert semantics.currency_semantic_source == "deterministic"
+    assert semantics.rows[0].normalized_row_label == "equity"
+    assert (
+        semantics.rows[1].normalized_row_label
+        == "equity attributable to owners of the parent"
+    )
+    assert semantics.rows[2].normalized_row_label is None

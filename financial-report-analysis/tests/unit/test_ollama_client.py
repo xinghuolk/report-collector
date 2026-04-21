@@ -75,6 +75,126 @@ def test_ollama_client_bounds_invalid_row_label_output_to_none(monkeypatch) -> N
     assert result.value == "none"
 
 
+def test_ollama_client_prompts_for_gross_profit_row_labels(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        captured["json"] = json
+        del url, timeout
+        return _FakeResponse({"response": '{"value": "gross_profit", "confidence": 0.93}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.normalize_row_label(
+        RowLabelFallbackRequest(
+            raw_label="Gross profit for the period",
+            table_kind="income_statement",
+            local_context="statement snippet",
+            deterministic_candidates=(),
+            ambiguity_reason="unknown_row_label",
+        )
+    )
+
+    prompt = str(captured["json"]["prompt"])
+    assert "gross_profit" in prompt
+    assert "gross profit for the period" in prompt
+    assert result.value == "gross_profit"
+    assert result.semantic_confidence == 0.93
+
+
+def test_ollama_client_treats_summary_style_gross_profit_rows_as_none(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        captured["json"] = json
+        del url, timeout
+        return _FakeResponse({"response": '{"value": "none", "confidence": 0.91}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.normalize_row_label(
+        RowLabelFallbackRequest(
+            raw_label="Gross profit summary",
+            table_kind="income_statement",
+            local_context="summary section",
+            deterministic_candidates=(),
+            ambiguity_reason="unknown_row_label",
+        )
+    )
+
+    prompt = str(captured["json"]["prompt"])
+    assert "summary-style rows" in prompt
+    assert result.value == "none"
+    assert result.semantic_confidence == 0.91
+
+
+def test_ollama_client_prompts_for_equity_row_labels(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        captured["json"] = json
+        del url, timeout
+        return _FakeResponse({"response": '{"value": "equity", "confidence": 0.94}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.normalize_row_label(
+        RowLabelFallbackRequest(
+            raw_label="Total equity",
+            table_kind="balance_sheet",
+            local_context="statement snippet",
+            deterministic_candidates=(),
+            ambiguity_reason="unknown_row_label",
+        )
+    )
+
+    prompt = str(captured["json"]["prompt"])
+    assert "equity_attributable_to_owners" in prompt
+    assert "total equity" in prompt
+    assert result.value == "equity"
+    assert result.semantic_confidence == 0.94
+
+
+def test_ollama_client_prompts_for_cash_flow_row_labels(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        captured["json"] = json
+        del url, timeout
+        return _FakeResponse({"response": '{"value": "financing_cash_flow", "confidence": 0.92}'})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.normalize_row_label(
+        RowLabelFallbackRequest(
+            raw_label="Net cash used in financing activities",
+            table_kind="cash_flow_statement",
+            local_context="statement snippet",
+            deterministic_candidates=(),
+            ambiguity_reason="unknown_row_label",
+        )
+    )
+
+    prompt = str(captured["json"]["prompt"])
+    assert "operating_cash_flow" in prompt
+    assert "investing_cash_flow" in prompt
+    assert "financing_cash_flow" in prompt
+    assert "free cash flow" in prompt
+    assert "net increase/decrease in cash and cash equivalents" in prompt
+    assert "net cash from investing activities" in prompt
+    assert "net cash from financing activities" in prompt
+    assert "每股" in prompt
+    assert "小计" in prompt
+    assert result.value == "financing_cash_flow"
+    assert result.semantic_confidence == 0.92
+
+
 def test_ollama_client_bounds_invalid_currency_output_to_unknown(monkeypatch) -> None:
     def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
         del url, json, timeout

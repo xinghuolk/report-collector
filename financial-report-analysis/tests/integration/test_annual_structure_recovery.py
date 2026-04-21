@@ -7,6 +7,9 @@ import pytest
 from financial_report_analysis.ingestion import PdfTableStructureAdapter
 
 
+pytestmark = [pytest.mark.real_pdf, pytest.mark.slow]
+
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAIN_REPO_ROOT = REPO_ROOT.parent.parent
 

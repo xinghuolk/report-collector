@@ -14,11 +14,16 @@ _TABLE_KIND_OUTPUTS = (
 _ROW_LABEL_OUTPUTS = (
     "revenue",
     "operating_profit",
+    "gross_profit",
     "net_profit",
     "operating_cash_flow",
+    "investing_cash_flow",
+    "financing_cash_flow",
     "cash",
     "total_assets",
     "total_liabilities",
+    "equity",
+    "equity_attributable_to_owners",
     "none",
 )
 

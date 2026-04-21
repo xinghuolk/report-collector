@@ -91,6 +91,29 @@ REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
     OllamaRowLabelProbeCase(
         market="HK",
         report_family="annual",
+        table_kind="balance_sheet",
+        title_text="Consolidated Statement of Financial Position",
+        raw_label="Total equity",
+        local_context="Consolidated Statement of Financial Position\nTotal equity",
+        expected_value="equity",
+        expectation_type="positive",
+    ),
+    OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
+        table_kind="balance_sheet",
+        title_text="Consolidated Statement of Financial Position",
+        raw_label="Equity attributable to owners of the parent",
+        local_context=(
+            "Consolidated Statement of Financial Position\n"
+            "Equity attributable to owners of the parent"
+        ),
+        expected_value="equity_attributable_to_owners",
+        expectation_type="positive",
+    ),
+    OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
         table_kind="cash_flow_statement",
         title_text="Consolidated Statement of Cash Flows",
         raw_label="Net cash from operating activities",
@@ -99,6 +122,29 @@ REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
             "Net cash from operating activities"
         ),
         expected_value="operating_cash_flow",
+        expectation_type="positive",
+    ),
+    OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
+        table_kind="cash_flow_statement",
+        title_text="Consolidated Statement of Cash Flows",
+        raw_label="Net cash from investing activities",
+        local_context=(
+            "Consolidated Statement of Cash Flows\n"
+            "Net cash from investing activities"
+        ),
+        expected_value="investing_cash_flow",
+        expectation_type="positive",
+    ),
+    OllamaRowLabelProbeCase(
+        market="CN",
+        report_family="annual",
+        table_kind="cash_flow_statement",
+        title_text="合并现金流量表",
+        raw_label="Net cash from financing activities",
+        local_context="Consolidated Statement of Cash Flows\nNet cash from financing activities",
+        expected_value="financing_cash_flow",
         expectation_type="positive",
     ),
     OllamaRowLabelProbeCase(
@@ -136,8 +182,31 @@ REAL_REPORT_ROW_LABEL_PROBE_CASES: tuple[OllamaRowLabelProbeCase, ...] = (
         report_family="annual",
         table_kind="income_statement",
         title_text="Consolidated Statement of Profit or Loss",
+        raw_label="Gross profit for the period",
+        local_context=(
+            "Consolidated Statement of Profit or Loss\n"
+            "Gross profit for the period"
+        ),
+        expected_value="gross_profit",
+        expectation_type="positive",
+    ),
+    OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
+        table_kind="income_statement",
+        title_text="Consolidated Statement of Profit or Loss",
         raw_label="Gross margin",
         local_context="Consolidated Statement of Profit or Loss\nGross margin",
+        expected_value="none",
+        expectation_type="negative",
+    ),
+    OllamaRowLabelProbeCase(
+        market="HK",
+        report_family="annual",
+        table_kind="cash_flow_statement",
+        title_text="Consolidated Statement of Cash Flows",
+        raw_label="Free cash flow",
+        local_context="Consolidated Statement of Cash Flows\nFree cash flow",
         expected_value="none",
         expectation_type="negative",
     ),
@@ -156,8 +225,38 @@ PROMOTED_REAL_REPORT_PROBE_IDENTITIES: tuple[
         "net_profit",
     ),
     ("HK", "annual", "balance_sheet", "Cash and cash equivalents", "cash"),
+    ("HK", "annual", "balance_sheet", "Total equity", "equity"),
+    (
+        "HK",
+        "annual",
+        "balance_sheet",
+        "Equity attributable to owners of the parent",
+        "equity_attributable_to_owners",
+    ),
+    (
+        "HK",
+        "annual",
+        "cash_flow_statement",
+        "Net cash from investing activities",
+        "investing_cash_flow",
+    ),
+    (
+        "CN",
+        "annual",
+        "cash_flow_statement",
+        "Net cash from financing activities",
+        "financing_cash_flow",
+    ),
     ("CN", "annual", "income_statement", "Revenue growth", "none"),
+    (
+        "HK",
+        "annual",
+        "income_statement",
+        "Gross profit for the period",
+        "gross_profit",
+    ),
     ("HK", "annual", "income_statement", "Gross margin", "none"),
+    ("HK", "annual", "cash_flow_statement", "Free cash flow", "none"),
 )
 
 

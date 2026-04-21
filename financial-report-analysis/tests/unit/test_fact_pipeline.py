@@ -4,11 +4,16 @@ from financial_report_analysis.models.facts import CanonicalFact
 from financial_report_analysis.models.facts import DerivedFact
 from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
 from financial_report_analysis.models import (
+    ParsedCell,
+    ParsedColumn,
+    ParsedRow,
+    ParsedTable,
     NormalizedTableCellValue,
     NormalizedTableColumn,
     NormalizedTableRow,
     NormalizedTableSemantics,
 )
+from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
 from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.registries import load_metric_registry
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
@@ -982,6 +987,629 @@ def test_analyze_report_promotes_income_statement_core_metrics_to_canonical_fact
         "operating_cost",
         "net_profit",
     }
+
+
+def test_table_candidate_facts_match_cash_flow_primary_section_aliases() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-cash-flow-core",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="cash_flow_statement",
+                    title_text="Consolidated Statement of Cash Flows",
+                    statement_scope_guess="consolidated",
+                    table_unit="thousand",
+                    table_currency="HKD",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-operating",
+                            row_index=1,
+                            label_raw="Net cash generated from operating activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="500",
+                                    numeric_value=500.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-investing",
+                            row_index=2,
+                            label_raw="net cash from investing activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="-200",
+                                    numeric_value=-200.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-financing",
+                            row_index=3,
+                            label_raw="net cash from financing activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="-100",
+                                    numeric_value=-100.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "operating_cash_flow",
+        "investing_cash_flow",
+        "financing_cash_flow",
+    }
+
+
+def test_analyze_report_promotes_gross_profit_to_canonical_facts() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-income-gross-profit",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-gross-profit",
+                        label_raw="Gross profit for the period",
+                        normalized_row_label="gross profit",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="250",
+                                numeric_value=250.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert {fact.metric_id for fact in result.canonical_facts} >= {"gross_profit"}
+
+
+def test_analyze_report_promotes_cash_flow_primary_sections_to_canonical_facts() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-cash-flow-pipeline",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="cash_flow_statement",
+                    title_text="Consolidated Statement of Cash Flows",
+                    statement_scope_guess="consolidated",
+                    table_unit="thousand",
+                    table_currency="HKD",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-operating",
+                            row_index=1,
+                            label_raw="Net cash generated from operating activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="500",
+                                    numeric_value=500.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-investing",
+                            row_index=2,
+                            label_raw="net cash from investing activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="-200",
+                                    numeric_value=-200.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-financing",
+                            row_index=3,
+                            label_raw="net cash from financing activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="-100",
+                                    numeric_value=-100.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert {fact.metric_id for fact in result.canonical_facts} >= {
+        "operating_cash_flow",
+        "investing_cash_flow",
+        "financing_cash_flow",
+    }
+
+
+def test_analyze_report_skips_cash_flow_summary_style_rows() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-cash-flow-summary",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="cash_flow_statement",
+                    title_text="Consolidated Statement of Cash Flows",
+                    statement_scope_guess="consolidated",
+                    table_unit="thousand",
+                    table_currency="HKD",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-free-cash-flow",
+                            row_index=1,
+                            label_raw="Free cash flow",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="300",
+                                    numeric_value=300.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-net-increase",
+                            row_index=2,
+                            label_raw="Net increase/decrease in cash and cash equivalents",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="150",
+                                    numeric_value=150.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-ratio",
+                            row_index=3,
+                            label_raw="Cash flow ratio",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="1.2",
+                                    numeric_value=1.2,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert candidate_facts == []
+    assert result.canonical_facts == []
+
+
+def test_analyze_report_skips_summary_style_gross_profit_rows() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-income-gross-profit-summary",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-gross-profit-summary",
+                        label_raw="Gross profit summary",
+                        normalized_row_label=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="250",
+                                numeric_value=250.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert candidate_facts == []
+    assert result.canonical_facts == []
+
+
+def test_analyze_report_promotes_equity_and_attributable_equity_to_canonical_facts() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-balance-equity",
+                document_id="doc-1",
+                page_range=(2, 2),
+                table_kind="balance_sheet",
+                title_text="Consolidated Statement of Financial Position",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="point",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-equity",
+                        label_raw="所有者权益合计",
+                        normalized_row_label="equity",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="3,500",
+                                numeric_value=3500.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-attributable-equity",
+                        label_raw="归属于母公司股东权益",
+                        normalized_row_label="equity attributable to owners of the parent",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="3,100",
+                                numeric_value=3100.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-equity-ratio",
+                        label_raw="权益比率",
+                        normalized_row_label=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=3,
+                                column_index=1,
+                                raw_text="43%",
+                                numeric_value=43.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    assert {fact.metric_id for fact in result.canonical_facts} == {
+        "equity",
+        "equity_attributable_to_owners",
+    }
+    assert all(
+        fact.extensions["statement_scope_guess"] == "consolidated"
+        for fact in result.canonical_facts
+    )
+    assert all(fact.entity_scope == "consolidated" for fact in result.canonical_facts)
+    assert all(fact.extensions["semantic_source"] == "deterministic" for fact in result.canonical_facts)
+
+
+def test_balance_sheet_english_attributable_equity_survives_to_candidate_facts() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="table-balance-equity-en",
+            document_id="doc-1",
+            page_range=(2, 2),
+            table_kind="balance_sheet",
+            title_text="Consolidated Statement of Financial Position",
+            statement_scope_guess="consolidated",
+            table_unit="thousand",
+            table_currency="HKD",
+            period_columns=[
+                ParsedColumn(
+                    column_id="column-1",
+                    column_index=1,
+                    header_text="2025",
+                    period_id="2025FY",
+                    comparison_axis="current",
+                    value_time_shape="point",
+                    is_current=True,
+                    is_comparison=False,
+                )
+            ],
+            body_rows=[
+                ParsedRow(
+                    row_id="row-attributable-equity",
+                    row_index=1,
+                    label_raw="Equity attributable to owners of the parent",
+                    normalized_label_hint=None,
+                    value_cells=[
+                        ParsedCell(
+                            row_index=1,
+                            column_index=1,
+                            text_raw="3,100",
+                            numeric_value=3100.0,
+                            page_index=1,
+                        )
+                    ],
+                ),
+            ],
+        )
+    )
+
+    candidate_facts = build_table_candidate_facts(
+        [semantics],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert len(candidate_facts) == 1
+    candidate = candidate_facts[0]
+    assert candidate["metric_id"] == "equity_attributable_to_owners"
+    assert candidate["metric_label_raw"] == "Equity attributable to owners of the parent"
+    assert candidate["extensions"]["statement_scope_guess"] == "consolidated"
+
+
+def test_table_candidate_facts_skip_equity_ratio_and_per_share_rows() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-balance-equity-false-positives",
+                document_id="doc-1",
+                page_range=(2, 2),
+                table_kind="balance_sheet",
+                title_text="Consolidated Statement of Financial Position",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="point",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-equity-ratio",
+                        label_raw="权益比率",
+                        normalized_row_label=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="43%",
+                                numeric_value=43.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-net-assets-per-share",
+                        label_raw="每股净资产",
+                        normalized_row_label=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="5.2",
+                                numeric_value=5.2,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-book-value",
+                        label_raw="book value per share",
+                        normalized_row_label=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=3,
+                                column_index=1,
+                                raw_text="7.1",
+                                numeric_value=7.1,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert candidate_facts == []
 
 
 def test_table_candidate_facts_do_not_fabricate_market_default_currency() -> None:

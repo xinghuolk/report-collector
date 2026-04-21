@@ -41,6 +41,8 @@ def _real_ollama_settings() -> SemanticFallbackSettings:
     )
 
 
+@pytest.mark.ollama
+@pytest.mark.external
 def test_local_ollama_row_label_fallback_smoke() -> None:
     settings = _real_ollama_settings()
 
@@ -88,6 +90,8 @@ def test_local_ollama_row_label_fallback_smoke() -> None:
         ),
     ],
 )
+@pytest.mark.ollama
+@pytest.mark.external
 def test_local_ollama_row_label_capability_probe_cases(
     raw_label: str,
     table_kind: str,
@@ -117,6 +121,8 @@ def test_local_ollama_row_label_capability_probe_cases(
     assert result.fallback_reason == "numeric_only_statement_block"
 
 
+@pytest.mark.ollama
+@pytest.mark.external
 def test_local_ollama_promoted_real_report_cases() -> None:
     promoted = PROMOTED_REAL_REPORT_PROBE_CASES
     assert promoted
@@ -126,6 +132,8 @@ def test_local_ollama_promoted_real_report_cases() -> None:
         assert result.value == case.expected_value
 
 
+@pytest.mark.ollama
+@pytest.mark.external
 def test_local_ollama_promoted_unit_currency_cases() -> None:
     promoted = PROMOTED_REAL_REPORT_SEMANTIC_PROBE_CASES
     assert promoted
@@ -140,12 +148,8 @@ def test_promoted_real_report_cases_are_selected_by_identity() -> None:
     assert [
         (case.raw_label, case.expected_value) for case in promoted
     ] == [
-        ("Business revenue", "revenue"),
-        ("Operating income", "operating_profit"),
-        ("Profit attributable to owners", "net_profit"),
-        ("Cash and cash equivalents", "cash"),
-        ("Revenue growth", "none"),
-        ("Gross margin", "none"),
+        (raw_label, expected_value)
+        for _, _, _, raw_label, expected_value in PROBE_MODULE.PROMOTED_REAL_REPORT_PROBE_IDENTITIES
     ]
 
 

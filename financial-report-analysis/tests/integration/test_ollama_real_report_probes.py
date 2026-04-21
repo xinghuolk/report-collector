@@ -96,6 +96,9 @@ def test_real_report_probe_dataset_covers_supported_unit_currency_outputs() -> N
     assert any(case.expected_value == "unknown" for case in REAL_REPORT_SEMANTIC_PROBE_CASES)
 
 
+@pytest.mark.ollama
+@pytest.mark.external
+@pytest.mark.slow
 def test_local_ollama_real_report_row_label_probe_dataset() -> None:
     if os.getenv("FRA_RUN_OLLAMA_REAL_REPORT_PROBES", "").strip().casefold() not in {
         "1",
@@ -117,6 +120,9 @@ def test_local_ollama_real_report_row_label_probe_dataset() -> None:
     assert results.negative_hits / results.negative_total >= 0.66, results.failures
 
 
+@pytest.mark.ollama
+@pytest.mark.external
+@pytest.mark.slow
 def test_real_report_probe_evaluation_reports_positive_and_negative_hit_rates() -> None:
     if os.getenv("FRA_RUN_OLLAMA_REAL_REPORT_PROBES", "").strip().casefold() not in {
         "1",
@@ -133,6 +139,9 @@ def test_real_report_probe_evaluation_reports_positive_and_negative_hit_rates() 
     assert results.negative_hits >= 3
 
 
+@pytest.mark.ollama
+@pytest.mark.external
+@pytest.mark.slow
 def test_local_ollama_real_report_unit_currency_probe_dataset() -> None:
     if os.getenv("FRA_RUN_OLLAMA_REAL_REPORT_PROBES", "").strip().casefold() not in {
         "1",
@@ -150,6 +159,9 @@ def test_local_ollama_real_report_unit_currency_probe_dataset() -> None:
     assert results.negative_hits / results.negative_total >= 1.0, results.failures
 
 
+@pytest.mark.ollama
+@pytest.mark.external
+@pytest.mark.slow
 def test_real_report_semantic_probe_evaluation_reports_positive_and_negative_hit_rates() -> None:
     if os.getenv("FRA_RUN_OLLAMA_REAL_REPORT_PROBES", "").strip().casefold() not in {
         "1",
