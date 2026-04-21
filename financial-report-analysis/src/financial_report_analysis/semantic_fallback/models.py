@@ -24,6 +24,13 @@ _ROW_LABEL_OUTPUTS = (
     "total_liabilities",
     "equity",
     "equity_attributable_to_owners",
+    "accounts_receiv",
+    "notes_receiv",
+    "oth_receiv",
+    "contract_liab",
+    "adv_receipts",
+    "acct_payable",
+    "notes_payable",
     "none",
 )
 

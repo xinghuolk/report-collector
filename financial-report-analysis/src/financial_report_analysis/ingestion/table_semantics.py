@@ -24,11 +24,44 @@ _SUPPRESSED_SUMMARY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"小计"),
 )
 
+_WORKING_CAPITAL_SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\baccounts receivable financing\b", re.IGNORECASE),
+    re.compile(r"\blong[- ]term receivables\b", re.IGNORECASE),
+    re.compile(r"\bemployee compensation payable\b", re.IGNORECASE),
+    re.compile(r"\btaxes payable\b", re.IGNORECASE),
+    re.compile(r"\bbonds payable\b", re.IGNORECASE),
+    re.compile(r"\bchanges in accounts receivable\b", re.IGNORECASE),
+    re.compile(r"应收款项融资"),
+    re.compile(r"长期应收款"),
+    re.compile(r"应付职工薪酬"),
+    re.compile(r"应交税费"),
+    re.compile(r"应付债券"),
+    re.compile(r"经营性应收项目的减少"),
+)
+
 _ROW_LABEL_ALIASES: dict[str, str] = {
     "cost of sales": "operating cost",
     "cost of revenue": "operating cost",
     "gross profit for the period": "gross profit",
     "gross profit attributable to operations": "gross profit",
+    "accounts receivable, net": "accounts receivable",
+    "accounts receivable": "accounts receivable",
+    "accounts receivables": "accounts receivables",
+    "应收账款": "accounts receivables",
+    "notes receivable": "notes receivable",
+    "notes receivables": "notes receivables",
+    "应收票据": "notes receivable",
+    "other receivables": "other receivables",
+    "其他应收款": "other receivables",
+    "contract liabilities": "contract liabilities",
+    "合同负债": "contract liabilities",
+    "payments received in advance": "advances from customers",
+    "advances from customers": "advances from customers",
+    "预收款项": "advances from customers",
+    "accounts payable": "accounts payable",
+    "应付账款": "accounts payable",
+    "notes payable": "notes payable",
+    "应付票据": "notes payable",
     "net cash from operating activities": "operating cash flow",
     "net cash generated from operating activities": "operating cash flow",
     "net cash used in operating activities": "operating cash flow",
@@ -170,6 +203,7 @@ def _normalize_label(raw_label: str) -> str | None:
     normalized = re.sub(r"^[（(]?[一二三四五六七八九十]+[)）\.、]\s*", "", normalized)
     normalized = re.sub(r"^[（(]?\d+[)）\.、]\s*", "", normalized)
     normalized = re.sub(r"^[IVXLCM]+\.\s*", "", normalized, flags=re.IGNORECASE)
+    normalized = _strip_note_suffixes(normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
     if not normalized:
         return None
@@ -185,6 +219,8 @@ def _normalize_label(raw_label: str) -> str | None:
     if _is_narrative_cash_flow_label(normalized):
         return None
     if any(pattern.search(normalized) for pattern in _SUPPRESSED_SUMMARY_PATTERNS):
+        return None
+    if any(pattern.search(normalized) for pattern in _WORKING_CAPITAL_SUPPRESSED_PATTERNS):
         return None
 
     return _ROW_LABEL_ALIASES.get(normalized, normalized)
@@ -243,6 +279,22 @@ def _is_narrative_cash_flow_label(normalized_label: str) -> bool:
             r"营运资金变动前的现金流量",
         )
     )
+
+
+def _strip_note_suffixes(value: str) -> str:
+    normalized = re.sub(
+        r"\s+(?:[IVXLCM]+(?:\.\d+)+|[IVXLCM]+)\s*[.\-、．]?\s*$",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\s+(?:[一二三四五六七八九十百千]+)\s*[、.\-．]?\s*$",
+        "",
+        normalized,
+    )
+    normalized = re.sub(r"\s*[-‐‑–—]\s*$", "", normalized)
+    return normalized
 
 
 def _normalized_semantic_value(value: str | None) -> str:

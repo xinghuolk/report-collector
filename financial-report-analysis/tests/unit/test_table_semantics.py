@@ -1,5 +1,44 @@
+import pytest
+
 from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
 from financial_report_analysis.models import ParsedCell, ParsedColumn, ParsedRow, ParsedTable
+
+
+def _make_balance_sheet_table(
+    *,
+    table_id: str,
+    row_labels: list[str],
+) -> ParsedTable:
+    return ParsedTable(
+        table_id=table_id,
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="balance_sheet",
+        title_text="Consolidated Statement of Financial Position",
+        statement_scope_guess="consolidated",
+        body_rows=[
+            ParsedRow(
+                row_id=f"row-{index}",
+                row_index=index,
+                label_raw=row_label,
+                normalized_label_hint=None,
+                value_cells=[],
+            )
+            for index, row_label in enumerate(row_labels, start=1)
+        ],
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="As of 31 December 2025",
+                period_id="2025FY",
+                value_time_shape="point_in_time",
+                comparison_axis="current",
+                is_current=True,
+                is_comparison=False,
+            )
+        ],
+    )
 
 
 def test_normalize_table_semantics_keeps_row_hint_separate_from_metric_mapping() -> None:
@@ -822,3 +861,62 @@ def test_normalize_table_semantics_suppresses_growth_and_ratio_rows() -> None:
     )
 
     assert [row.normalized_row_label for row in semantics.rows] == [None, None]
+
+
+@pytest.mark.parametrize(
+    ("raw_label", "normalized_row_label"),
+    [
+        ("应收账款 七、", "accounts receivables"),
+        ("应收票据", "notes receivable"),
+        ("其他应收款 十九、", "other receivables"),
+        ("合同负债", "contract liabilities"),
+        ("预收款项", "advances from customers"),
+        ("应付账款", "accounts payable"),
+        ("应付票据", "notes payable"),
+        ("Accounts receivable, net", "accounts receivable"),
+        ("Accounts payable", "accounts payable"),
+        ("Contract liabilities", "contract liabilities"),
+    ],
+)
+def test_balance_sheet_row_labels_normalize_deterministically(
+    raw_label: str,
+    normalized_row_label: str,
+) -> None:
+    semantics = normalize_table_semantics(
+        _make_balance_sheet_table(
+            table_id=f"doc:table:{normalized_row_label.replace(' ', '-')}",
+            row_labels=[raw_label],
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label == normalized_row_label
+
+
+@pytest.mark.parametrize(
+    "raw_label",
+    [
+        "accounts receivable financing",
+        "long-term receivables",
+        "employee compensation payable",
+        "taxes payable",
+        "bonds payable",
+        "Changes in accounts receivable",
+        "应收款项融资",
+        "长期应收款",
+        "应付职工薪酬",
+        "应交税费",
+        "应付债券",
+        "经营性应收项目的减少（增加以“－”号填列）",
+    ],
+)
+def test_balance_sheet_working_capital_false_positives_are_suppressed(
+    raw_label: str,
+) -> None:
+    semantics = normalize_table_semantics(
+        _make_balance_sheet_table(
+            table_id=f"doc:table:{raw_label}",
+            row_labels=[raw_label],
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label is None
