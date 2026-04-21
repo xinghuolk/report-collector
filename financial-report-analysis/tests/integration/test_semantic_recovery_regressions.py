@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,6 +15,11 @@ from financial_report_analysis.ingestion import (
 )
 from financial_report_analysis.models import ParsedRow, ParsedTable
 from financial_report_analysis.pipeline import analyze_report
+from financial_report_analysis.semantic_fallback import (
+    SemanticFallbackSettings,
+    build_semantic_fallback_service,
+    load_semantic_fallback_settings,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -28,6 +34,34 @@ def _resolve_sample(*relative_parts: str) -> Path:
     raise AssertionError(f"Sample PDF not found for {relative_parts}")
 
 
+def _ollama_model_available(*, base_url: str, model: str) -> bool:
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=3.0)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return False
+    payload = response.json()
+    models = payload.get("models", [])
+    return any(
+        entry.get("name") == model for entry in models if isinstance(entry, dict)
+    )
+
+
+def _real_ollama_fallback_service():
+    loaded = load_semantic_fallback_settings()
+    if not _ollama_model_available(base_url=loaded.base_url, model=loaded.model):
+        pytest.skip(f"local Ollama model is unavailable: {loaded.model}")
+    return build_semantic_fallback_service(
+        SemanticFallbackSettings(
+            enabled=True,
+            provider="ollama",
+            base_url=loaded.base_url,
+            model=loaded.model,
+            timeout_seconds=loaded.timeout_seconds,
+        )
+    )
+
+
 @pytest.mark.real_pdf
 @pytest.mark.slow
 def test_hk_annual_semantics_preserve_statement_scope_and_ambiguity() -> None:
@@ -38,7 +72,9 @@ def test_hk_annual_semantics_preserve_statement_scope_and_ambiguity() -> None:
         market="HK",
     )
 
-    balance_sheet = next(table for table in tables if table.table_kind == "balance_sheet")
+    balance_sheet = next(
+        table for table in tables if table.table_kind == "balance_sheet"
+    )
     semantics = normalize_table_semantics(balance_sheet)
 
     assert semantics.statement_scope_guess == "consolidated"
@@ -56,7 +92,9 @@ def test_cn_annual_semantics_expose_normalized_row_labels() -> None:
         market="CN",
     )
 
-    income_statement = next(table for table in tables if table.table_kind == "income_statement")
+    income_statement = next(
+        table for table in tables if table.table_kind == "income_statement"
+    )
     semantics = normalize_table_semantics(income_statement)
 
     assert any(row.normalized_row_label for row in semantics.rows)
@@ -85,7 +123,9 @@ def test_cn_annual_reference_semantics_preserve_deterministic_provenance(
         market="CN",
     )
 
-    income_statement = next(table for table in tables if table.table_kind == "income_statement")
+    income_statement = next(
+        table for table in tables if table.table_kind == "income_statement"
+    )
     semantics = normalize_table_semantics(income_statement)
 
     assert semantics.semantic_source == "deterministic"
@@ -133,7 +173,9 @@ def test_hk_annual_anchor_surfaces_non_empty_key_fact_path() -> None:
 @pytest.mark.real_pdf
 @pytest.mark.slow
 def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
-    pdf_path = _resolve_sample("hk_stocks", "09987", "quarterly", "2025_quarterly_q3_en.pdf")
+    pdf_path = _resolve_sample(
+        "hk_stocks", "09987", "quarterly", "2025_quarterly_q3_en.pdf"
+    )
     client = TestClient(create_app())
 
     response = client.post(
@@ -158,6 +200,37 @@ def test_hk_q3_anchor_preserves_semantic_provenance_in_parsed_tables() -> None:
         for table in payload["document"]["metadata"]["parsed_tables"]
         if table.get("table_unit") or table.get("table_currency")
     )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.ollama
+@pytest.mark.external
+@pytest.mark.slow
+def test_hk_09987_q3_real_pdf_keeps_row_label_fallback_bounded() -> None:
+    pdf_path = _resolve_sample(
+        "hk_stocks",
+        "09987",
+        "quarterly",
+        "2025_quarterly_q3_en.pdf",
+    )
+    fallback_service = _real_ollama_fallback_service()
+
+    ingestion_payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    counts = ingestion_payload["document_metadata"]["semantic_fallback_call_counts"]
+    assert counts["row_label"] <= 20
+    assert (
+        ingestion_payload["document_metadata"]["semantic_fallback_budget_exhausted"]
+        is False
+    )
+    assert len(ingestion_payload["candidate_facts"]) >= 1
 
 
 @pytest.mark.real_pdf
@@ -187,7 +260,9 @@ def test_hk_annual_anchor_preserves_deterministic_unit_currency_provenance() -> 
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
-def test_hk_annual_2025_anchor_preserves_deterministic_unit_currency_provenance() -> None:
+def test_hk_annual_2025_anchor_preserves_deterministic_unit_currency_provenance() -> (
+    None
+):
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
     ingestion_payload = PdfIngestionAdapter().extract_candidate_facts(
         pdf_path=str(pdf_path),
@@ -224,14 +299,14 @@ def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> No
     semantics_tables = [normalize_table_semantics(table) for table in tables]
     assert semantics_tables
     assert all(table.semantic_source == "deterministic" for table in semantics_tables)
-    assert all(table.unit_semantic_source == "deterministic" for table in semantics_tables)
     assert all(
-        table.currency_semantic_source == "deterministic"
-        for table in semantics_tables
+        table.unit_semantic_source == "deterministic" for table in semantics_tables
     )
     assert all(
-        table.table_currency in {"HKD", "USD", "unknown"}
-        for table in semantics_tables
+        table.currency_semantic_source == "deterministic" for table in semantics_tables
+    )
+    assert all(
+        table.table_currency in {"HKD", "USD", "unknown"} for table in semantics_tables
     )
 
 
@@ -762,7 +837,9 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
         "income_tax",
         "minority_gain",
     } <= canonical_metric_ids
-    basic_eps = next(fact for fact in result.canonical_facts if fact.metric_id == "basic_eps")
+    basic_eps = next(
+        fact for fact in result.canonical_facts if fact.metric_id == "basic_eps"
+    )
     assert basic_eps.normalized_unit == "per_share_amount"
     assert basic_eps.extensions["value_type"] == "per_share"
 
@@ -791,13 +868,18 @@ def test_hk_anchor_candidate_facts_do_not_map_growth_margin_ratio_rows(
 
     suppressed_tokens = ("growth", "margin", "ratio")
     assert all(
-        not any(token in fact["metric_label_raw"].lower() for token in suppressed_tokens)
+        not any(
+            token in fact["metric_label_raw"].lower() for token in suppressed_tokens
+        )
         for fact in ingestion_payload["candidate_facts"]
-        if fact["metric_id"] in {"revenue", "operating_cost", "operating_profit", "net_profit"}
+        if fact["metric_id"]
+        in {"revenue", "operating_cost", "operating_profit", "net_profit"}
     )
 
 
-def test_balance_sheet_equity_semantics_preserve_scope_and_filter_false_positives() -> None:
+def test_balance_sheet_equity_semantics_preserve_scope_and_filter_false_positives() -> (
+    None
+):
     semantics = normalize_table_semantics(
         ParsedTable(
             table_id="doc:table:equity-regression",
