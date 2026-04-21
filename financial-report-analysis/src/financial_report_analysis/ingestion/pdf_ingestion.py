@@ -677,9 +677,6 @@ class PdfIngestionAdapter:
         if PdfIngestionAdapter._is_summary_growth_or_ratio_row(row.label_raw):
             return None
 
-        if row.normalized_row_label is None:
-            return table.semantic_ambiguity_reason or "unknown_row_label"
-
         if PdfIngestionAdapter._row_matches_metric_registry(
             table=table,
             row=row,
@@ -693,6 +690,9 @@ class PdfIngestionAdapter:
             row.normalized_row_label,
         ):
             return None
+
+        if row.normalized_row_label is None:
+            return table.semantic_ambiguity_reason or "unknown_row_label"
 
         return table.semantic_ambiguity_reason or "unmapped_normalized_row_label"
 

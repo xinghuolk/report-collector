@@ -787,7 +787,7 @@ def test_pdf_ingestion_skips_row_label_fallback_for_clear_non_target_rows(
                 row_id=f"row-{index}",
                 row_index=index,
                 label_raw=label,
-                normalized_label_hint=label,
+                normalized_label_hint=None if label == "Deferred revenue" else label,
                 value_cells=[
                     ParsedCell(
                         row_index=index,
