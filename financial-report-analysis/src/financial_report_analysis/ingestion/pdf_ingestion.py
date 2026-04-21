@@ -39,6 +39,47 @@ class PdfIngestionAdapter:
         "operating_profit",
         "net_profit",
     )
+    _ROW_LABEL_FALLBACK_BLOCKLIST_TOKENS: tuple[str, ...] = (
+        "growth",
+        "increase",
+        "decrease",
+        "margin",
+        "ratio",
+        "rate",
+        "per share",
+        "earnings per share",
+        "eps",
+        "restaurant",
+        "restaurants",
+        "store",
+        "stores",
+        "outlet",
+        "outlets",
+        "segment",
+        "mainland china",
+        "hong kong",
+        "deferred revenue",
+        "contract liability",
+        "contract liabilities",
+    )
+    _ROW_LABEL_FALLBACK_ANCHOR_TOKENS: tuple[str, ...] = (
+        "revenue",
+        "turnover",
+        "sales",
+        "operating income",
+        "operating profit",
+        "profit from operations",
+        "net profit",
+        "profit attributable",
+        "operating cash flow",
+        "cash generated from operations",
+        "cash and cash equivalents",
+        "cash equivalents",
+        "total assets",
+        "assets total",
+        "total liabilities",
+        "liabilities total",
+    )
     _REVENUE_TABLE_KINDS: tuple[str, ...] = (
         "income_statement",
         "key_metrics",
@@ -593,12 +634,20 @@ class PdfIngestionAdapter:
         market: str,
         registry: Any,
     ) -> NormalizedTableRow:
+        if not self._is_row_label_fallback_eligible(
+            row.label_raw,
+            row.normalized_row_label,
+        ):
+            return replace(row, normalized_row_label=None)
+
         ambiguity_reason = self._row_label_ambiguity_reason(
             table=table,
             row=row,
             market=market,
             registry=registry,
         )
+        if ambiguity_reason is None:
+            return row
         self._semantic_fallback_call_counts["row_label"] += 1
         result = self._semantic_fallback_service.resolve_row_label(
             RowLabelFallbackRequest(
@@ -634,6 +683,12 @@ class PdfIngestionAdapter:
         if PdfIngestionAdapter._is_summary_growth_or_ratio_row(row.label_raw):
             return None
 
+        if not PdfIngestionAdapter._is_row_label_fallback_eligible(
+            row.label_raw,
+            row.normalized_row_label,
+        ):
+            return None
+
         if row.normalized_row_label is None:
             return table.semantic_ambiguity_reason or "unknown_row_label"
 
@@ -663,6 +718,25 @@ class PdfIngestionAdapter:
         if table.table_unit != "unknown" or table.semantic_ambiguity_reason is None:
             return None
         return table.semantic_ambiguity_reason or "unknown_table_unit"
+
+    @staticmethod
+    def _is_row_label_fallback_eligible(
+        raw_label: str,
+        normalized_label: str | None,
+    ) -> bool:
+        combined_label = re.sub(
+            r"\s+",
+            " ",
+            " ".join(part for part in [raw_label, normalized_label or ""] if part),
+        ).strip().casefold()
+        if not combined_label:
+            return False
+        if any(token in combined_label for token in PdfIngestionAdapter._ROW_LABEL_FALLBACK_BLOCKLIST_TOKENS):
+            return False
+        return any(
+            token in combined_label
+            for token in PdfIngestionAdapter._ROW_LABEL_FALLBACK_ANCHOR_TOKENS
+        )
 
     @staticmethod
     def _merged_confidence(*confidences: float | None) -> float | None:
