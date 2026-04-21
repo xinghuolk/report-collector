@@ -1482,6 +1482,116 @@ def test_pdf_ingestion_reports_semantic_fallback_call_counts(
     }
 
 
+def test_pdf_ingestion_caps_row_label_fallback_calls_per_document(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        RowLabelFallbackRequest,
+        SemanticFallbackResult,
+        SemanticFallbackService,
+    )
+
+    rows = [
+        ParsedRow(
+            row_id=f"row-{index}",
+            row_index=index,
+            label_raw=f"Business revenue variant {index}",
+            normalized_label_hint=f"Business revenue variant {index}",
+            value_cells=[
+                ParsedCell(
+                    row_index=index,
+                    column_index=1,
+                    text_raw="1,234",
+                    numeric_value=1234.0,
+                    page_index=1,
+                )
+            ],
+        )
+        for index in range(1, 8)
+    ]
+    table = ParsedTable(
+        table_id="doc:parsed-table:budget",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason=None,
+        header_rows=[["Item", "2024"]],
+        body_rows=rows,
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [table],
+    )
+    monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_max_row_label_fallback_calls_per_document",
+        3,
+    )
+
+    class _FallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.requests: list[RowLabelFallbackRequest] = []
+
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
+            self.requests.append(request)
+            return SemanticFallbackResult(
+                value="revenue",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.82,
+                fallback_reason=request.ambiguity_reason,
+            )
+
+    fallback_service = _FallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert len(fallback_service.requests) == 3
+    assert (
+        payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 3
+    )
+    assert payload["document_metadata"]["semantic_fallback_budget_exhausted"] is True
+
+
 @pytest.mark.ollama
 @pytest.mark.external
 def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(

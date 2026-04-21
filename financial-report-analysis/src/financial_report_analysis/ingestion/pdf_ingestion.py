@@ -35,6 +35,7 @@ class PdfIngestionInputError(ValueError):
 
 
 class PdfIngestionAdapter:
+    _max_row_label_fallback_calls_per_document = 20
     _INCOME_STATEMENT_CORE_METRICS: tuple[str, ...] = (
         "revenue",
         "operating_cost",
@@ -134,6 +135,7 @@ class PdfIngestionAdapter:
         self._table_adapter = PdfTableStructureAdapter()
         self._semantic_fallback_service = semantic_fallback_service
         self._semantic_fallback_call_counts = self._new_semantic_fallback_call_counts()
+        self._semantic_fallback_budget_exhausted = False
 
     @staticmethod
     def _new_semantic_fallback_call_counts() -> dict[str, int]:
@@ -154,6 +156,7 @@ class PdfIngestionAdapter:
     ) -> dict[str, Any]:
         document_id = pdf_path or pdf_url or "unknown-document"
         self._semantic_fallback_call_counts = self._new_semantic_fallback_call_counts()
+        self._semantic_fallback_budget_exhausted = False
         text = self._extract_text(pdf_path=pdf_path, pdf_url=pdf_url)
         parsed_tables = self._extract_parsed_tables(
             pdf_path=pdf_path,
@@ -210,6 +213,9 @@ class PdfIngestionAdapter:
                 ],
                 "semantic_fallback_call_counts": dict(
                     self._semantic_fallback_call_counts
+                ),
+                "semantic_fallback_budget_exhausted": (
+                    self._semantic_fallback_budget_exhausted
                 ),
             },
         }
@@ -665,6 +671,8 @@ class PdfIngestionAdapter:
         )
         if ambiguity_reason is None:
             return row
+        if not self._has_row_label_fallback_budget():
+            return row
         self._semantic_fallback_call_counts["row_label"] += 1
         result = self._semantic_fallback_service.resolve_row_label(
             RowLabelFallbackRequest(
@@ -688,6 +696,15 @@ class PdfIngestionAdapter:
             semantic_confidence=result.semantic_confidence,
             fallback_reason=result.fallback_reason,
         )
+
+    def _has_row_label_fallback_budget(self) -> bool:
+        if (
+            self._semantic_fallback_call_counts["row_label"]
+            < self._max_row_label_fallback_calls_per_document
+        ):
+            return True
+        self._semantic_fallback_budget_exhausted = True
+        return False
 
     @staticmethod
     def _row_label_ambiguity_reason(
