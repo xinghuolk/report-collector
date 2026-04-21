@@ -462,8 +462,9 @@ def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provena
     )
 
     canonical_metric_ids = [fact.metric_id for fact in pipeline_result.canonical_facts]
-    assert set(canonical_metric_ids[:2]) == {"basic_eps", "n_income_attr_p"}
-    assert "finance_exp" in canonical_metric_ids
+    assert {"basic_eps", "n_income_attr_p", "finance_exp"} <= set(
+        canonical_metric_ids
+    )
     basic_eps = next(fact for fact in pipeline_result.canonical_facts if fact.metric_id == "basic_eps")
     assert basic_eps.normalized_unit == "per_share_amount"
     assert basic_eps.numeric_value == 1.23

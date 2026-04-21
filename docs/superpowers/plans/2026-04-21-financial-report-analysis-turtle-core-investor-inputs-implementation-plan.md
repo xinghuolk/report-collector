@@ -13,7 +13,7 @@
 
 ## Progress Note
 
-截至 `2026-04-21`，本计划已经完成第一轮实现与轻量回归：
+截至 `2026-04-21`，本计划已经完成第一轮实现、轻量回归与 Task C 的最小真实 PDF floor：
 
 - 已落地 Task A/B 的主链路代码：
   - Phase 1 的 11 个字段已进入 deterministic normalization 与 registry
@@ -24,19 +24,26 @@
   - `must-reach-candidate` 字段断言
   - `must-reach-canonical` 字段断言
   - `must-be-api-visible` 字段断言
-  - diluted EPS / narrative cash-flow noise 抑制断言
+  - diluted EPS / non-GAAP EPS / adjusted EPS / growth / margin / narrative cash-flow noise 抑制断言
   - HK 英文长别名 cash-flow detail 断言
+- 已补 Task C 的真实 PDF floor：
+  - CN `601919/annual/2025_年度报告.pdf` 可稳定产出 `basic_eps` 与 `finance_exp`
+  - `basic_eps` 在 canonical 层保持 `normalized_unit = per_share_amount`
+  - CN/HK 年报 API smoke 已通过共享样本的轻量真实 PDF 验证
 - 已通过的定向验证：
   - `uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics.py tests/unit/test_fact_pipeline.py -v`
   - `uv run pytest tests/integration/test_analysis_api.py -k 'phase1_api_visible_metrics or runs_ingestion_path_for_pdf_input or extract_endpoint_runs_ingestion_path_for_pdf_input' -v`
   - `uv run pytest tests/integration/test_semantic_recovery_regressions.py -k 'phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise or pipeline_prefers_main_statement_provenance_when_source_ranks_tie' -v`
+  - `uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_cn_annual_601919_2025_surfaces_phase1_real_pdf_floor -q -o addopts=`
+  - Git Bash real-PDF smoke: `REAL_PDF_LIMIT=11 REAL_PDF_JOBS=2 PER_TEST_TIMEOUT_SECONDS=240 scripts/run-real-pdf-matrix.sh`
   - `uv run ruff check ...`
 - Real-PDF Ollama fallback performance blocker resolved by `docs/superpowers/plans/2026-04-21-real-pdf-ollama-fallback-gating-performance-fix-implementation-plan.md`; HK `09987` Q3 row-label fallback calls dropped from `124` to `11`, CN `601919` 2024 annual completed with `row_label = 2`, and the default real-PDF matrix now excludes Ollama nodes unless explicitly requested.
 
-当前仍未完成的部分：
+当前仍留给后续 Phase 2+ 或更大样本收口的部分：
 
-- 尚未按共享样本矩阵跑完真实 PDF 的 Phase 1 字段命中验证
-- 因此本计划当前状态应视为“主链路已实现并通过轻量回归”，而不是“已完成全部样本收口”
+- 真实 PDF 中 `n_income_attr_p`、D&A、Capex、已付股息现金流等字段尚未形成跨样本硬回归
+- HK 年报当前仍主要证明 API/结构路径可跑通，尚未证明 Phase-1 investor inputs 全量命中
+- 本阶段状态应视为“Task A/B 主链路 + Task C 最小真实 PDF floor 已完成”，而不是“所有 Turtle 输入已在真实 PDF 矩阵全量收口”
 
 ---
 
@@ -291,17 +298,20 @@ uv run pytest tests/unit/test_fact_pipeline.py tests/integration/test_analysis_a
 - Modify: `financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py`
 - Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
 
-- [ ] **Step 1: 为 profit attribution / EPS / D&A / dividends paid 增加真实样本断言**
-- [ ] **Step 2: 为 summary/growth/non-GAAP/secondary-table 干扰增加抑制断言**
+- [x] **Step 1: 为 profit attribution / EPS / D&A / dividends paid 增加真实样本断言**
+  - Mocked statement pipeline 已覆盖 profit attribution、basic EPS、D&A、Capex、dividends paid 等 11 个字段。
+  - 真实 PDF floor 当前 promotion 为 CN `601919` 2025 年报的 `basic_eps` 与 `finance_exp`。
+- [x] **Step 2: 为 summary/growth/non-GAAP/secondary-table 干扰增加抑制断言**
+  - 已覆盖 diluted EPS、non-GAAP EPS、adjusted EPS、growth、margin、narrative cash-flow 等噪声不进入 candidate/canonical。
 
 ### C2：整理阶段收口说明
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-04-21-financial-report-analysis-turtle-core-investor-inputs-implementation-plan.md`
 
-- [ ] **Step 1: 在计划顶部补 completion note**
-- [ ] **Step 2: 记录本阶段已覆盖的 Turtle 计算输入**
-- [ ] **Step 3: 明确留给 Phase 2 的缺口**
+- [x] **Step 1: 在计划顶部补 completion note**
+- [x] **Step 2: 记录本阶段已覆盖的 Turtle 计算输入**
+- [x] **Step 3: 明确留给 Phase 2 的缺口**
 
 ---
 

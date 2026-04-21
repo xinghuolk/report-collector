@@ -254,6 +254,7 @@ Turtle 的核心计算不仅依赖：
 3. Phase 3：Asset Quality And Capital Allocation Inputs
 4. Phase 4：Parent Scope And Notes Bridge
 5. Phase 5：Multi-Year Investor Dataset
+6. Post-Phase Closure：Ollama Semantic Fallback Coverage Closure
 
 原因：
 
@@ -261,6 +262,33 @@ Turtle 的核心计算不仅依赖：
 - Phase 2/3 仍主要依赖三大主表，可沿用现有抽取架构
 - Phase 4 开始才进入高歧义的母公司/附注桥接
 - Phase 5 应建立在前四阶段字段口径已经基本稳定的前提下
+- Ollama fallback coverage 应在 Turtle 主字段口径稳定后统一收口，避免每个字段阶段都被动扩 prompt、allowed outputs 和 probe 阈值
+
+---
+
+## 5.1 Post-Phase Closure：Ollama Semantic Fallback Coverage Closure
+
+本总纲完成后，应单独安排一轮 Ollama semantic fallback coverage 收口，而不是把它塞进任一单个字段 phase 的完成条件。
+
+这轮 closure 的目标是统一评估：
+
+- 哪些 Turtle 字段仍只应由 deterministic registry / normalization 支撑
+- 哪些字段需要进入 Ollama row-label fallback 的 supported outputs
+- 哪些真实财报 label family 需要加入 promoted probe
+- 当前 prompt、accuracy threshold、fallback budget 是否仍适合扩展后的 Turtle 字段集合
+
+至少应覆盖：
+
+- Phase 1 的 investor inputs，如 `basic_eps`、`finance_exp`、`total_profit`、`income_tax`、`minority_gain`、Capex、D&A、已付股息现金流
+- Phase 2/3 中最终确认需要 fallback 辅助的 working-capital、debt、asset-quality 字段
+- 明确 negative controls，如 adjusted EPS、non-GAAP EPS、growth、margin、ratio、summary rows、secondary management rows
+
+边界：
+
+- 这不是回到 LLM 主抽取路径
+- 不要求 Ollama 直接产出 canonical facts
+- 不替代 structure recovery、deterministic normalization、registry、candidate/canonical resolution
+- 只做 gated semantic fallback 的覆盖、准确率和性能收口
 
 ---
 

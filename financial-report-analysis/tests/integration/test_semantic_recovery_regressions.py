@@ -579,13 +579,28 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
                 ],
             ),
             ParsedRow(
-                row_id="row-finance-exp",
+                row_id="row-non-gaap-eps",
                 row_index=4,
-                label_raw="Finance costs",
+                label_raw="Non-GAAP earnings per share",
                 normalized_label_hint=None,
                 value_cells=[
                     ParsedCell(
                         row_index=4,
+                        column_index=1,
+                        text_raw="1.88",
+                        numeric_value=1.88,
+                        page_index=1,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-finance-exp",
+                row_index=5,
+                label_raw="Finance costs",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=5,
                         column_index=1,
                         text_raw="45",
                         numeric_value=45.0,
@@ -595,12 +610,12 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
             ),
             ParsedRow(
                 row_id="row-total-profit",
-                row_index=5,
+                row_index=6,
                 label_raw="Profit before tax",
                 normalized_label_hint=None,
                 value_cells=[
                     ParsedCell(
-                        row_index=5,
+                        row_index=6,
                         column_index=1,
                         text_raw="200",
                         numeric_value=200.0,
@@ -610,12 +625,12 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
             ),
             ParsedRow(
                 row_id="row-income-tax",
-                row_index=6,
+                row_index=7,
                 label_raw="Income tax expense",
                 normalized_label_hint=None,
                 value_cells=[
                     ParsedCell(
-                        row_index=6,
+                        row_index=7,
                         column_index=1,
                         text_raw="30",
                         numeric_value=30.0,
@@ -625,12 +640,12 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
             ),
             ParsedRow(
                 row_id="row-minority-gain",
-                row_index=7,
+                row_index=8,
                 label_raw="Profit attributable to non-controlling interests",
                 normalized_label_hint=None,
                 value_cells=[
                     ParsedCell(
-                        row_index=7,
+                        row_index=8,
                         column_index=1,
                         text_raw="5",
                         numeric_value=5.0,
@@ -774,11 +789,82 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
         comparison_columns=[],
         source_blocks=[],
     )
+    key_metrics = ParsedTable(
+        table_id="doc:parsed-table:key-metrics",
+        document_id="doc",
+        page_range=(3, 3),
+        table_kind="key_metrics",
+        title_text="Financial Highlights",
+        statement_scope_guess="unknown",
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-revenue-growth",
+                row_index=1,
+                label_raw="Revenue growth",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="12.3%",
+                        numeric_value=12.3,
+                        page_index=3,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-operating-profit-margin",
+                row_index=2,
+                label_raw="Operating profit margin",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=2,
+                        column_index=1,
+                        text_raw="8.8%",
+                        numeric_value=8.8,
+                        page_index=3,
+                    )
+                ],
+            ),
+            ParsedRow(
+                row_id="row-adjusted-eps",
+                row_index=3,
+                label_raw="Adjusted EPS",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=3,
+                        column_index=1,
+                        text_raw="2.22",
+                        numeric_value=2.22,
+                        page_index=3,
+                    )
+                ],
+            ),
+        ],
+        table_unit="million",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-key-metrics",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
 
     monkeypatch.setattr(
         PdfTableStructureAdapter,
         "extract_tables",
-        lambda self, **kwargs: [income_statement, cash_flow_statement],
+        lambda self, **kwargs: [income_statement, cash_flow_statement, key_metrics],
     )
     monkeypatch.setattr(
         PdfIngestionAdapter,
@@ -811,8 +897,15 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
         "c_pay_dist_dpcp_int_exp",
     } <= candidate_metric_ids
     assert all(
-        fact["metric_label_raw"] != "Diluted EPS"
-        and fact["metric_label_raw"] != "Cash flows before changes in working capital"
+        fact["metric_label_raw"]
+        not in {
+            "Diluted EPS",
+            "Non-GAAP earnings per share",
+            "Revenue growth",
+            "Operating profit margin",
+            "Adjusted EPS",
+            "Cash flows before changes in working capital",
+        }
         for fact in payload["candidate_facts"]
     )
 
@@ -837,6 +930,58 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
         "income_tax",
         "minority_gain",
     } <= canonical_metric_ids
+    basic_eps = next(
+        fact for fact in result.canonical_facts if fact.metric_id == "basic_eps"
+    )
+    assert basic_eps.normalized_unit == "per_share_amount"
+    assert basic_eps.extensions["value_type"] == "per_share"
+    assert all(
+        fact.metric_label_raw
+        not in {
+            "Diluted EPS",
+            "Non-GAAP earnings per share",
+            "Revenue growth",
+            "Operating profit margin",
+            "Adjusted EPS",
+            "Cash flows before changes in working capital",
+        }
+        for fact in result.canonical_facts
+    )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_cn_annual_601919_2025_surfaces_phase1_real_pdf_floor() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="CN",
+        min_confidence=0.8,
+    )
+
+    candidate_metric_ids = {
+        fact["metric_id"]
+        for fact in payload["candidate_facts"]
+        if fact.get("extraction_method") == "table_semantics"
+    }
+    assert {"basic_eps", "finance_exp"} <= candidate_metric_ids
+
+    result = analyze_report(
+        {
+            "document_id": str(pdf_path),
+            "pdf_path": str(pdf_path),
+            "pdf_url": None,
+            "market": "CN",
+            "language": payload["document_metadata"]["language"],
+            "metadata": payload["document_metadata"],
+        },
+        payload,
+    )
+
+    canonical_metric_ids = {fact.metric_id for fact in result.canonical_facts}
+    assert {"basic_eps", "finance_exp"} <= canonical_metric_ids
     basic_eps = next(
         fact for fact in result.canonical_facts if fact.metric_id == "basic_eps"
     )

@@ -333,3 +333,20 @@ That is the next highest-leverage phase for Turtle because it supports:
 - real cash revenue reconstruction
 - debt-aware valuation
 - working-capital quality interpretation
+
+Ollama semantic fallback coverage for the new Turtle fields is intentionally
+not a Phase-1 closure requirement. This phase is deterministic-first, and many
+of the selected fields are expected to be handled by structure recovery,
+normalization, and registry matching rather than live fallback.
+
+After the Turtle master-plan phases establish the stable field set and
+deterministic semantics, a separate Ollama semantic fallback coverage closure
+should evaluate whether to expand:
+
+- supported row-label fallback outputs
+- prompt allowed labels and negative controls
+- promoted real-report probe cases
+- accuracy thresholds and fallback budgets
+
+That closure should cover the final Turtle field set in one pass instead of
+expanding Ollama probes piecemeal during each deterministic field phase.

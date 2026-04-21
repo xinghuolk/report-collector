@@ -208,6 +208,7 @@ class FactNormalizer:
         candidate_metric_id = str(candidate.metric_id or "").strip()
         if (
             candidate_metric_id
+            and candidate_metric_id != "unknown"
             and not candidate_metric_id.startswith("custom::")
             and not candidate_metric_id.startswith("raw_")
         ):
