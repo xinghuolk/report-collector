@@ -9,6 +9,7 @@ import sys
 import httpx
 import pytest
 
+from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
 from financial_report_analysis.semantic_fallback import (
     CurrencyFallbackRequest,
     RowLabelFallbackRequest,
@@ -82,6 +83,21 @@ def test_real_report_row_label_probe_dataset_covers_target_outputs() -> None:
         "margin" in raw_label or "ratio" in raw_label
         for raw_label in negative_raw_labels
     )
+
+
+def test_promoted_real_report_row_label_cases_match_fallback_gating() -> None:
+    promoted = PROBE_MODULE.promoted_real_report_probe_cases()
+    assert promoted
+
+    for case in promoted:
+        eligible = PdfIngestionAdapter._is_row_label_fallback_eligible(
+            case.raw_label,
+            case.raw_label,
+        )
+        if case.expectation_type == "positive":
+            assert eligible, case.raw_label
+        else:
+            assert not eligible, case.raw_label
 
 
 def test_real_report_probe_dataset_covers_supported_unit_currency_outputs() -> None:

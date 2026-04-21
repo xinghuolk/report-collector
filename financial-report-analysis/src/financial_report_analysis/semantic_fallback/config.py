@@ -17,6 +17,7 @@ class SemanticFallbackSettings:
     base_url: str = "http://127.0.0.1:11434"
     model: str = "qwen3.5:9b"
     timeout_seconds: float = 30.0
+    max_concurrency: int = 1
 
 
 def load_semantic_fallback_settings() -> SemanticFallbackSettings:
@@ -47,6 +48,11 @@ def load_semantic_fallback_settings() -> SemanticFallbackSettings:
             default=30.0,
             dotenv_values=dotenv_values,
         ),
+        max_concurrency=_env_int(
+            "FRA_SEMANTIC_FALLBACK_MAX_CONCURRENCY",
+            default=1,
+            dotenv_values=dotenv_values,
+        ),
     )
 
 
@@ -65,7 +71,8 @@ def build_semantic_fallback_service(
             base_url=resolved.base_url,
             model=resolved.model,
             timeout_seconds=resolved.timeout_seconds,
-        )
+        ),
+        max_concurrency=resolved.max_concurrency,
     )
 
 
@@ -135,3 +142,21 @@ def _env_float(
         return float(raw_value)
     except ValueError:
         return default
+
+
+def _env_int(
+    name: str,
+    *,
+    default: int,
+    dotenv_values: dict[str, str],
+) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        raw_value = dotenv_values.get(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+    return max(1, value)

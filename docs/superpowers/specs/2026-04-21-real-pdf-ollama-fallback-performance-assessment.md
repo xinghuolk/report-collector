@@ -81,11 +81,78 @@ Interpretation:
 - The cause may be a combination of PDF parsing cost and excessive row-label fallback calls.
 - The exact fallback count is still unknown because the probe did not complete.
 
+### Post-Fix Timing Probe
+
+After tightening row-label fallback gating and adding concurrency controls, a focused timing probe
+was run with live Ollama enabled.
+
+Environment:
+
+```text
+base_url: http://127.0.0.1:11434
+model: qwen3.5:9b
+FRA_SEMANTIC_FALLBACK_MAX_CONCURRENCY: 1 unless noted
+```
+
+Pure promoted real-report row-label probe:
+
+```text
+calls: 12
+total_seconds: 7.96
+average_seconds: 0.66
+median_seconds: 0.67
+min_seconds: 0.58
+max_seconds: 0.75
+accuracy: 12/12
+```
+
+Real PDF path for:
+
+```text
+report/downloads/hk_stocks/09987/quarterly/2025_quarterly_q3_en.pdf
+```
+
+Observed with live Ollama fallback:
+
+```text
+total_seconds: 20.72
+ollama_seconds: 8.11
+non_ollama_estimate_seconds: 12.61
+candidate_facts: 4
+fallback_calls: table_kind=3, row_label=12, currency=0, unit=0
+```
+
+Interpretation:
+
+- Ollama accounted for roughly 39% of this real-PDF run.
+- PDF/table extraction plus deterministic pipeline work accounted for roughly 61%.
+- The expensive live fallback path was row-label fallback.
+- Table-kind fallback was counted but contributed negligible measured latency in this probe.
+
+Pure Ollama concurrency probe with:
+
+```text
+FRA_SEMANTIC_FALLBACK_MAX_CONCURRENCY=2
+```
+
+For 8 promoted row-label requests submitted concurrently:
+
+```text
+wall_seconds: 4.03
+accuracy: 8/8
+```
+
+Interpretation:
+
+- `max_concurrency=2` can improve wall-clock time on this local setup.
+- The improvement is not linear, likely due to local Ollama/model resource contention.
+- The default should remain `1`; `2` is useful for local profiling or explicitly opted-in runs.
+
 ## Current Diagnosis
 
-The primary issue is likely not Git Bash, pytest collection, or Ollama connectivity.
+The original issue was likely not Git Bash, pytest collection, or Ollama connectivity.
 
-The more likely root cause is:
+The original root cause was:
 
 ```text
 row-label fallback gating is too broad.
@@ -100,6 +167,14 @@ This conflicts with the intended Phase 2 boundary:
 - deterministic extraction and normalization should run first;
 - LLM fallback should only run for selected ambiguous cases;
 - fallback should not become the default interpretation path for every unmatched row.
+
+After the gating fix, the remaining performance picture is split:
+
+- Ollama row-label fallback remains material but bounded.
+- PDF/table recovery and deterministic ingestion are also a major part of wall-clock time.
+- Future performance work should profile `table_source/pdfplumber`, table-structure recovery,
+  candidate building, and live Ollama fallback separately rather than treating the whole API call
+  as one opaque timeout.
 
 ## Risk
 

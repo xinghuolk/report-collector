@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
+import threading
 
 from financial_report_analysis.semantic_fallback.client import SemanticFallbackClient
 from financial_report_analysis.semantic_fallback.models import (
@@ -20,8 +21,15 @@ LOGGER = logging.getLogger(__name__)
 
 
 class SemanticFallbackService:
-    def __init__(self, *, client: SemanticFallbackClient | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        client: SemanticFallbackClient | None = None,
+        max_concurrency: int = 1,
+    ) -> None:
         self._client = client
+        self._max_concurrency = max(1, max_concurrency)
+        self._semaphore = threading.BoundedSemaphore(self._max_concurrency)
 
     def resolve_table_kind(
         self,
@@ -94,7 +102,8 @@ class SemanticFallbackService:
         if invoke_client is None or not request.ambiguity_reason:
             return deterministic_result
         try:
-            result = invoke_client(request)
+            with self._semaphore:
+                result = invoke_client(request)
         except Exception:
             LOGGER.warning(
                 "Semantic fallback invocation failed; continuing with deterministic semantics.",

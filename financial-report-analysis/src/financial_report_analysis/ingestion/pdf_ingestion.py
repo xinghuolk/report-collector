@@ -85,6 +85,11 @@ class PdfIngestionAdapter:
         "assets total",
         "total liabilities",
         "liabilities total",
+        "total equity",
+        "equity attributable",
+        "gross profit",
+        "net cash from investing activities",
+        "net cash from financing activities",
     )
     _REVENUE_TABLE_KINDS: tuple[str, ...] = (
         "income_statement",

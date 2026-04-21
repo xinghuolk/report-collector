@@ -29,6 +29,7 @@ def test_build_semantic_fallback_service_builds_ollama_client() -> None:
         base_url="http://127.0.0.1:11434",
         model="qwen3.5:9b",
         timeout_seconds=12.5,
+        max_concurrency=3,
     )
 
     service = build_semantic_fallback_service(settings)
@@ -38,6 +39,7 @@ def test_build_semantic_fallback_service_builds_ollama_client() -> None:
     assert service._client._base_url == "http://127.0.0.1:11434"
     assert service._client._model == "qwen3.5:9b"
     assert service._client._timeout_seconds == 12.5
+    assert service._max_concurrency == 3
 
 
 def test_integration_ollama_tests_do_not_hardcode_localhost_endpoint() -> None:
@@ -65,6 +67,7 @@ def test_load_semantic_fallback_settings_reads_base_url_from_dotenv(
             FRA_SEMANTIC_FALLBACK_ENABLED=true
             FRA_SEMANTIC_FALLBACK_BASE_URL=http://192.168.10.103:11434
             FRA_SEMANTIC_FALLBACK_MODEL=qwen3.5:9b
+            FRA_SEMANTIC_FALLBACK_MAX_CONCURRENCY=2
             """
         ).strip()
         + "\n",
@@ -73,6 +76,7 @@ def test_load_semantic_fallback_settings_reads_base_url_from_dotenv(
     monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_ENABLED", raising=False)
     monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_BASE_URL", raising=False)
     monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_MODEL", raising=False)
+    monkeypatch.delenv("FRA_SEMANTIC_FALLBACK_MAX_CONCURRENCY", raising=False)
     monkeypatch.setattr(
         "financial_report_analysis.semantic_fallback.config._project_root",
         lambda: tmp_path,
@@ -83,6 +87,7 @@ def test_load_semantic_fallback_settings_reads_base_url_from_dotenv(
     assert settings.enabled is True
     assert settings.base_url == "http://192.168.10.103:11434"
     assert settings.model == "qwen3.5:9b"
+    assert settings.max_concurrency == 2
 
 
 def test_load_semantic_fallback_settings_prefers_environment_over_dotenv(

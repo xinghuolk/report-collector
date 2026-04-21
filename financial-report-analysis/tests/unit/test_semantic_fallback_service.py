@@ -1,4 +1,7 @@
 import httpx
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
 
 from financial_report_analysis.semantic_fallback import (
     CurrencyFallbackRequest,
@@ -155,3 +158,43 @@ def test_semantic_fallback_service_soft_degrades_when_client_times_out() -> None
     assert result.value == "none"
     assert result.semantic_confidence is None
     assert result.fallback_reason is None
+
+
+class _ConcurrentProbeFallbackClient(_StubFallbackClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._active = 0
+        self.max_active = 0
+        self._lock = threading.Lock()
+
+    def normalize_row_label(
+        self, request: RowLabelFallbackRequest
+    ) -> SemanticFallbackResult:
+        with self._lock:
+            self._active += 1
+            self.max_active = max(self.max_active, self._active)
+        try:
+            time.sleep(0.03)
+            return super().normalize_row_label(request)
+        finally:
+            with self._lock:
+                self._active -= 1
+
+
+def test_semantic_fallback_service_limits_concurrent_client_calls() -> None:
+    client = _ConcurrentProbeFallbackClient()
+    service = SemanticFallbackService(client=client, max_concurrency=2)
+    request = RowLabelFallbackRequest(
+        raw_label="Business revenue",
+        table_kind="income_statement",
+        local_context="Consolidated statement\nBusiness revenue",
+        deterministic_candidates=(),
+        ambiguity_reason="unknown_row_label",
+    )
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = list(executor.map(service.resolve_row_label, [request] * 6))
+
+    assert client.max_active <= 2
+    assert client.row_label_calls == 6
+    assert {result.semantic_source for result in results} == {"llm_fallback"}
