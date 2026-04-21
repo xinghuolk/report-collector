@@ -68,6 +68,48 @@ def _candidate(
     )
 
 
+def _normalized_table_semantics(
+    *,
+    table_id: str,
+    document_id: str,
+    table_kind: str,
+    period_id: str,
+    rows: list[tuple[str, str | None, float]],
+    table_unit: str = "元",
+    table_currency: str = "CNY",
+    statement_scope_guess: str = "consolidated",
+) -> NormalizedTableSemantics:
+    return NormalizedTableSemantics(
+        table_id=table_id,
+        document_id=document_id,
+        page_range=(1, 1),
+        table_kind=table_kind,
+        title_text="Balance Sheet",
+        statement_scope_guess=statement_scope_guess,
+        table_unit=table_unit,
+        table_currency=table_currency,
+        rows=[
+            NormalizedTableRow(
+                row_id=f"row-{index}",
+                label_raw=label_raw,
+                normalized_row_label=normalized_row_label,
+                values=[
+                    NormalizedTableCellValue(
+                        row_index=index,
+                        column_index=1,
+                        raw_text=str(value),
+                        numeric_value=value,
+                        period_id=period_id,
+                        comparison_axis="current",
+                        value_time_shape="point_in_time",
+                    )
+                ],
+            )
+            for index, (label_raw, normalized_row_label, value) in enumerate(rows, start=1)
+        ],
+    )
+
+
 def test_fact_pipeline_normalizes_metric_and_unit() -> None:
     normalizer = FactNormalizer()
 
@@ -194,6 +236,70 @@ def test_build_table_candidate_facts_carries_phase1_eps_metadata_and_provenance(
     assert candidate["extensions"]["semantic_source"] == "llm_fallback"
     assert candidate["extensions"]["semantic_confidence"] == 0.61
     assert candidate["extensions"]["fallback_reason"] == "eps_block_disambiguation"
+
+
+def test_table_fact_builder_emits_p2a_working_capital_candidate_facts() -> None:
+    semantics = _normalized_table_semantics(
+        table_id="table-p2a",
+        document_id="doc:p2a",
+        table_kind="balance_sheet",
+        period_id="2025FY",
+        rows=[
+            ("应收账款", "accounts receivables", 11.0),
+            ("应收票据", "notes receivable", 12.0),
+            ("其他应收款", "other receivables", 13.0),
+            ("合同负债", "contract liabilities", 14.0),
+            ("预收款项", "advances from customers", 15.0),
+            ("应付账款", "accounts payable", 16.0),
+            ("应付票据", "notes payable", 17.0),
+        ],
+    )
+
+    candidates = build_table_candidate_facts(
+        [semantics],
+        registry=load_metric_registry(),
+        document_id="doc:p2a",
+        market="CN",
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "accounts_receiv",
+        "notes_receiv",
+        "oth_receiv",
+        "contract_liab",
+        "adv_receipts",
+        "acct_payable",
+        "notes_payable",
+    }
+    assert all(candidate["statement_type"] == "balance_sheet" for candidate in candidates)
+    assert all(candidate["period_id"] == "2025FY" for candidate in candidates)
+
+
+def test_table_fact_builder_rejects_p2a_negative_control_rows() -> None:
+    semantics = _normalized_table_semantics(
+        table_id="table-p2a-negative",
+        document_id="doc:p2a-negative",
+        table_kind="balance_sheet",
+        period_id="2025FY",
+        rows=[
+            ("accounts receivable financing", None, 1.0),
+            ("long-term receivables", None, 2.0),
+            ("employee compensation payable", None, 3.0),
+            ("taxes payable", None, 4.0),
+            ("bonds payable", None, 5.0),
+        ],
+        table_currency="HKD",
+    )
+
+    assert (
+        build_table_candidate_facts(
+            [semantics],
+            registry=load_metric_registry(),
+            document_id="doc:p2a-negative",
+            market="HK",
+        )
+        == []
+    )
 
 
 def test_fact_pipeline_normalizes_basic_eps_as_per_share_metric() -> None:
