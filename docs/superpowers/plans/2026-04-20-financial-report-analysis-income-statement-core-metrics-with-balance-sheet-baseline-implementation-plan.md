@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Completed on 2026-04-21
+**Completion Note:** 本计划对应实现已完成并通过关键回归，包括利润表核心指标主链路、资产负债表轻量基线、summary/growth/ratio 抑制、主表优先、以及语义 fallback 超时软降级。关键提交包括 `893b8d8` (`feat: extend income statement core metrics baseline`) 与 `dbec933` (`fix: degrade semantic fallback timeouts gracefully`)。
+**Validation Snapshot:** `uv run ruff check src tests`、`uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics.py tests/unit/test_fact_pipeline.py -v`、`uv run pytest tests/integration/test_analysis_api.py -v`、`uv run pytest tests/integration/test_semantic_recovery_regressions.py -v`、`uv run pytest tests/integration/test_annual_structure_recovery.py -v` 均已通过。
+
 **Related Spec:** `docs/superpowers/specs/2026-04-20-financial-report-analysis-income-statement-core-metrics-with-balance-sheet-baseline-design.md`
 
 **Goal:** 在当前已完成的表格结构恢复、语义归一化、gated fallback 与 candidate/canonical/API 合约稳定的基础上，把 `financial-report-analysis` 从“少量高价值指标可穿透”推进到“利润表核心链路可用”，同时对资产负债表做一层轻量基线补强。
@@ -86,7 +90,7 @@
 - Modify: `F:\source\git\report-collector\financial-report-analysis\tests\unit\test_fact_pipeline.py`
 - Modify: `F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\registries\metric_mapping.py`
 
-- [ ] **Step 1: 先写失败测试，锁定利润表核心指标与 market aliases**
+- [x] **Step 1: 先写失败测试，锁定利润表核心指标与 market aliases**
 
 ```python
 def test_metric_mapping_registry_matches_operating_cost_for_cn_income_statement() -> None:
@@ -115,7 +119,7 @@ def test_metric_mapping_registry_matches_net_profit_for_hk_income_statement() ->
     assert definition.metric_id == "net_profit"
 ```
 
-- [ ] **Step 2: 运行测试，确认先红**
+- [x] **Step 2: 运行测试，确认先红**
 
 Run:
 ```powershell
@@ -125,7 +129,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/unit/test_fact_pipeline.p
 
 Expected: FAIL，说明 registry 仍未覆盖利润表核心指标。
 
-- [ ] **Step 3: 写最小实现，只扩 coverage，不改整体 registry 模型**
+- [x] **Step 3: 写最小实现，只扩 coverage，不改整体 registry 模型**
 
 至少补齐：
 
@@ -147,7 +151,7 @@ Expected: FAIL，说明 registry 仍未覆盖利润表核心指标。
   - `profit attributable to shareholders`
   - `profit attributable to equity holders`
 
-- [ ] **Step 4: 再跑测试，确认转绿**
+- [x] **Step 4: 再跑测试，确认转绿**
 
 Run:
 ```powershell
@@ -157,7 +161,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/unit/test_fact_pipeline.p
 
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add F:\source\git\report-collector\financial-report-analysis\tests\unit\test_metric_registry.py F:\source\git\report-collector\financial-report-analysis\tests\unit\test_fact_pipeline.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\registries\metric_mapping.py
@@ -173,7 +177,7 @@ git commit -m "feat: extend income statement metric registry coverage"
 - Modify: `F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\ingestion\table_semantics.py`
 - Modify: `F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\ingestion\pdf_ingestion.py`
 
-- [ ] **Step 1: 先写失败测试，锁定真实利润表标签归一与主表抑噪**
+- [x] **Step 1: 先写失败测试，锁定真实利润表标签归一与主表抑噪**
 
 ```python
 def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
@@ -190,7 +194,7 @@ def test_extract_endpoint_does_not_promote_growth_ratio_rows_as_profit_metrics()
     )
 ```
 
-- [ ] **Step 2: 运行测试，确认先红**
+- [x] **Step 2: 运行测试，确认先红**
 
 Run:
 ```powershell
@@ -200,7 +204,7 @@ uv run pytest tests/unit/test_table_semantics.py tests/integration/test_analysis
 
 Expected: FAIL，说明 row-label normalization 与主表抑噪仍不够稳。
 
-- [ ] **Step 3: 写最小实现，只补 deterministic normalization 与 table gating**
+- [x] **Step 3: 写最小实现，只补 deterministic normalization 与 table gating**
 
 建议方向：
 
@@ -211,7 +215,7 @@ Expected: FAIL，说明 row-label normalization 与主表抑噪仍不够稳。
 - 对增长率 / 利润率 / 摘要指标维持 `none`
 - 保持主表优先，不让 `key_metrics` 抢占利润表核心项
 
-- [ ] **Step 4: 再跑测试，确认转绿**
+- [x] **Step 4: 再跑测试，确认转绿**
 
 Run:
 ```powershell
@@ -221,7 +225,7 @@ uv run pytest tests/unit/test_table_semantics.py tests/integration/test_analysis
 
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add F:\source\git\report-collector\financial-report-analysis\tests\unit\test_table_semantics.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_analysis_api.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_semantic_recovery_regressions.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\ingestion\table_semantics.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\ingestion\pdf_ingestion.py
@@ -236,7 +240,7 @@ git commit -m "feat: harden income statement semantic normalization"
 - Modify: `F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\services\table_fact_builder.py`
 - Modify: `F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\services\fact_normalizer.py`
 
-- [ ] **Step 1: 先写失败测试，锁定利润表核心指标能进入 canonical/key facts**
+- [x] **Step 1: 先写失败测试，锁定利润表核心指标能进入 canonical/key facts**
 
 ```python
 def test_table_candidate_facts_include_operating_cost_and_net_profit() -> None:
@@ -255,7 +259,7 @@ def test_extract_endpoint_promotes_income_statement_core_metrics_to_key_facts() 
     assert any(fact["metric_id"] == "net_profit" for fact in payload["key_facts"])
 ```
 
-- [ ] **Step 2: 运行测试，确认先红**
+- [x] **Step 2: 运行测试，确认先红**
 
 Run:
 ```powershell
@@ -265,7 +269,7 @@ uv run pytest tests/unit/test_fact_pipeline.py tests/integration/test_analysis_a
 
 Expected: FAIL，说明新增指标尚未稳定穿透到 canonical / API。
 
-- [ ] **Step 3: 写最小实现，保持现有 pipeline contract**
+- [x] **Step 3: 写最小实现，保持现有 pipeline contract**
 
 注意：
 
@@ -273,7 +277,7 @@ Expected: FAIL，说明新增指标尚未稳定穿透到 canonical / API。
 - 只补 candidate 生成、normalizer alias 对齐与 canonical promotion 稳定性
 - 如需排序调整，仅做最小 source-rank 校准
 
-- [ ] **Step 4: 再跑测试，确认转绿**
+- [x] **Step 4: 再跑测试，确认转绿**
 
 Run:
 ```powershell
@@ -283,7 +287,7 @@ uv run pytest tests/unit/test_fact_pipeline.py tests/integration/test_analysis_a
 
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add F:\source\git\report-collector\financial-report-analysis\tests\unit\test_fact_pipeline.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_analysis_api.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\services\table_fact_builder.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\services\fact_normalizer.py
@@ -307,7 +311,7 @@ git commit -m "feat: promote income statement core metrics through pipeline"
 - Modify: `F:\source\git\report-collector\financial-report-analysis\tests\integration\test_semantic_recovery_regressions.py`
 - Modify: `F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\registries\metric_mapping.py`
 
-- [ ] **Step 1: 先写失败测试，锁定资产负债表基线指标的 CN/HK aliases**
+- [x] **Step 1: 先写失败测试，锁定资产负债表基线指标的 CN/HK aliases**
 
 ```python
 def test_metric_mapping_registry_matches_total_assets_cn_aliases() -> None:
@@ -322,7 +326,7 @@ def test_metric_mapping_registry_matches_cash_hk_aliases() -> None:
     assert definition.metric_id == "cash"
 ```
 
-- [ ] **Step 2: 运行测试，确认先红**
+- [x] **Step 2: 运行测试，确认先红**
 
 Run:
 ```powershell
@@ -332,7 +336,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/integration/test_semantic
 
 Expected: FAIL，说明资产负债表 aliases 与 gating 仍有缺口。
 
-- [ ] **Step 3: 写最小实现，只补 aliases 与 point-in-time 稳定性**
+- [x] **Step 3: 写最小实现，只补 aliases 与 point-in-time 稳定性**
 
 建议 focus：
 
@@ -345,7 +349,7 @@ Expected: FAIL，说明资产负债表 aliases 与 gating 仍有缺口。
   - `total assets`
   - `total liabilities`
 
-- [ ] **Step 4: 再跑测试，确认转绿**
+- [x] **Step 4: 再跑测试，确认转绿**
 
 Run:
 ```powershell
@@ -355,7 +359,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/integration/test_semantic
 
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add F:\source\git\report-collector\financial-report-analysis\tests\unit\test_metric_registry.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_semantic_recovery_regressions.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\registries\metric_mapping.py
@@ -366,7 +370,7 @@ git commit -m "feat: strengthen balance sheet baseline metric coverage"
 
 ## 完整验证矩阵
 
-- [ ] **Step 1: 跑利润表与资产负债表 unit tests**
+- [x] **Step 1: 跑利润表与资产负债表 unit tests**
 
 Run:
 ```powershell
@@ -376,7 +380,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics
 
 Expected: PASS
 
-- [ ] **Step 2: 跑真实样本 integration**
+- [x] **Step 2: 跑真实样本 integration**
 
 Run:
 ```powershell
@@ -386,7 +390,7 @@ uv run pytest tests/integration/test_analysis_api.py tests/integration/test_sema
 
 Expected: PASS
 
-- [ ] **Step 3: 跑 Ruff**
+- [x] **Step 3: 跑 Ruff**
 
 Run:
 ```powershell
@@ -396,7 +400,7 @@ uv run ruff check src tests
 
 Expected: PASS
 
-- [ ] **Step 4: 最终提交**
+- [x] **Step 4: 最终提交**
 
 ```powershell
 git add F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\registries\metric_mapping.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\ingestion\table_semantics.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\ingestion\pdf_ingestion.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\services\table_fact_builder.py F:\source\git\report-collector\financial-report-analysis\src\financial_report_analysis\services\fact_normalizer.py F:\source\git\report-collector\financial-report-analysis\tests\unit\test_metric_registry.py F:\source\git\report-collector\financial-report-analysis\tests\unit\test_table_semantics.py F:\source\git\report-collector\financial-report-analysis\tests\unit\test_fact_pipeline.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_analysis_api.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_semantic_recovery_regressions.py F:\source\git\report-collector\financial-report-analysis\tests\integration\test_annual_structure_recovery.py
