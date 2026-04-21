@@ -861,6 +861,7 @@ def test_note_disclosure_builder_reports_absent_missing_status() -> None:
     }
     assert missing_status["notes_receiv"] == "absent"
     assert missing_status["notes_payable"] == "absent"
+    assert missing_status["adv_receipts"] == "not_surfaced"
 ```
 
 - [ ] **Step 4: Run tests and verify they fail**
@@ -948,8 +949,15 @@ def _label_from_line(line: str) -> str:
 
 def _working_capital_missing_status(found_metric_ids: set[str]) -> dict[str, str]:
     status: dict[str, str] = {}
-    for metric_id in ("notes_receiv", "notes_payable"):
-        status[metric_id] = "present" if metric_id in found_metric_ids else "absent"
+    absent_when_missing = {"notes_receiv", "notes_payable"}
+    not_surfaced_when_missing = {"adv_receipts"}
+    for metric_id in sorted(absent_when_missing | not_surfaced_when_missing):
+        if metric_id in found_metric_ids:
+            status[metric_id] = "present"
+        elif metric_id in absent_when_missing:
+            status[metric_id] = "absent"
+        else:
+            status[metric_id] = "not_surfaced"
     return status
 
 
@@ -1372,6 +1380,7 @@ def test_hk_09987_2025_surfaces_p2a_note_disclosure_candidates_without_hallucina
     )
     assert missing_status["notes_receiv"] == "absent"
     assert missing_status["notes_payable"] == "absent"
+    assert missing_status["adv_receipts"] == "not_surfaced"
 ```
 
 - [ ] **Step 2: Add provenance assertion for 09987 note path**
