@@ -120,3 +120,32 @@ def test_metric_mapping_registry_rejects_p2a_false_positives(
         )
         is None
     )
+
+
+@pytest.mark.parametrize(
+    ("normalized_row_label", "metric_id"),
+    [
+        ("accounts_receiv", "accounts_receiv"),
+        ("notes_receiv", "notes_receiv"),
+        ("oth_receiv", "oth_receiv"),
+        ("contract_liab", "contract_liab"),
+        ("adv_receipts", "adv_receipts"),
+        ("acct_payable", "acct_payable"),
+        ("notes_payable", "notes_payable"),
+    ],
+)
+def test_metric_mapping_registry_matches_p2a_working_capital_token_outputs(
+    normalized_row_label: str,
+    metric_id: str,
+) -> None:
+    registry = load_metric_registry()
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=normalized_row_label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
