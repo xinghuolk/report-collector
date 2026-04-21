@@ -9,7 +9,9 @@ from typing import Any
 import httpx
 from pypdf import PdfReader
 
-from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
+from financial_report_analysis.ingestion.table_semantics import (
+    normalize_table_semantics,
+)
 from financial_report_analysis.ingestion.table_structure import PdfTableStructureAdapter
 from financial_report_analysis.models import (
     NormalizedTableRow,
@@ -61,6 +63,8 @@ class PdfIngestionAdapter:
         "deferred revenue",
         "contract liability",
         "contract liabilities",
+        "cost of sales",
+        "cost of revenue",
     )
     _ROW_LABEL_FALLBACK_ANCHOR_TOKENS: tuple[str, ...] = (
         "revenue",
@@ -73,6 +77,7 @@ class PdfIngestionAdapter:
         "profit attributable",
         "operating cash flow",
         "cash generated from operations",
+        "net cash generated from operating activities",
         "cash and cash equivalents",
         "cash equivalents",
         "total assets",
@@ -156,7 +161,9 @@ class PdfIngestionAdapter:
             market=market,
         )
         language = self._detect_language(text, market)
-        period_id = self._detect_period_id_from_tables(parsed_tables) or self._detect_period_id(
+        period_id = self._detect_period_id_from_tables(
+            parsed_tables
+        ) or self._detect_period_id(
             text,
         )
 
@@ -199,10 +206,11 @@ class PdfIngestionAdapter:
             "document_metadata": {
                 "language": language,
                 "parsed_tables": [
-                    self._serialize_parsed_table(table)
-                    for table in normalized_tables
+                    self._serialize_parsed_table(table) for table in normalized_tables
                 ],
-                "semantic_fallback_call_counts": dict(self._semantic_fallback_call_counts),
+                "semantic_fallback_call_counts": dict(
+                    self._semantic_fallback_call_counts
+                ),
             },
         }
 
@@ -273,7 +281,9 @@ class PdfIngestionAdapter:
                 period_id=resolved_period_id,
                 currency=table.table_currency or self._detect_currency(context, market),
                 raw_unit=table.table_unit or self._detect_raw_unit(context),
-                statement_type=table.table_kind if table.table_kind != "key_metrics" else "metrics",
+                statement_type=table.table_kind
+                if table.table_kind != "key_metrics"
+                else "metrics",
                 table_kind=table.table_kind,
                 page_index=value_cell.page_index or table.page_range[0],
                 table_coord=(value_cell.row_index, value_cell.column_index),
@@ -366,14 +376,18 @@ class PdfIngestionAdapter:
             "evidence_bundle_id": f"{document_id}:bundle:{evidence_bundle_suffix}",
             "table_coord": table_coord,
             "extraction_method": extraction_method,
-            "extraction_version": "v2" if extraction_method == "table_structure" else "v1",
+            "extraction_version": "v2"
+            if extraction_method == "table_structure"
+            else "v1",
             "source_rank_hint": 1,
         }
         if table_id is not None:
             fact["table_id"] = table_id
         return fact
 
-    def _extract_revenue_facts(self, text: str) -> list[tuple[str, float, tuple[int, int]]]:
+    def _extract_revenue_facts(
+        self, text: str
+    ) -> list[tuple[str, float, tuple[int, int]]]:
         facts: list[tuple[str, float, tuple[int, int]]] = []
         for label, pattern in self._REVENUE_PATTERNS:
             match = pattern.search(text)
@@ -428,7 +442,9 @@ class PdfIngestionAdapter:
             return "zh-Hant" if market == "HK" else "zh-Hans"
         return "en"
 
-    def _detect_period_id_from_tables(self, parsed_tables: list[ParsedTable]) -> str | None:
+    def _detect_period_id_from_tables(
+        self, parsed_tables: list[ParsedTable]
+    ) -> str | None:
         for table in parsed_tables:
             for column in table.period_columns:
                 if column.period_id is not None:
@@ -453,10 +469,15 @@ class PdfIngestionAdapter:
         normalized = re.sub(r"\s+", " ", label).strip()
         english_label = normalized.lower()
         if table_kind in {"key_metrics", "metrics"}:
-            return english_label in self._PRIMARY_REVENUE_LABELS or normalized in self._PRIMARY_REVENUE_LABELS
+            return (
+                english_label in self._PRIMARY_REVENUE_LABELS
+                or normalized in self._PRIMARY_REVENUE_LABELS
+            )
         if "revenue" in english_label or "turnover" in english_label:
             return True
-        return any(pattern.search(normalized) for pattern in self._REVENUE_LABEL_PATTERNS)
+        return any(
+            pattern.search(normalized) for pattern in self._REVENUE_LABEL_PATTERNS
+        )
 
     def _ordered_revenue_tables(
         self,
@@ -608,7 +629,9 @@ class PdfIngestionAdapter:
                     raw_text=table.table_unit or "unknown",
                     local_context=local_context,
                     deterministic_candidates=tuple(
-                        candidate for candidate in [table.table_unit] if candidate is not None
+                        candidate
+                        for candidate in [table.table_unit]
+                        if candidate is not None
                     ),
                     ambiguity_reason=unit_ambiguity_reason,
                 )
@@ -713,19 +736,33 @@ class PdfIngestionAdapter:
         raw_label: str,
         normalized_label: str | None,
     ) -> bool:
-        combined_label = re.sub(
-            r"\s+",
-            " ",
-            " ".join(part for part in [raw_label, normalized_label or ""] if part),
-        ).strip().casefold()
+        combined_label = (
+            re.sub(
+                r"\s+",
+                " ",
+                " ".join(part for part in [raw_label, normalized_label or ""] if part),
+            )
+            .strip()
+            .casefold()
+        )
         if not combined_label:
             return False
-        if any(token in combined_label for token in PdfIngestionAdapter._ROW_LABEL_FALLBACK_BLOCKLIST_TOKENS):
+        if any(
+            PdfIngestionAdapter._contains_fallback_token(combined_label, token)
+            for token in PdfIngestionAdapter._ROW_LABEL_FALLBACK_BLOCKLIST_TOKENS
+        ):
             return False
         return any(
-            token in combined_label
+            PdfIngestionAdapter._contains_fallback_token(combined_label, token)
             for token in PdfIngestionAdapter._ROW_LABEL_FALLBACK_ANCHOR_TOKENS
         )
+
+    @staticmethod
+    def _contains_fallback_token(text: str, token: str) -> bool:
+        if token.isascii():
+            pattern = rf"(?<!\w){re.escape(token)}(?!\w)"
+            return re.search(pattern, text) is not None
+        return token in text
 
     @staticmethod
     def _row_matches_metric_registry(
@@ -804,12 +841,14 @@ class PdfIngestionAdapter:
 
     @staticmethod
     def _normalized_table_context(table: NormalizedTableSemantics) -> str:
-        header_text = "\n".join(column.header_text for column in table.columns if column.header_text)
-        row_labels = "\n".join(row.label_raw for row in table.rows[:10] if row.label_raw)
+        header_text = "\n".join(
+            column.header_text for column in table.columns if column.header_text
+        )
+        row_labels = "\n".join(
+            row.label_raw for row in table.rows[:10] if row.label_raw
+        )
         return "\n".join(
-            part
-            for part in [table.title_text, header_text, row_labels]
-            if part
+            part for part in [table.title_text, header_text, row_labels] if part
         )
 
     @classmethod
@@ -870,7 +909,10 @@ class PdfIngestionAdapter:
         if not normalized:
             return False
         if (
-            ("earnings per share" in normalized or re.search(r"\bbasic eps\b", normalized))
+            (
+                "earnings per share" in normalized
+                or re.search(r"\bbasic eps\b", normalized)
+            )
             and "basic" in normalized
         ) or (
             ("每股收益" in normalized or "每股盈利" in normalized)
@@ -878,15 +920,41 @@ class PdfIngestionAdapter:
         ):
             return False
         return (
-            re.search(r"\b(growth|margin|ratio)\b", normalized, re.IGNORECASE) is not None
-            or re.search(r"\b(?:diluted|adjusted|non[- ]gaap|non[- ]ifrs|headline)\b.*\b(?:per share|eps)\b", normalized, re.IGNORECASE) is not None
-            or re.search(r"\b(?:per share|eps)\b", normalized, re.IGNORECASE) is not None
+            re.search(r"\b(growth|margin|ratio)\b", normalized, re.IGNORECASE)
+            is not None
+            or re.search(
+                r"\b(?:diluted|adjusted|non[- ]gaap|non[- ]ifrs|headline)\b.*\b(?:per share|eps)\b",
+                normalized,
+                re.IGNORECASE,
+            )
+            is not None
+            or re.search(r"\b(?:per share|eps)\b", normalized, re.IGNORECASE)
+            is not None
             or re.search(r"\bbook value\b", normalized, re.IGNORECASE) is not None
-            or re.search(r"\banalysis of balances? of cash and cash equivalents\b", normalized, re.IGNORECASE) is not None
-            or re.search(r"\bcash flows? before (?:changes|movements) in working capital\b", normalized, re.IGNORECASE) is not None
-            or re.search(r"\bcash generated from operations before (?:changes|movements) in working capital\b", normalized, re.IGNORECASE) is not None
+            or re.search(
+                r"\banalysis of balances? of cash and cash equivalents\b",
+                normalized,
+                re.IGNORECASE,
+            )
+            is not None
+            or re.search(
+                r"\bcash flows? before (?:changes|movements) in working capital\b",
+                normalized,
+                re.IGNORECASE,
+            )
+            is not None
+            or re.search(
+                r"\bcash generated from operations before (?:changes|movements) in working capital\b",
+                normalized,
+                re.IGNORECASE,
+            )
+            is not None
             or re.search(r"(增长率|增长|比率|利润率|毛利率)", normalized) is not None
-            or re.search(r"(稀释|调整后|非公认会计准则|非国际财务报告准则).*(每股|每股收益|每股盈利)", normalized) is not None
+            or re.search(
+                r"(稀释|调整后|非公认会计准则|非国际财务报告准则).*(每股|每股收益|每股盈利)",
+                normalized,
+            )
+            is not None
             or re.search(r"每股", normalized) is not None
             or re.search(r"小计", normalized) is not None
         )

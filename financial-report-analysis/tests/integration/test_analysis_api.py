@@ -81,7 +81,9 @@ def _ollama_model_available(*, base_url: str, model: str) -> bool:
         return False
     payload = response.json()
     models = payload.get("models", [])
-    return any(entry.get("name") == model for entry in models if isinstance(entry, dict))
+    return any(
+        entry.get("name") == model for entry in models if isinstance(entry, dict)
+    )
 
 
 def _real_ollama_endpoint() -> tuple[str, str]:
@@ -324,7 +326,9 @@ def test_extract_endpoint_surfaces_phase1_api_visible_metrics(
     key_fact_ids = [fact["metric_id"] for fact in payload["key_facts"]]
     assert "n_income_attr_p" in key_fact_ids
     assert "basic_eps" in key_fact_ids
-    basic_eps = next(fact for fact in payload["key_facts"] if fact["metric_id"] == "basic_eps")
+    basic_eps = next(
+        fact for fact in payload["key_facts"] if fact["metric_id"] == "basic_eps"
+    )
     assert basic_eps["numeric_value"] == 1.23
     assert basic_eps["normalized_unit"] == "per_share_amount"
 
@@ -519,9 +523,17 @@ def test_pdf_ingestion_applies_gated_row_label_fallback_for_ambiguous_table(
     assert fallback_service.requests
     assert payload["candidate_facts"][0]["metric_id"] == "total_assets"
     assert payload["candidate_facts"][0]["extraction_method"] == "table_semantics"
-    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
-    assert payload["candidate_facts"][0]["extensions"]["fallback_reason"] == "numeric_only_statement_block"
-    assert payload["document_metadata"]["parsed_tables"][0]["semantic_source"] == "llm_fallback"
+    assert (
+        payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    )
+    assert (
+        payload["candidate_facts"][0]["extensions"]["fallback_reason"]
+        == "numeric_only_statement_block"
+    )
+    assert (
+        payload["document_metadata"]["parsed_tables"][0]["semantic_source"]
+        == "llm_fallback"
+    )
 
 
 def test_pdf_ingestion_applies_gated_currency_fallback_for_ambiguous_unknown_currency(
@@ -627,7 +639,9 @@ def test_pdf_ingestion_applies_gated_currency_fallback_for_ambiguous_unknown_cur
 
     assert fallback_service.currency_requests
     assert payload["candidate_facts"][0]["currency"] == "HKD"
-    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    assert (
+        payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    )
     assert (
         payload["candidate_facts"][0]["extensions"]["currency_semantic_source"]
         == "llm_fallback"
@@ -740,9 +754,13 @@ def test_pdf_ingestion_applies_row_label_fallback_for_unmapped_normalized_label(
     )
 
     assert fallback_service.requests
-    assert fallback_service.requests[0].ambiguity_reason == "unmapped_normalized_row_label"
+    assert (
+        fallback_service.requests[0].ambiguity_reason == "unmapped_normalized_row_label"
+    )
     assert payload["candidate_facts"][0]["metric_id"] == "revenue"
-    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    assert (
+        payload["candidate_facts"][0]["extensions"]["semantic_source"] == "llm_fallback"
+    )
 
 
 def test_pdf_ingestion_skips_row_label_fallback_for_clear_non_target_rows(
@@ -817,7 +835,9 @@ def test_pdf_ingestion_skips_row_label_fallback_for_clear_non_target_rows(
         source_blocks=[],
     )
 
-    monkeypatch.setattr(PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table])
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
     monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
 
     class _FailingFallbackService(SemanticFallbackService):
@@ -825,7 +845,9 @@ def test_pdf_ingestion_skips_row_label_fallback_for_clear_non_target_rows(
             super().__init__(client=None)
             self.requests: list[RowLabelFallbackRequest] = []
 
-        def resolve_row_label(self, request: RowLabelFallbackRequest) -> SemanticFallbackResult:
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
             self.requests.append(request)
             return SemanticFallbackResult(
                 value="revenue",
@@ -846,7 +868,9 @@ def test_pdf_ingestion_skips_row_label_fallback_for_clear_non_target_rows(
     )
 
     assert fallback_service.requests == []
-    assert payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 0
+    assert (
+        payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 0
+    )
     assert payload["candidate_facts"] == []
 
 
@@ -912,7 +936,9 @@ def test_pdf_ingestion_preserves_supported_deterministic_eps_row(
         source_blocks=[],
     )
 
-    monkeypatch.setattr(PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table])
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
     monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
 
     class _EPSFallbackService(SemanticFallbackService):
@@ -920,7 +946,9 @@ def test_pdf_ingestion_preserves_supported_deterministic_eps_row(
             super().__init__(client=None)
             self.requests: list[RowLabelFallbackRequest] = []
 
-        def resolve_row_label(self, request: RowLabelFallbackRequest) -> SemanticFallbackResult:
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
             self.requests.append(request)
             return SemanticFallbackResult(
                 value="basic_eps",
@@ -941,9 +969,14 @@ def test_pdf_ingestion_preserves_supported_deterministic_eps_row(
     )
 
     assert fallback_service.requests == []
-    assert payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 0
+    assert (
+        payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 0
+    )
     assert payload["candidate_facts"][0]["metric_id"] == "basic_eps"
-    assert payload["candidate_facts"][0]["extensions"]["semantic_source"] == "deterministic"
+    assert (
+        payload["candidate_facts"][0]["extensions"]["semantic_source"]
+        == "deterministic"
+    )
 
 
 def test_pdf_ingestion_allows_row_label_fallback_for_plausible_core_anchor(
@@ -1008,7 +1041,9 @@ def test_pdf_ingestion_allows_row_label_fallback_for_plausible_core_anchor(
         source_blocks=[],
     )
 
-    monkeypatch.setattr(PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table])
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
     monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
 
     class _FallbackService(SemanticFallbackService):
@@ -1016,7 +1051,9 @@ def test_pdf_ingestion_allows_row_label_fallback_for_plausible_core_anchor(
             super().__init__(client=None)
             self.requests: list[RowLabelFallbackRequest] = []
 
-        def resolve_row_label(self, request: RowLabelFallbackRequest) -> SemanticFallbackResult:
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
             self.requests.append(request)
             return SemanticFallbackResult(
                 value="revenue",
@@ -1037,8 +1074,309 @@ def test_pdf_ingestion_allows_row_label_fallback_for_plausible_core_anchor(
     )
 
     assert len(fallback_service.requests) == 1
-    assert fallback_service.requests[0].ambiguity_reason == "unmapped_normalized_row_label"
+    assert (
+        fallback_service.requests[0].ambiguity_reason == "unmapped_normalized_row_label"
+    )
     assert payload["candidate_facts"][0]["metric_id"] == "revenue"
+
+
+def test_pdf_ingestion_allows_cash_generated_from_operations_row_label_fallback(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        RowLabelFallbackRequest,
+        SemanticFallbackResult,
+        SemanticFallbackService,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:cash-generated",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason=None,
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="cash generated from operations",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
+    monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
+
+    class _FallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.requests: list[RowLabelFallbackRequest] = []
+
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
+            self.requests.append(request)
+            return SemanticFallbackResult(
+                value="operating_cash_flow",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.82,
+                fallback_reason=request.ambiguity_reason,
+            )
+
+    fallback_service = _FallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert len(fallback_service.requests) == 1
+    assert fallback_service.requests[0].raw_label == "cash generated from operations"
+    assert (
+        payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 1
+    )
+
+
+def test_pdf_ingestion_allows_net_cash_generated_from_operating_activities_row_label_fallback(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        RowLabelFallbackRequest,
+        SemanticFallbackResult,
+        SemanticFallbackService,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:net-cash-generated",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason=None,
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="net cash generated from operating activities note",
+                normalized_label_hint=None,
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="2,345",
+                        numeric_value=2345.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
+    monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
+
+    class _FallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.requests: list[RowLabelFallbackRequest] = []
+
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
+            self.requests.append(request)
+            return SemanticFallbackResult(
+                value="operating_cash_flow",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.82,
+                fallback_reason=request.ambiguity_reason,
+            )
+
+    fallback_service = _FallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert len(fallback_service.requests) == 1
+    assert fallback_service.requests[0].raw_label == (
+        "net cash generated from operating activities note"
+    )
+    assert (
+        payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 1
+    )
+
+
+def test_pdf_ingestion_skips_row_label_fallback_for_cost_of_sales(
+    monkeypatch,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+    from financial_report_analysis.ingestion.table_structure import (
+        PdfTableStructureAdapter,
+    )
+    from financial_report_analysis.models import (
+        ParsedCell,
+        ParsedColumn,
+        ParsedRow,
+        ParsedTable,
+    )
+    from financial_report_analysis.semantic_fallback import (
+        RowLabelFallbackRequest,
+        SemanticFallbackService,
+    )
+
+    table = ParsedTable(
+        table_id="doc:parsed-table:cost-of-sales",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Consolidated Income Statement",
+        statement_scope_guess="consolidated",
+        semantic_ambiguity_reason=None,
+        header_rows=[["Item", "2024"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw="cost of sales",
+                normalized_label_hint="cost of sales",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="1,234",
+                        numeric_value=1234.0,
+                        page_index=1,
+                    )
+                ],
+            )
+        ],
+        table_unit="thousand",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2024",
+                period_id="2024FY",
+                value_time_shape="duration",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
+    monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
+
+    class _FailingFallbackService(SemanticFallbackService):
+        def __init__(self) -> None:
+            super().__init__(client=None)
+            self.requests: list[object] = []
+
+        def resolve_row_label(
+            self,
+            request: RowLabelFallbackRequest,
+        ) -> None:
+            self.requests.append(request)
+            raise AssertionError("row label fallback should not be called")
+
+    fallback_service = _FailingFallbackService()
+
+    payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path="ignored.pdf",
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    assert fallback_service.requests == []
+    assert (
+        payload["document_metadata"]["semantic_fallback_call_counts"]["row_label"] == 0
+    )
 
 
 def test_pdf_ingestion_reports_semantic_fallback_call_counts(
@@ -1103,7 +1441,9 @@ def test_pdf_ingestion_reports_semantic_fallback_call_counts(
         source_blocks=[],
     )
 
-    monkeypatch.setattr(PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table])
+    monkeypatch.setattr(
+        PdfTableStructureAdapter, "extract_tables", lambda self, **kwargs: [table]
+    )
     monkeypatch.setattr(PdfIngestionAdapter, "_extract_text", lambda self, **kwargs: "")
 
     class _CountingFallbackService(SemanticFallbackService):
@@ -1111,7 +1451,9 @@ def test_pdf_ingestion_reports_semantic_fallback_call_counts(
             super().__init__(client=None)
             self.row_label_requests: list[RowLabelFallbackRequest] = []
 
-        def resolve_row_label(self, request: RowLabelFallbackRequest) -> SemanticFallbackResult:
+        def resolve_row_label(
+            self, request: RowLabelFallbackRequest
+        ) -> SemanticFallbackResult:
             self.row_label_requests.append(request)
             return SemanticFallbackResult(
                 value="revenue",
@@ -1241,8 +1583,13 @@ def test_extract_endpoint_uses_real_ollama_fallback_for_ambiguous_table_smoke(
     assert response.status_code == 200
     payload = response.json()
     assert payload["key_facts"]
-    assert any(fact["statement_type"] == "income_statement" for fact in payload["key_facts"])
-    assert payload["document"]["metadata"]["parsed_tables"][0]["semantic_source"] == "llm_fallback"
+    assert any(
+        fact["statement_type"] == "income_statement" for fact in payload["key_facts"]
+    )
+    assert (
+        payload["document"]["metadata"]["parsed_tables"][0]["semantic_source"]
+        == "llm_fallback"
+    )
 
 
 def test_pdf_ingestion_uses_revenue_table_period_over_earlier_table_period(
@@ -1655,7 +2002,9 @@ def test_pdf_ingestion_prefers_income_statement_over_key_metrics_growth_rows(
     assert payload["candidate_facts"][0]["statement_type"] == "income_statement"
     assert payload["candidate_facts"][0]["metric_label_raw"] == "Operating Revenue"
     assert payload["candidate_facts"][0]["numeric_value"] == 1234.0
-    assert payload["candidate_facts"][0]["extensions"]["table_kind"] == "income_statement"
+    assert (
+        payload["candidate_facts"][0]["extensions"]["table_kind"] == "income_statement"
+    )
     assert payload["candidate_facts"][0]["raw_unit"] == "thousand"
 
 
@@ -2503,7 +2852,9 @@ def test_extract_endpoint_promotes_equity_metrics_to_key_facts(
         "equity",
         "equity_attributable_to_owners",
     }
-    assert all(fact["statement_type"] == "balance_sheet" for fact in payload["key_facts"])
+    assert all(
+        fact["statement_type"] == "balance_sheet" for fact in payload["key_facts"]
+    )
     assert all(fact["entity_scope"] == "consolidated" for fact in payload["key_facts"])
 
 
