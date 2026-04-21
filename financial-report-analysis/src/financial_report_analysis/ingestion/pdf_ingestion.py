@@ -634,12 +634,6 @@ class PdfIngestionAdapter:
         market: str,
         registry: Any,
     ) -> NormalizedTableRow:
-        if not self._is_row_label_fallback_eligible(
-            row.label_raw,
-            row.normalized_row_label,
-        ):
-            return replace(row, normalized_row_label=None)
-
         ambiguity_reason = self._row_label_ambiguity_reason(
             table=table,
             row=row,
@@ -683,27 +677,22 @@ class PdfIngestionAdapter:
         if PdfIngestionAdapter._is_summary_growth_or_ratio_row(row.label_raw):
             return None
 
+        if row.normalized_row_label is None:
+            return table.semantic_ambiguity_reason or "unknown_row_label"
+
+        if PdfIngestionAdapter._row_matches_metric_registry(
+            table=table,
+            row=row,
+            market=market,
+            registry=registry,
+        ):
+            return None
+
         if not PdfIngestionAdapter._is_row_label_fallback_eligible(
             row.label_raw,
             row.normalized_row_label,
         ):
             return None
-
-        if row.normalized_row_label is None:
-            return table.semantic_ambiguity_reason or "unknown_row_label"
-
-        for value in row.values:
-            if (
-                registry.match(
-                    table_kind=table.table_kind,
-                    normalized_row_label=row.normalized_row_label,
-                    value_time_shape=value.value_time_shape,
-                    statement_scope_guess=table.statement_scope_guess,
-                    market=market,
-                )
-                is not None
-            ):
-                return None
 
         return table.semantic_ambiguity_reason or "unmapped_normalized_row_label"
 
@@ -736,6 +725,29 @@ class PdfIngestionAdapter:
         return any(
             token in combined_label
             for token in PdfIngestionAdapter._ROW_LABEL_FALLBACK_ANCHOR_TOKENS
+        )
+
+    @staticmethod
+    def _row_matches_metric_registry(
+        *,
+        table: NormalizedTableSemantics,
+        row: NormalizedTableRow,
+        market: str,
+        registry: Any,
+    ) -> bool:
+        if row.normalized_row_label is None:
+            return False
+
+        return any(
+            registry.match(
+                table_kind=table.table_kind,
+                normalized_row_label=row.normalized_row_label,
+                value_time_shape=value.value_time_shape,
+                statement_scope_guess=table.statement_scope_guess,
+                market=market,
+            )
+            is not None
+            for value in row.values
         )
 
     @staticmethod
