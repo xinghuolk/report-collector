@@ -87,6 +87,16 @@ class PdfIngestionAdapter:
     ) -> None:
         self._table_adapter = PdfTableStructureAdapter()
         self._semantic_fallback_service = semantic_fallback_service
+        self._semantic_fallback_call_counts = self._new_semantic_fallback_call_counts()
+
+    @staticmethod
+    def _new_semantic_fallback_call_counts() -> dict[str, int]:
+        return {
+            "table_kind": 0,
+            "row_label": 0,
+            "currency": 0,
+            "unit": 0,
+        }
 
     def extract_candidate_facts(
         self,
@@ -97,6 +107,7 @@ class PdfIngestionAdapter:
         min_confidence: float | None,
     ) -> dict[str, Any]:
         document_id = pdf_path or pdf_url or "unknown-document"
+        self._semantic_fallback_call_counts = self._new_semantic_fallback_call_counts()
         text = self._extract_text(pdf_path=pdf_path, pdf_url=pdf_url)
         parsed_tables = self._extract_parsed_tables(
             pdf_path=pdf_path,
@@ -150,6 +161,7 @@ class PdfIngestionAdapter:
                     self._serialize_parsed_table(table)
                     for table in normalized_tables
                 ],
+                "semantic_fallback_call_counts": dict(self._semantic_fallback_call_counts),
             },
         }
 
@@ -462,6 +474,7 @@ class PdfIngestionAdapter:
             return table
 
         local_context = self._normalized_table_context(table)
+        self._semantic_fallback_call_counts["table_kind"] += 1
         table_kind_result = self._semantic_fallback_service.resolve_table_kind(
             TableKindFallbackRequest(
                 title_text=table.title_text,
@@ -523,6 +536,7 @@ class PdfIngestionAdapter:
     ) -> NormalizedTableSemantics:
         currency_ambiguity_reason = self._currency_ambiguity_reason(table)
         if currency_ambiguity_reason is not None:
+            self._semantic_fallback_call_counts["currency"] += 1
             currency_result = self._semantic_fallback_service.resolve_currency(
                 CurrencyFallbackRequest(
                     raw_text=table.table_currency or "unknown",
@@ -547,6 +561,7 @@ class PdfIngestionAdapter:
 
         unit_ambiguity_reason = self._unit_ambiguity_reason(table)
         if unit_ambiguity_reason is not None:
+            self._semantic_fallback_call_counts["unit"] += 1
             unit_result = self._semantic_fallback_service.resolve_unit(
                 UnitFallbackRequest(
                     raw_text=table.table_unit or "unknown",
@@ -584,6 +599,7 @@ class PdfIngestionAdapter:
             market=market,
             registry=registry,
         )
+        self._semantic_fallback_call_counts["row_label"] += 1
         result = self._semantic_fallback_service.resolve_row_label(
             RowLabelFallbackRequest(
                 raw_label=row.label_raw,
