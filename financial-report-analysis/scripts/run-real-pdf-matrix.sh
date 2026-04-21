@@ -10,7 +10,7 @@ TEST_PATHS=(
   "tests/integration/test_table_structure_ingestion.py"
 )
 
-MARK_EXPR="${REAL_PDF_MARK_EXPR:-real_pdf}"
+MARK_EXPR="${REAL_PDF_MARK_EXPR:-real_pdf and not ollama and not external}"
 PER_TEST_TIMEOUT_SECONDS="${PER_TEST_TIMEOUT_SECONDS:-}"
 LIST_ONLY=false
 
@@ -26,12 +26,14 @@ Options:
             Show this help text.
 
 Environment:
-  REAL_PDF_MARK_EXPR            Pytest marker expression to collect. Default: real_pdf
+  REAL_PDF_MARK_EXPR            Pytest marker expression to collect.
+                                Default: real_pdf and not ollama and not external
   PER_TEST_TIMEOUT_SECONDS      Optional timeout per test node, using timeout(1).
 
 Examples:
   scripts/run-real-pdf-matrix.sh --list
   scripts/run-real-pdf-matrix.sh
+  REAL_PDF_MARK_EXPR='real_pdf and ollama' scripts/run-real-pdf-matrix.sh --list
   PER_TEST_TIMEOUT_SECONDS=600 scripts/run-real-pdf-matrix.sh -s
 USAGE
 }
