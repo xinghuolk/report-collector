@@ -59,6 +59,12 @@ This step should verify:
 - ratio and growth rows are not promoted into core fact metrics
 - provenance remains correct when table semantics affect metric selection
 - broader metric support does not regress existing covered facts
+- the shared sample matrix defined in the umbrella three-statement design,
+  rather than a tranche-local sample subset
+
+The phrases `supported sample sets` and `existing covered facts` in this
+design should inherit the explicit anchor/reference matrix defined by the
+umbrella three-statement design.
 
 ## 7. Deliverable Definition
 
