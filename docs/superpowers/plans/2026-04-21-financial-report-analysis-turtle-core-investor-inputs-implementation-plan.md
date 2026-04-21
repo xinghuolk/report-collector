@@ -110,10 +110,15 @@
     - HK annual anchors
   - 不要求在每个 quarterly 或 reduced-disclosure 样本中都出现
 - `minority_gain`
-  - 只要求在明确披露少数股东损益的样本中命中
-  - 不要求对所有发行人强行构造命中
+  - 必须命中：
+    - `601919/annual/2024_年度报告.pdf`
+    - `02498/annual/2022_annual_en.pdf`
+  - 其他样本若无明确 minority-interest line，可不作为必达项
 - `c_pay_acq_const_fiolta`、`depr_fa_coga_dpba`、`amort_intang_assets`、`lt_amort_deferred_exp`、`c_pay_dist_dpcp_int_exp`
-  - 主要要求在 annual-report 样本命中
+  - 必须命中：
+    - `601919/annual/2024_年度报告.pdf`
+    - `600519/annual/2024_年度报告.pdf`
+  - HK annual anchors 作为增强验证，但不要求每个细项全命中
   - 不要求在 `09987/quarterly/2025_quarterly_q3_en.pdf` 上全部齐备
 
 实现和 review 都应以上述命中预期判断“稳定”，而不是默认要求每个字段在完整共享矩阵全命中。
@@ -177,6 +182,7 @@
 - [ ] **Step 1: 为利润表字段补 registry 匹配测试**
 - [ ] **Step 2: 为现金流细项字段补 registry 匹配测试**
 - [ ] **Step 3: 为 EPS / profit attribution / cash-flow detail 补 normalization 与误匹配抑制测试**
+- [ ] **Step 4: 为 `basic_eps` 补 per-share 数据模型断言，明确其不是普通 amount 字段**
 
 ### A2：实现最小 coverage
 
@@ -188,6 +194,7 @@
 - [ ] **Step 1: 只补最小 registry definitions 与 alias families**
 - [ ] **Step 2: 只补最小 deterministic normalization**
 - [ ] **Step 3: 必要时补 statement-aware gating，避免摘要表或 secondary rows 抢占**
+- [ ] **Step 4: 为 `basic_eps` 落实 `value_type = per_share` 与 `unit_expectation = per_share_amount`**
 
 ### A3：验证 Task A
 
@@ -215,7 +222,9 @@ uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics
 - Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
 
 - [ ] **Step 1: 为 candidate facts 补字段存在性测试**
-- [ ] **Step 2: 为 must-reach-canonical 与 must-be-api-visible 字段补显式测试**
+- [ ] **Step 2: 为 must-reach-candidate 字段补显式字段断言**
+- [ ] **Step 3: 为 must-reach-canonical 字段补显式字段断言**
+- [ ] **Step 4: 为 must-be-api-visible 字段补显式字段断言**
 - [ ] **Step 3: 为 attribution / EPS / cash-flow detail 补 provenance 稳定性测试**
 
 ### B2：实现最小 pipeline 支撑
@@ -228,6 +237,7 @@ uv run pytest tests/unit/test_metric_registry.py tests/unit/test_table_semantics
 - [ ] **Step 1: 只补必要的 candidate fact builder 支撑**
 - [ ] **Step 2: 只补必要的 canonical alias / normalizer 对齐**
 - [ ] **Step 3: 如有需要，做最小 ranking/provenance 修补**
+- [ ] **Step 4: 确保 `basic_eps` 的 per-share 语义在 candidate/canonical 路径中不被 amount 化**
 
 ### B3：验证 Task B
 
