@@ -140,6 +140,22 @@ P2A 的目标链路为：
 - candidate/canonical resolver 继续负责事实裁决、冲突处理和最终输出。
 - semantic locator 只在结构化路径缺失或语义不确定时辅助定位，不替代解析、映射和裁决。
 
+### 6.1 Source Precedence
+
+P2A 的事实来源优先级必须固定，不允许依赖当前 resolver 的隐式启发式偶然决定。
+
+优先级为：
+
+1. primary statement-row path
+2. deterministic note/disclosure row path
+3. Ollama-assisted note/disclosure locator path
+
+note/disclosure path 只补充当前文档中尚未由 statement-row path 产出的 P2A metric，不覆盖已有 statement-row fact。
+
+Ollama-assisted locator 只补充当前文档中尚未由 deterministic path 产出的 P2A metric，不覆盖 deterministic note/disclosure fact。
+
+如果未来需要让 note fact 覆盖 statement fact，必须进入单独的 conflict-governance 任务，本阶段不做。
+
 ## 7. Ollama Semantic Locator 边界
 
 本阶段允许使用 Ollama fallback，但只作为 gated semantic locator。
@@ -172,6 +188,17 @@ Ollama 的输出必须带 provenance，例如：
 
 默认执行策略仍然是 deterministic-first。Ollama 只在明确触发条件下运行，不是默认主路径。
 
+Ollama locator 的触发条件必须同时满足：
+
+- 当前文档是 HK 英文年报。
+- deterministic statement-row path 和 deterministic note/disclosure path 都没有产出该目标 metric。
+- 当前文本块位于明确的 note/disclosure 标题或表格上下文中，例如 `Accounts Payable and Other Current Liabilities`、`Accounts Receivable, net` 或 `Contract Liabilities`。
+- 当前文本块包含可解析的局部行或表格片段，而不是 MD&A、risk factors、普通叙述段落或全文搜索命中。
+
+禁止仅凭 `accounts receivable`、`contract liabilities` 等泛词在全文中触发 locator。
+
+每个文档必须有 disclosure-locator 调用预算。默认预算应很小，例如 3 次。明确写成配置语义时，应等价于 `default budget: 3 calls per document`。预算耗尽后必须继续使用 deterministic 结果，而不是继续调用 Ollama。
+
 ## 8. 缺失字段语义
 
 本阶段需要显式区分三种状态：
@@ -181,6 +208,16 @@ Ollama 的输出必须带 provenance，例如：
 - `not_surfaced`: 当前结构或语义层尚未能稳定恢复，不能当作字段不存在。
 
 这一区分对 `09987 2025` 尤其重要。它不能为了凑齐 7 个字段而 hallucinate，也不能把结构层未恢复误报成业务字段不存在。
+
+缺失状态应进入可测试 metadata，而不是只通过 candidate omission 表达。推荐字段为：
+
+- `document_metadata["working_capital_missing_status"]`
+
+其值为 `metric_id -> status` 映射，例如：
+
+- `notes_receiv: "absent"`
+- `notes_payable: "absent"`
+- `adv_receipts: "not_surfaced"`
 
 ## 9. 验收标准
 
@@ -260,4 +297,3 @@ P2A 视为完成，当：
 - HK `09987 2025` 的 note/disclosure path 能产出真实存在字段，且不 hallucinate 缺失字段。
 - Ollama 只作为 gated semantic locator 使用，并带 provenance。
 - 现有 Phase 1 Turtle investor inputs 和三大表高价值指标不回退。
-

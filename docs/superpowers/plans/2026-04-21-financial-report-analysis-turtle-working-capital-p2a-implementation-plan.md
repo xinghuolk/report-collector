@@ -19,6 +19,16 @@ The approved spec covers one coherent subsystem: Turtle Phase 2A working-capital
 
 Debt and deferred tax are explicitly excluded and must not be implemented in this plan.
 
+## Source Precedence Policy
+
+All implementation tasks must preserve this precedence:
+
+1. Primary statement-row candidates win.
+2. Deterministic note/disclosure candidates fill missing P2A metric IDs only.
+3. Ollama-assisted disclosure locator candidates fill missing P2A metric IDs only after deterministic note parsing fails.
+
+Neither note/disclosure candidates nor Ollama locator candidates may overwrite an existing statement-row candidate for the same `metric_id` in the same document. This plan does not change `ConflictResolver` precedence rules; it prevents lower-priority duplicate candidates from being emitted in the first place.
+
 ## File Structure
 
 Modify existing files:
@@ -658,13 +668,7 @@ Append:
 
 ```python
 def test_cn_601919_2025_surfaces_p2a_working_capital_candidates() -> None:
-    pdf_path = (
-        DOWNLOADS_ROOT
-        / "cn_stocks"
-        / "601919"
-        / "annual"
-        / "2025_年度报告.pdf"
-    )
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="CN")
 
@@ -685,13 +689,7 @@ Append:
 
 ```python
 def test_hk_02498_2022_surfaces_p2a_statement_row_candidates() -> None:
-    pdf_path = (
-        DOWNLOADS_ROOT
-        / "hk_stocks"
-        / "02498"
-        / "annual"
-        / "2022_annual_en.pdf"
-    )
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
 
@@ -712,13 +710,7 @@ Append:
 
 ```python
 def test_hk_02498_2022_does_not_promote_p2a_negative_control_rows() -> None:
-    pdf_path = (
-        DOWNLOADS_ROOT
-        / "hk_stocks"
-        / "02498"
-        / "annual"
-        / "2022_annual_en.pdf"
-    )
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     labels_by_metric = {
@@ -837,7 +829,41 @@ def test_note_disclosure_builder_does_not_create_missing_notes_receivable_or_pay
     assert "notes_payable" not in metric_ids
 ```
 
-- [ ] **Step 3: Run tests and verify they fail**
+- [ ] **Step 3: Write missing-status metadata test**
+
+Append:
+
+```python
+def test_note_disclosure_builder_reports_absent_missing_status() -> None:
+    pages = [
+        (
+            178,
+            """
+            Accounts Payable and Other Current Liabilities 2024 2023
+            Accounts payable $ 801 $ 786
+            Contract liabilities 196 196
+            """,
+        )
+    ]
+
+    candidates, missing_status = build_working_capital_note_candidate_facts(
+        pages=pages,
+        document_id="doc:09987",
+        period_id="2024FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "acct_payable",
+        "contract_liab",
+    }
+    assert missing_status["notes_receiv"] == "absent"
+    assert missing_status["notes_payable"] == "absent"
+```
+
+- [ ] **Step 4: Run tests and verify they fail**
 
 Run:
 
@@ -848,7 +874,7 @@ uv run pytest tests/unit/test_note_disclosure_ingestion.py -q -o addopts=
 
 Expected: import failure because `note_disclosure.py` does not exist yet.
 
-- [ ] **Step 4: Create the note/disclosure builder**
+- [ ] **Step 5: Create the note/disclosure builder**
 
 Create `financial-report-analysis/src/financial_report_analysis/ingestion/note_disclosure.py` with this initial implementation:
 
@@ -876,16 +902,17 @@ def build_working_capital_note_candidate_facts(
     market: str,
     existing_metric_ids: set[str],
     semantic_fallback_service: SemanticFallbackService | None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     del semantic_fallback_service
     if market.upper() != "HK" or period_id is None:
-        return []
+        return ([], {})
 
     candidates: list[dict[str, Any]] = []
+    found_metric_ids = set(existing_metric_ids)
     for page_index, text in pages:
         for line in _iter_candidate_lines(text):
             for metric_id, pattern in _TARGET_PATTERNS:
-                if metric_id in existing_metric_ids:
+                if metric_id in found_metric_ids:
                     continue
                 match = pattern.search(line)
                 if match is None:
@@ -904,7 +931,8 @@ def build_working_capital_note_candidate_facts(
                         fallback_reason=None,
                     )
                 )
-    return candidates
+                found_metric_ids.add(metric_id)
+    return (candidates, _working_capital_missing_status(found_metric_ids))
 
 
 def _iter_candidate_lines(text: str) -> Iterable[str]:
@@ -916,6 +944,13 @@ def _iter_candidate_lines(text: str) -> Iterable[str]:
 
 def _label_from_line(line: str) -> str:
     return re.split(r"\s+\$?\s*[0-9]", line, maxsplit=1)[0].strip()
+
+
+def _working_capital_missing_status(found_metric_ids: set[str]) -> dict[str, str]:
+    status: dict[str, str] = {}
+    for metric_id in ("notes_receiv", "notes_payable"):
+        status[metric_id] = "present" if metric_id in found_metric_ids else "absent"
+    return status
 
 
 def _candidate_fact(
@@ -973,7 +1008,15 @@ def _candidate_fact(
     }
 ```
 
-- [ ] **Step 5: Export the note builder**
+Update the first two tests in this task to unpack the tuple:
+
+```python
+candidates, missing_status = build_working_capital_note_candidate_facts(...)
+```
+
+Keep using `candidates` for candidate assertions.
+
+- [ ] **Step 6: Export the note builder**
 
 Add this export to `financial-report-analysis/src/financial_report_analysis/ingestion/__init__.py`:
 
@@ -985,7 +1028,7 @@ from financial_report_analysis.ingestion.note_disclosure import (
 
 If the file has an `__all__` tuple, add `"build_working_capital_note_candidate_facts"` to that tuple.
 
-- [ ] **Step 6: Run note-disclosure unit tests**
+- [ ] **Step 7: Run note-disclosure unit tests**
 
 Run:
 
@@ -996,7 +1039,7 @@ uv run pytest tests/unit/test_note_disclosure_ingestion.py -q -o addopts=
 
 Expected: pass.
 
-- [ ] **Step 7: Commit Task 5**
+- [ ] **Step 8: Commit Task 5**
 
 Run:
 
@@ -1315,13 +1358,7 @@ Append this integration test:
 
 ```python
 def test_hk_09987_2025_surfaces_p2a_note_disclosure_candidates_without_hallucination() -> None:
-    pdf_path = (
-        DOWNLOADS_ROOT
-        / "hk_stocks"
-        / "09987"
-        / "annual"
-        / "2025_annual_en.pdf"
-    )
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     metric_ids = _metric_ids_from_candidates(payload)
@@ -1329,6 +1366,12 @@ def test_hk_09987_2025_surfaces_p2a_note_disclosure_candidates_without_hallucina
     assert {"accounts_receiv", "acct_payable", "contract_liab"}.issubset(metric_ids)
     assert "notes_receiv" not in metric_ids
     assert "notes_payable" not in metric_ids
+    missing_status = payload.get("document_metadata", {}).get(
+        "working_capital_missing_status",
+        {},
+    )
+    assert missing_status["notes_receiv"] == "absent"
+    assert missing_status["notes_payable"] == "absent"
 ```
 
 - [ ] **Step 2: Add provenance assertion for 09987 note path**
@@ -1337,13 +1380,7 @@ Append:
 
 ```python
 def test_hk_09987_2025_note_disclosure_candidates_keep_note_provenance() -> None:
-    pdf_path = (
-        DOWNLOADS_ROOT
-        / "hk_stocks"
-        / "09987"
-        / "annual"
-        / "2025_annual_en.pdf"
-    )
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     p2a_candidates = [
@@ -1427,7 +1464,16 @@ from financial_report_analysis.ingestion.note_disclosure import (
 )
 ```
 
-In `extract_candidate_facts()`, after `candidate_facts = self._prefer_main_income_statement_facts(candidate_facts)`, add:
+In `extract_candidate_facts()`, call `_extract_text_pages()` once near the start and derive `text` from that page list:
+
+```python
+        text_pages = self._extract_text_pages(pdf_path=pdf_path, pdf_url=pdf_url)
+        text = "\n".join(page_text for _, page_text in text_pages)
+```
+
+Then avoid calling `_extract_text()` separately in this method.
+
+After `candidate_facts = self._prefer_main_income_statement_facts(candidate_facts)`, add:
 
 ```python
         existing_metric_ids = {
@@ -1435,9 +1481,9 @@ In `extract_candidate_facts()`, after `candidate_facts = self._prefer_main_incom
             for candidate in candidate_facts
             if candidate.get("metric_id") is not None
         }
-        candidate_facts.extend(
+        note_candidates, working_capital_missing_status = (
             build_working_capital_note_candidate_facts(
-                pages=self._extract_text_pages(pdf_path=pdf_path, pdf_url=pdf_url),
+                pages=text_pages,
                 document_id=document_id,
                 period_id=period_id,
                 market=market or "CN",
@@ -1445,36 +1491,84 @@ In `extract_candidate_facts()`, after `candidate_facts = self._prefer_main_incom
                 semantic_fallback_service=self._semantic_fallback_service,
             )
         )
+        candidate_facts.extend(note_candidates)
 ```
 
-To avoid repeated PDF reads, refactor the start of `extract_candidate_facts()` to call `_extract_text_pages()` once, derive `text` from that list, and pass the same page list into `build_working_capital_note_candidate_facts()`.
+Add the status into returned metadata:
+
+```python
+                "working_capital_missing_status": working_capital_missing_status,
+```
 
 - [ ] **Step 6: Extend note builder with locator-assisted matching**
 
-In `note_disclosure.py`, use `semantic_fallback_service.locate_disclosure_metric()` only when deterministic patterns do not find all possible target rows in a page that contains working-capital cues such as `Accounts Payable and Other Current Liabilities`, `Accounts Receivable`, or `Contract Liabilities`.
+In `note_disclosure.py`, use `semantic_fallback_service.locate_disclosure_metric()` only when deterministic patterns do not find all possible target rows in an explicit note/disclosure table block. Do not call the locator for ordinary pages that merely contain broad terms such as `accounts receivable` or `contract liabilities`.
 
-Add this helper:
+Add this module constant and helper:
 
 ```python
-def _should_call_locator(text: str, existing_metric_ids: set[str]) -> bool:
+_MAX_DISCLOSURE_LOCATOR_CALLS_PER_DOCUMENT = 3
+
+
+def _should_call_locator(
+    text: str,
+    existing_metric_ids: set[str],
+    locator_call_count: int,
+) -> bool:
+    if locator_call_count >= _MAX_DISCLOSURE_LOCATOR_CALLS_PER_DOCUMENT:
+        return False
     if {"accounts_receiv", "acct_payable", "contract_liab"}.issubset(existing_metric_ids):
         return False
     lowered = text.casefold()
-    return any(
-        cue in lowered
-        for cue in (
+    has_explicit_note_title = any(
+        title in lowered
+        for title in (
             "accounts payable and other current liabilities",
-            "accounts receivable",
-            "contract liabilities",
+            "accounts receivable, net",
+            "accounts receivable 2024 2023",
+            "contract liabilities at december 31",
+            "contract liabilities 2024 2023",
         )
     )
+    has_period_header = re.search(r"\b20\d{2}\s+20\d{2}\b", lowered) is not None
+    has_value_row = re.search(
+        r"\b(accounts payable|accounts receivable,?\s+net|contract liabilities)\b\s+\$?\s*[0-9]",
+        lowered,
+    ) is not None
+    return has_explicit_note_title and has_period_header and has_value_row
+```
+
+Track `locator_call_count` inside `build_working_capital_note_candidate_facts()` and increment only when `semantic_fallback_service.locate_disclosure_metric()` is actually called.
+
+Pass only missing target metric IDs to the locator:
+
+```python
+target_metric_ids = tuple(
+    metric_id
+    for metric_id in ("accounts_receiv", "acct_payable", "contract_liab")
+    if metric_id not in found_metric_ids
+)
+```
+
+Call the locator only if `target_metric_ids` is non-empty:
+
+```python
+result = semantic_fallback_service.locate_disclosure_metric(
+    DisclosureLocatorRequest(
+        target_metric_ids=target_metric_ids,
+        local_context=text[:4000],
+        deterministic_candidates=(),
+        ambiguity_reason="missing_statement_row",
+    )
+)
 ```
 
 Use the locator result only if:
 
 ```python
 result.metric_id != "none"
-and result.metric_id not in existing_metric_ids
+and result.metric_id in target_metric_ids
+and result.metric_id not in found_metric_ids
 and result.source_text_span
 ```
 
