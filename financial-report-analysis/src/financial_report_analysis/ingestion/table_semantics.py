@@ -17,13 +17,11 @@ _SUPPRESSED_SUMMARY_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\b(free cash flow|cash flow trend|cash flow variance|cash flow ratio)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\bper share\b", re.IGNORECASE),
     re.compile(r"\bbook value\b", re.IGNORECASE),
     re.compile(r"\bnet increase(?:/decrease)? in cash(?: and cash equivalents)?\b", re.IGNORECASE),
     re.compile(r"\bsubtotal\b", re.IGNORECASE),
     re.compile(r"(增长率|增长|比率|利润率|毛利率)"),
     re.compile(r"小计"),
-    re.compile(r"每股"),
 )
 
 _ROW_LABEL_ALIASES: dict[str, str] = {
@@ -54,6 +52,39 @@ _ROW_LABEL_ALIASES: dict[str, str] = {
     "归属于母公司所有者权益": "equity attributable to owners of the parent",
     "profit attributable to equity holders": "net profit",
     "profit attributable to shareholders": "net profit",
+    "profit attributable to owners of the parent": "net profit attributable to owners of the parent",
+    "profit attributable to equity holders of the company": "net profit attributable to owners of the parent",
+    "归属于母公司股东的净利润": "net profit attributable to owners of the parent",
+    "归属于上市公司股东的净利润": "net profit attributable to owners of the parent",
+    "finance costs": "finance expense",
+    "finance expenses": "finance expense",
+    "财务费用": "finance expense",
+    "profit before tax": "total profit",
+    "利润总额": "total profit",
+    "income tax expense": "income tax",
+    "tax expense": "income tax",
+    "所得税费用": "income tax",
+    "profit attributable to non-controlling interests": "minority interest profit",
+    "profit attributable to non controlling interests": "minority interest profit",
+    "少数股东损益": "minority interest profit",
+    "payments for acquisition of property, plant and equipment": "capital expenditure cash outflow",
+    "payments for acquisition of property plant and equipment": "capital expenditure cash outflow",
+    "payments for acquisition of property, plant and equipment and intangible assets": "capital expenditure cash outflow",
+    "payments for acquisition of property plant and equipment and intangible assets": "capital expenditure cash outflow",
+    "购建固定资产、无形资产和其他长期资产支付的现金": "capital expenditure cash outflow",
+    "depreciation of property, plant and equipment": "depreciation of fixed assets",
+    "depreciation of property plant and equipment": "depreciation of fixed assets",
+    "固定资产折旧": "depreciation of fixed assets",
+    "amortisation of intangible assets": "amortisation of intangible assets",
+    "amortization of intangible assets": "amortisation of intangible assets",
+    "无形资产摊销": "amortisation of intangible assets",
+    "amortisation of long-term deferred expenses": "amortisation of long-term deferred expenses",
+    "amortization of long-term deferred expenses": "amortisation of long-term deferred expenses",
+    "长期待摊费用摊销": "amortisation of long-term deferred expenses",
+    "dividends paid": "cash paid for dividends or interest",
+    "dividends and interest paid": "cash paid for dividends or interest",
+    "cash paid for dividends or interest": "cash paid for dividends or interest",
+    "分配股利、利润或偿付利息支付的现金": "cash paid for dividends or interest",
 }
 
 
@@ -144,6 +175,12 @@ def _normalize_label(raw_label: str) -> str | None:
     # core statement metrics in summary or key-metrics tables.
     if _is_summary_style_core_metric_row(normalized):
         return None
+    if _is_basic_eps_label(normalized):
+        return "basic earnings per share"
+    if _is_excluded_eps_label(normalized):
+        return None
+    if _is_narrative_cash_flow_label(normalized):
+        return None
     if any(pattern.search(normalized) for pattern in _SUPPRESSED_SUMMARY_PATTERNS):
         return None
 
@@ -158,6 +195,51 @@ def _is_summary_style_core_metric_row(normalized_label: str) -> bool:
     if summary_match is not None:
         return True
     return normalized_label == "summary"
+
+
+def _is_basic_eps_label(normalized_label: str) -> bool:
+    english_eps = (
+        ("earnings per share" in normalized_label or re.search(r"\bbasic eps\b", normalized_label))
+        and "basic" in normalized_label
+    )
+    chinese_eps = ("每股收益" in normalized_label or "每股盈利" in normalized_label) and "基本" in normalized_label
+    return bool(english_eps or chinese_eps)
+
+
+def _is_excluded_eps_label(normalized_label: str) -> bool:
+    if "per share" not in normalized_label and "eps" not in normalized_label and "每股" not in normalized_label:
+        return False
+
+    exclusion_patterns = (
+        r"\bdiluted\b",
+        r"\badjusted\b",
+        r"\bnon[- ]gaap\b",
+        r"\bnon[- ]ifrs\b",
+        r"\bheadline\b",
+        r"稀释",
+        r"调整后",
+        r"非公认会计准则",
+        r"非国际财务报告准则",
+        r"每股净资产",
+    )
+    if any(re.search(pattern, normalized_label, re.IGNORECASE) for pattern in exclusion_patterns):
+        return True
+    return True
+
+
+def _is_narrative_cash_flow_label(normalized_label: str) -> bool:
+    return any(
+        re.search(pattern, normalized_label, re.IGNORECASE) is not None
+        for pattern in (
+            r"\banalysis of balances? of cash and cash equivalents\b",
+            r"\bcash flows? before (?:changes|movements) in working capital\b",
+            r"\bcash generated from operations before (?:changes|movements) in working capital\b",
+            r"\breconciliation of .* cash flows?\b",
+            r"\bnet increase(?:/decrease)? in cash(?: and cash equivalents)?\b",
+            r"现金及现金等价物.*分析",
+            r"营运资金变动前的现金流量",
+        )
+    )
 
 
 def _normalized_semantic_value(value: str | None) -> str:

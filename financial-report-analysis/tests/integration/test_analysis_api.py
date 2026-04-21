@@ -9,6 +9,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
+from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
 from financial_report_analysis.semantic_fallback import load_semantic_fallback_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -209,6 +210,123 @@ def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     assert payload["key_facts"]
     assert payload["key_facts"][0]["metric_id"] == "revenue"
     assert payload["key_facts"][0]["numeric_value"] == 1_234_000.0
+
+
+def _phase1_candidate_payload(
+    *,
+    fact_id: str,
+    metric_id: str,
+    metric_label_raw: str,
+    numeric_value: float,
+    raw_unit: str,
+    document_id: str,
+    statement_type: str = "income_statement",
+    extensions: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "fact_id": fact_id,
+        "metric_id": metric_id,
+        "metric_label_raw": metric_label_raw,
+        "statement_type": statement_type,
+        "entity_scope": "consolidated",
+        "comparison_axis": "current",
+        "adjustment_basis": "reported",
+        "period_id": "2024FY",
+        "currency": "CNY",
+        "raw_value": str(numeric_value),
+        "numeric_value": numeric_value,
+        "raw_unit": raw_unit,
+        "normalized_unit": None,
+        "precision": 2 if raw_unit == "元/股" else 0,
+        "confidence": 0.9,
+        "extensions": extensions or {},
+        "document_id": document_id,
+        "block_id": f"block::{fact_id}",
+        "page_index": 0,
+        "evidence_bundle_id": f"bundle::{fact_id}",
+        "source_rank_hint": 30,
+    }
+
+
+def test_extract_endpoint_surfaces_phase1_api_visible_metrics(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "mock.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
+
+    def fake_extract_candidate_facts(*args, **kwargs):
+        del args, kwargs
+        filler_candidates = [
+            _phase1_candidate_payload(
+                fact_id=f"custom-{index}",
+                metric_id=f"custom_metric_{index}",
+                metric_label_raw=f"Alpha metric {index}",
+                numeric_value=float(index),
+                raw_unit="CNY",
+                document_id=str(pdf_path),
+            )
+            for index in range(1, 11)
+        ]
+        return {
+            "document_metadata": {
+                "language": "zh",
+                "parsed_tables": [],
+            },
+            "candidate_facts": [
+                *filler_candidates,
+                _phase1_candidate_payload(
+                    fact_id="phase1-net-income",
+                    metric_id="n_income_attr_p",
+                    metric_label_raw="Net profit attributable to owners of the parent",
+                    numeric_value=123.0,
+                    raw_unit="CNY",
+                    document_id=str(pdf_path),
+                    extensions={
+                        "semantic_source": "llm_fallback",
+                        "semantic_confidence": 0.77,
+                        "fallback_reason": "owner_scope_disambiguation",
+                    },
+                ),
+                _phase1_candidate_payload(
+                    fact_id="phase1-basic-eps",
+                    metric_id="basic_eps",
+                    metric_label_raw="Basic EPS",
+                    numeric_value=1.23,
+                    raw_unit="元/股",
+                    document_id=str(pdf_path),
+                    extensions={
+                        "value_type": "per_share",
+                        "unit_expectation": "per_share_amount",
+                    },
+                ),
+            ],
+        }
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        fake_extract_candidate_facts,
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "min_confidence": 0.8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    key_fact_ids = [fact["metric_id"] for fact in payload["key_facts"]]
+    assert "n_income_attr_p" in key_fact_ids
+    assert "basic_eps" in key_fact_ids
+    basic_eps = next(fact for fact in payload["key_facts"] if fact["metric_id"] == "basic_eps")
+    assert basic_eps["numeric_value"] == 1.23
+    assert basic_eps["normalized_unit"] == "per_share_amount"
 
 
 def test_pdf_ingestion_prefers_parsed_tables_over_text_regex(

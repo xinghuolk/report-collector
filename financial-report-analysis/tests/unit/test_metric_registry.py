@@ -224,6 +224,125 @@ def test_metric_mapping_registry_matches_cash_flow_primary_section_aliases() -> 
     assert financing.metric_id == "financing_cash_flow"
 
 
+def test_metric_mapping_registry_matches_phase1_income_statement_aliases() -> None:
+    registry = load_metric_registry()
+
+    attributable_profit = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="归属于上市公司股东的净利润",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="CN",
+    )
+    finance_exp = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="finance costs",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+    total_profit = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="profit before tax",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+    income_tax = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="所得税费用",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="CN",
+    )
+    minority_gain = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="profit attributable to non-controlling interests",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert attributable_profit is not None
+    assert attributable_profit.metric_id == "n_income_attr_p"
+    assert finance_exp is not None
+    assert finance_exp.metric_id == "finance_exp"
+    assert total_profit is not None
+    assert total_profit.metric_id == "total_profit"
+    assert income_tax is not None
+    assert income_tax.metric_id == "income_tax"
+    assert minority_gain is not None
+    assert minority_gain.metric_id == "minority_gain"
+
+
+def test_metric_mapping_registry_models_basic_eps_as_per_share_metric() -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="basic earnings per share",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert definition is not None
+    assert definition.metric_id == "basic_eps"
+    assert definition.value_type == "per_share"
+    assert definition.unit_expectation == "per_share_amount"
+
+
+def test_metric_mapping_registry_matches_phase1_cash_flow_detail_aliases() -> None:
+    registry = load_metric_registry()
+
+    capex = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label="购建固定资产、无形资产和其他长期资产支付的现金",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="CN",
+    )
+    depreciation = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label="depreciation of property, plant and equipment",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+    amortisation = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label="amortisation of intangible assets",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+    deferred_amortisation = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label="长期待摊费用摊销",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="CN",
+    )
+    dividends_paid = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label="dividends paid",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert capex is not None
+    assert capex.metric_id == "c_pay_acq_const_fiolta"
+    assert depreciation is not None
+    assert depreciation.metric_id == "depr_fa_coga_dpba"
+    assert amortisation is not None
+    assert amortisation.metric_id == "amort_intang_assets"
+    assert deferred_amortisation is not None
+    assert deferred_amortisation.metric_id == "lt_amort_deferred_exp"
+    assert dividends_paid is not None
+    assert dividends_paid.metric_id == "c_pay_dist_dpcp_int_exp"
+
+
 def test_metric_mapping_registry_does_not_match_cash_flow_summary_rows() -> None:
     registry = load_metric_registry()
 

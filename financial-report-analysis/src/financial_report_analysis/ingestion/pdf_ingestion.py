@@ -767,11 +767,24 @@ class PdfIngestionAdapter:
         normalized = re.sub(r"\s+", " ", label_raw).strip().casefold()
         if not normalized:
             return False
+        if (
+            ("earnings per share" in normalized or re.search(r"\bbasic eps\b", normalized))
+            and "basic" in normalized
+        ) or (
+            ("每股收益" in normalized or "每股盈利" in normalized)
+            and "基本" in normalized
+        ):
+            return False
         return (
             re.search(r"\b(growth|margin|ratio)\b", normalized, re.IGNORECASE) is not None
-            or re.search(r"\bper share\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\b(?:diluted|adjusted|non[- ]gaap|non[- ]ifrs|headline)\b.*\b(?:per share|eps)\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\b(?:per share|eps)\b", normalized, re.IGNORECASE) is not None
             or re.search(r"\bbook value\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\banalysis of balances? of cash and cash equivalents\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\bcash flows? before (?:changes|movements) in working capital\b", normalized, re.IGNORECASE) is not None
+            or re.search(r"\bcash generated from operations before (?:changes|movements) in working capital\b", normalized, re.IGNORECASE) is not None
             or re.search(r"(增长率|增长|比率|利润率|毛利率)", normalized) is not None
+            or re.search(r"(稀释|调整后|非公认会计准则|非国际财务报告准则).*(每股|每股收益|每股盈利)", normalized) is not None
             or re.search(r"每股", normalized) is not None
             or re.search(r"小计", normalized) is not None
         )

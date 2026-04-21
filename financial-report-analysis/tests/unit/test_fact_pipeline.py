@@ -16,6 +16,7 @@ from financial_report_analysis.models import (
 from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
 from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.registries import load_metric_registry
+from financial_report_analysis.registries.metric_mapping import MetricMappingDefinition, MetricMappingRegistry
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
@@ -35,6 +36,8 @@ def _candidate(
     period_id: str,
     source_rank_hint: int | None,
     numeric_value: float,
+    metric_id: str = "raw_revenue",
+    metric_label_raw: str = "Revenue",
     statement_type: str = "income_statement",
     currency: str = "CNY",
     raw_unit: str = "unit",
@@ -42,8 +45,8 @@ def _candidate(
 ) -> CandidateFact:
     return CandidateFact(
         fact_id=fact_id,
-        metric_id="raw_revenue",
-        metric_label_raw="Revenue",
+        metric_id=metric_id,
+        metric_label_raw=metric_label_raw,
         statement_type=statement_type,
         entity_scope="consolidated",
         comparison_axis="current",
@@ -128,6 +131,101 @@ def test_fact_pipeline_normalizes_common_cn_units() -> None:
     assert fact.normalized_unit == "CNY"
 
 
+def test_build_table_candidate_facts_carries_phase1_eps_metadata_and_provenance() -> None:
+    registry = MetricMappingRegistry(
+        [
+            MetricMappingDefinition(
+                metric_id="basic_eps",
+                statement_type="income_statement",
+                allowed_table_kinds=("income_statement",),
+                normalized_row_labels=("basic earnings per share",),
+                period_scope="duration",
+                value_type="per_share",
+                unit_expectation="per_share_amount",
+                sign_rule="allow_negative",
+                aliases_by_market={"CN": ("基本每股收益",)},
+            )
+        ]
+    )
+    semantics_table = NormalizedTableSemantics(
+        table_id="table-1",
+        document_id="doc-1",
+        page_range=(1, 1),
+        table_kind="income_statement",
+        title_text="Income Statement",
+        statement_scope_guess="consolidated",
+        table_unit="元/股",
+        table_currency="CNY",
+        rows=[
+            NormalizedTableRow(
+                row_id="row-1",
+                label_raw="基本每股收益",
+                normalized_row_label="basic earnings per share",
+                semantic_source="llm_fallback",
+                semantic_confidence=0.61,
+                fallback_reason="eps_block_disambiguation",
+                values=[
+                    NormalizedTableCellValue(
+                        row_index=1,
+                        column_index=1,
+                        raw_text="1.23",
+                        numeric_value=1.23,
+                        period_id="2024FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                    )
+                ],
+            )
+        ],
+    )
+
+    candidates = build_table_candidate_facts(
+        [semantics_table],
+        registry=registry,
+        document_id="doc-1",
+        market="CN",
+    )
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["metric_id"] == "basic_eps"
+    assert candidate["extensions"]["value_type"] == "per_share"
+    assert candidate["extensions"]["unit_expectation"] == "per_share_amount"
+    assert candidate["extensions"]["semantic_source"] == "llm_fallback"
+    assert candidate["extensions"]["semantic_confidence"] == 0.61
+    assert candidate["extensions"]["fallback_reason"] == "eps_block_disambiguation"
+
+
+def test_fact_pipeline_normalizes_basic_eps_as_per_share_metric() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-basic-eps",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=1.23,
+                metric_id="basic_eps",
+                metric_label_raw="Basic EPS",
+                raw_unit="元/股",
+                extensions={
+                    "value_type": "per_share",
+                    "unit_expectation": "per_share_amount",
+                },
+            )
+        ]
+    )
+
+    fact = normalized[0]
+    assert fact.metric_id == "basic_eps"
+    assert fact.numeric_value == 1.23
+    assert fact.currency == "CNY"
+    assert fact.normalized_unit == "per_share_amount"
+    assert fact.extensions["value_type"] == "per_share"
+    assert fact.extensions["unit_expectation"] == "per_share_amount"
+
+
 def test_conflict_resolver_keeps_highest_priority_candidate() -> None:
     normalizer = FactNormalizer()
     resolver = ConflictResolver()
@@ -158,6 +256,162 @@ def test_conflict_resolver_keeps_highest_priority_candidate() -> None:
     assert canonical.resolution_reason == "highest_source_rank"
     assert canonical.quality_status == "ok"
     assert canonical.evidence_bundle_id == "bundle-1"
+
+
+def test_conflict_resolver_prioritizes_api_visible_phase1_metrics() -> None:
+    normalizer = FactNormalizer()
+    resolver = ConflictResolver()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-custom",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                metric_id="raw_metric",
+                metric_label_raw="Alpha metric",
+            ),
+            _candidate(
+                fact_id="candidate-net-income",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=200.0,
+                metric_id="n_income_attr_p",
+                metric_label_raw="Net profit attributable to owners of the parent",
+                extensions={
+                    "semantic_source": "llm_fallback",
+                    "semantic_confidence": 0.72,
+                    "fallback_reason": "owner_scope_disambiguation",
+                },
+            ),
+            _candidate(
+                fact_id="candidate-basic-eps",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=1.11,
+                metric_id="basic_eps",
+                metric_label_raw="Basic EPS",
+                raw_unit="元/股",
+                extensions={
+                    "value_type": "per_share",
+                    "unit_expectation": "per_share_amount",
+                },
+            ),
+        ]
+    )
+
+    canonical_facts = resolver.resolve(normalized)
+
+    assert {fact.metric_id for fact in canonical_facts[:2]} == {
+        "basic_eps",
+        "n_income_attr_p",
+    }
+    net_income_fact = next(fact for fact in canonical_facts if fact.metric_id == "n_income_attr_p")
+    assert net_income_fact.extensions["semantic_source"] == "llm_fallback"
+    assert net_income_fact.extensions["semantic_confidence"] == 0.72
+    assert net_income_fact.extensions["fallback_reason"] == "owner_scope_disambiguation"
+
+
+def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provenance() -> None:
+    extracted_payload = {
+        "candidate_facts": [
+            {
+                "fact_id": "doc-1:candidate:1",
+                "metric_id": "n_income_attr_p",
+                "metric_label_raw": "Net profit attributable to owners of the parent",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "comparison_axis": "current",
+                "adjustment_basis": "reported",
+                "period_id": "2024FY",
+                "currency": "CNY",
+                "raw_value": "123",
+                "numeric_value": 123.0,
+                "raw_unit": "CNY",
+                "normalized_unit": None,
+                "precision": 0,
+                "confidence": 0.9,
+                "extensions": {
+                    "semantic_source": "llm_fallback",
+                    "semantic_confidence": 0.8,
+                    "fallback_reason": "owner_scope_disambiguation",
+                },
+                "document_id": "doc-1",
+                "block_id": "block-1",
+                "page_index": 0,
+                "evidence_bundle_id": "bundle-1",
+                "source_rank_hint": 30,
+            },
+            {
+                "fact_id": "doc-1:candidate:2",
+                "metric_id": "basic_eps",
+                "metric_label_raw": "Basic EPS",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "comparison_axis": "current",
+                "adjustment_basis": "reported",
+                "period_id": "2024FY",
+                "currency": "CNY",
+                "raw_value": "1.23",
+                "numeric_value": 1.23,
+                "raw_unit": "元/股",
+                "normalized_unit": None,
+                "precision": 2,
+                "confidence": 0.9,
+                "extensions": {
+                    "value_type": "per_share",
+                    "unit_expectation": "per_share_amount",
+                },
+                "document_id": "doc-1",
+                "block_id": "block-2",
+                "page_index": 0,
+                "evidence_bundle_id": "bundle-2",
+                "source_rank_hint": 30,
+            },
+            {
+                "fact_id": "doc-1:candidate:3",
+                "metric_id": "finance_exp",
+                "metric_label_raw": "Finance costs",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "comparison_axis": "current",
+                "adjustment_basis": "reported",
+                "period_id": "2024FY",
+                "currency": "CNY",
+                "raw_value": "45",
+                "numeric_value": 45.0,
+                "raw_unit": "CNY",
+                "normalized_unit": None,
+                "precision": 0,
+                "confidence": 0.9,
+                "extensions": {},
+                "document_id": "doc-1",
+                "block_id": "block-3",
+                "page_index": 0,
+                "evidence_bundle_id": "bundle-3",
+                "source_rank_hint": 30,
+            },
+        ]
+    }
+
+    pipeline_result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload=extracted_payload,
+    )
+
+    canonical_metric_ids = [fact.metric_id for fact in pipeline_result.canonical_facts]
+    assert set(canonical_metric_ids[:2]) == {"basic_eps", "n_income_attr_p"}
+    assert "finance_exp" in canonical_metric_ids
+    basic_eps = next(fact for fact in pipeline_result.canonical_facts if fact.metric_id == "basic_eps")
+    assert basic_eps.normalized_unit == "per_share_amount"
+    assert basic_eps.numeric_value == 1.23
+    n_income_attr_p = next(
+        fact for fact in pipeline_result.canonical_facts if fact.metric_id == "n_income_attr_p"
+    )
+    assert n_income_attr_p.extensions["semantic_source"] == "llm_fallback"
+    assert n_income_attr_p.extensions["semantic_confidence"] == 0.8
+    assert n_income_attr_p.extensions["fallback_reason"] == "owner_scope_disambiguation"
 
 
 def test_derivation_service_yields_ttm_fact_with_lineage() -> None:

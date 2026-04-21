@@ -418,6 +418,130 @@ def test_normalize_table_semantics_maps_gross_profit_variants() -> None:
     ]
 
 
+def test_normalize_table_semantics_maps_phase1_income_statement_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:phase1-income",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-attributable-profit",
+                    row_index=1,
+                    label_raw="归属于母公司股东的净利润",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-basic-eps",
+                    row_index=2,
+                    label_raw="Basic earnings per share",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-finance-costs",
+                    row_index=3,
+                    label_raw="Finance costs",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-profit-before-tax",
+                    row_index=4,
+                    label_raw="Profit before tax",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-tax",
+                    row_index=5,
+                    label_raw="所得税费用",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-minority",
+                    row_index=6,
+                    label_raw="Profit attributable to non-controlling interests",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "net profit attributable to owners of the parent",
+        "basic earnings per share",
+        "finance expense",
+        "total profit",
+        "income tax",
+        "minority interest profit",
+    ]
+
+
+def test_normalize_table_semantics_maps_phase1_cash_flow_detail_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:phase1-cash-flow",
+            document_id="doc",
+            page_range=(17, 17),
+            table_kind="cash_flow_statement",
+            title_text="Consolidated Statement of Cash Flows",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-capex",
+                    row_index=1,
+                    label_raw="购建固定资产、无形资产和其他长期资产支付的现金",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-depreciation",
+                    row_index=2,
+                    label_raw="Depreciation of property, plant and equipment",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-amort-intang",
+                    row_index=3,
+                    label_raw="Amortisation of intangible assets",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-amort-deferred",
+                    row_index=4,
+                    label_raw="长期待摊费用摊销",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-dividends",
+                    row_index=5,
+                    label_raw="Dividends paid",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "capital expenditure cash outflow",
+        "depreciation of fixed assets",
+        "amortisation of intangible assets",
+        "amortisation of long-term deferred expenses",
+        "cash paid for dividends or interest",
+    ]
+
+
 def test_normalize_table_semantics_maps_cash_flow_primary_section_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -457,6 +581,56 @@ def test_normalize_table_semantics_maps_cash_flow_primary_section_variants() -> 
         "operating cash flow",
         "investing cash flow",
         "financing cash flow",
+    ]
+
+
+def test_normalize_table_semantics_suppresses_diluted_and_adjusted_eps_rows() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:eps-false-positives",
+            document_id="doc",
+            page_range=(18, 18),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-diluted",
+                    row_index=1,
+                    label_raw="Diluted earnings per share",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-adjusted",
+                    row_index=2,
+                    label_raw="Adjusted EPS",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-non-gaap",
+                    row_index=3,
+                    label_raw="Non-GAAP earnings per share",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-basic-cn",
+                    row_index=4,
+                    label_raw="基本每股收益",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        None,
+        None,
+        None,
+        "basic earnings per share",
     ]
 
 
@@ -547,6 +721,48 @@ def test_normalize_table_semantics_suppresses_cash_flow_false_positive_rows() ->
         None,
         "revenue trend",
         None,
+    ]
+
+
+def test_normalize_table_semantics_suppresses_narrative_cash_flow_rows() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:cash-flow-narrative",
+            document_id="doc",
+            page_range=(19, 19),
+            table_kind="cash_flow_statement",
+            title_text="Consolidated Statement of Cash Flows",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-analysis",
+                    row_index=1,
+                    label_raw="Analysis of balances of cash and cash equivalents",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-before-working-capital",
+                    row_index=2,
+                    label_raw="Cash flows before movements in working capital",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-dividends",
+                    row_index=3,
+                    label_raw="Dividends paid",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        None,
+        None,
+        "cash paid for dividends or interest",
     ]
 
 
