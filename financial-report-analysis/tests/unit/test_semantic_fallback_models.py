@@ -1,5 +1,4 @@
 from financial_report_analysis.semantic_fallback import (
-    DisclosureLocatorRequest,
     DisclosureLocatorResult,
     RowLabelFallbackRequest,
     SemanticFallbackResult,

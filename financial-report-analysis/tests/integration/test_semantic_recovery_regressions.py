@@ -384,6 +384,7 @@ def test_hk_annual_2025_anchor_preserves_deterministic_semantic_coverage() -> No
 
 def test_pipeline_prefers_main_statement_provenance_when_source_ranks_tie(
     monkeypatch,
+    tmp_path,
 ) -> None:
     from financial_report_analysis.models import (
         ParsedCell,
@@ -543,20 +544,22 @@ def test_pipeline_prefers_main_statement_provenance_when_source_ranks_tie(
     )
     monkeypatch.setattr(
         PdfIngestionAdapter,
-        "_extract_text",
-        lambda self, **kwargs: "",
+        "_extract_text_pages",
+        lambda self, **kwargs: [],
     )
+    pdf_path = tmp_path / "ignored.pdf"
+    pdf_path.touch()
 
     payload = PdfIngestionAdapter().extract_candidate_facts(
-        pdf_path="ignored.pdf",
+        pdf_path=str(pdf_path),
         pdf_url=None,
         market="HK",
         min_confidence=0.8,
     )
     result = analyze_report(
         {
-            "document_id": "ignored.pdf",
-            "pdf_path": "ignored.pdf",
+            "document_id": str(pdf_path),
+            "pdf_path": str(pdf_path),
             "pdf_url": None,
             "market": "HK",
             "language": payload["document_metadata"]["language"],
@@ -588,6 +591,7 @@ def test_pipeline_prefers_main_statement_provenance_when_source_ranks_tie(
 
 def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
     monkeypatch,
+    tmp_path,
 ) -> None:
     from financial_report_analysis.models import (
         ParsedCell,
@@ -940,12 +944,14 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
     )
     monkeypatch.setattr(
         PdfIngestionAdapter,
-        "_extract_text",
-        lambda self, **kwargs: "",
+        "_extract_text_pages",
+        lambda self, **kwargs: [],
     )
+    pdf_path = tmp_path / "ignored.pdf"
+    pdf_path.touch()
 
     payload = PdfIngestionAdapter().extract_candidate_facts(
-        pdf_path="ignored.pdf",
+        pdf_path=str(pdf_path),
         pdf_url=None,
         market="HK",
         min_confidence=0.8,
@@ -983,8 +989,8 @@ def test_phase1_investor_inputs_survive_mocked_statement_pipeline_without_noise(
 
     result = analyze_report(
         {
-            "document_id": "ignored.pdf",
-            "pdf_path": "ignored.pdf",
+            "document_id": str(pdf_path),
+            "pdf_path": str(pdf_path),
             "pdf_url": None,
             "market": "HK",
             "language": payload["document_metadata"]["language"],

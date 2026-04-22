@@ -2194,27 +2194,36 @@ def test_evidence_repository_rejects_missing_linked_items_on_read() -> None:
     else:
         raise AssertionError("get_evidence_bundle should reject missing linked items")
 
-
 def test_pdf_ingestion_adapter_extracts_revenue_candidate_from_text(
     monkeypatch,
+    tmp_path,
 ) -> None:
     adapter = PdfIngestionAdapter()
+    pdf_path = tmp_path / "mock.pdf"
+    pdf_path.touch()
 
     monkeypatch.setattr(
         PdfIngestionAdapter,
-        "_extract_text",
-        lambda self, *, pdf_path, pdf_url: "2024 Annual Report\nRevenue 2,500 RMB'000\n",
+        "_extract_text_pages",
+        lambda self, *, pdf_path, pdf_url: [
+            (1, "2024 Annual Report\nRevenue 2,500 RMB'000\n")
+        ],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_parsed_tables",
+        lambda self, *, pdf_path, pdf_url, market: [],
     )
 
     payload = adapter.extract_candidate_facts(
-        pdf_path="/tmp/mock.pdf",
+        pdf_path=str(pdf_path),
         pdf_url=None,
         market="CN",
         min_confidence=0.8,
     )
 
     candidate = payload["candidate_facts"][0]
-    assert candidate["document_id"] == "/tmp/mock.pdf"
+    assert candidate["document_id"] == str(pdf_path)
     assert candidate["metric_label_raw"] == "Revenue"
     assert candidate["statement_type"] == "income_statement"
     assert candidate["period_id"] == "2024FY"
@@ -2225,25 +2234,34 @@ def test_pdf_ingestion_adapter_extracts_revenue_candidate_from_text(
 
 def test_pdf_ingestion_adapter_handles_spaced_cn_annual_title_and_local_context(
     monkeypatch,
+    tmp_path,
 ) -> None:
     adapter = PdfIngestionAdapter()
+    pdf_path = tmp_path / "mock-cn-annual.pdf"
+    pdf_path.touch()
 
     monkeypatch.setattr(
         PdfIngestionAdapter,
-        "_extract_text",
-        (
-            lambda self, *, pdf_path, pdf_url: (
-                "2024 年年度报告\n"
-                "合并利润表\n"
-                "营业收入 1,234\n"
-                "单位：元 币种：人民币\n"
-                "附注：港元、美元仅用于说明\n"
+        "_extract_text_pages",
+        lambda self, *, pdf_path, pdf_url: [
+            (
+                1,
+                "2024 \u5e74\u5e74\u5ea6\u62a5\u544a\n"
+                "\u5408\u5e76\u5229\u6da6\u8868\n"
+                "\u8425\u4e1a\u6536\u5165 1,234\n"
+                "\u5355\u4f4d\uff1a\u5143 \u5e01\u79cd\uff1a\u4eba\u6c11\u5e01\n"
+                "\u9644\u6ce8\uff1a\u6e2f\u5143\u3001\u7f8e\u5143\u4ec5\u7528\u4e8e\u8bf4\u660e\n",
             )
-        ),
+        ],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_parsed_tables",
+        lambda self, *, pdf_path, pdf_url, market: [],
     )
 
     payload = adapter.extract_candidate_facts(
-        pdf_path="/tmp/mock-cn-annual.pdf",
+        pdf_path=str(pdf_path),
         pdf_url=None,
         market="CN",
         min_confidence=0.8,
@@ -2253,31 +2271,40 @@ def test_pdf_ingestion_adapter_handles_spaced_cn_annual_title_and_local_context(
     candidate = payload["candidate_facts"][0]
     assert candidate["period_id"] == "2024FY"
     assert candidate["currency"] == "CNY"
-    assert candidate["raw_unit"] == "元"
-    assert candidate["metric_label_raw"] == "营业收入"
+    assert candidate["raw_unit"] == "\u5143"
+    assert candidate["metric_label_raw"] == "\u8425\u4e1a\u6536\u5165"
 
 
 def test_pdf_ingestion_adapter_handles_spaced_cn_quarterly_title_and_local_context(
     monkeypatch,
+    tmp_path,
 ) -> None:
     adapter = PdfIngestionAdapter()
+    pdf_path = tmp_path / "mock-cn-quarterly.pdf"
+    pdf_path.touch()
 
     monkeypatch.setattr(
         PdfIngestionAdapter,
-        "_extract_text",
-        (
-            lambda self, *, pdf_path, pdf_url: (
-                "2025 年第三季度报告\n"
-                "合并利润表\n"
-                "营业收入 9,876\n"
-                "单位：元 币种：人民币\n"
-                "附注：港元、美元仅用于说明\n"
+        "_extract_text_pages",
+        lambda self, *, pdf_path, pdf_url: [
+            (
+                1,
+                "2025 \u5e74\u7b2c\u4e09\u5b63\u5ea6\u62a5\u544a\n"
+                "\u5408\u5e76\u5229\u6da6\u8868\n"
+                "\u8425\u4e1a\u6536\u5165 9,876\n"
+                "\u5355\u4f4d\uff1a\u5143 \u5e01\u79cd\uff1a\u4eba\u6c11\u5e01\n"
+                "\u9644\u6ce8\uff1a\u6e2f\u5143\u3001\u7f8e\u5143\u4ec5\u7528\u4e8e\u8bf4\u660e\n",
             )
-        ),
+        ],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_parsed_tables",
+        lambda self, *, pdf_path, pdf_url, market: [],
     )
 
     payload = adapter.extract_candidate_facts(
-        pdf_path="/tmp/mock-cn-quarterly.pdf",
+        pdf_path=str(pdf_path),
         pdf_url=None,
         market="CN",
         min_confidence=0.8,
@@ -2287,4 +2314,5 @@ def test_pdf_ingestion_adapter_handles_spaced_cn_quarterly_title_and_local_conte
     candidate = payload["candidate_facts"][0]
     assert candidate["period_id"] == "2025Q3"
     assert candidate["currency"] == "CNY"
-    assert candidate["raw_unit"] == "元"
+    assert candidate["raw_unit"] == "\u5143"
+    assert candidate["metric_label_raw"] == "\u8425\u4e1a\u6536\u5165"
