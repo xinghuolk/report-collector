@@ -1,7 +1,35 @@
 from financial_report_analysis.ingestion import (
+    build_debt_note_candidate_facts,
     build_working_capital_note_candidate_facts,
 )
 from financial_report_analysis.semantic_fallback import DisclosureLocatorResult
+
+
+# HK 09987 2025 annual note/disclosure rows independently disclose short-term
+# borrowings only. Long-term borrowings, bonds payable, and current portion of
+# long-term debt are not separately disclosed in the sampled note rows.
+_HK_09987_2025_DEBT_NOTE_TITLE_PAGE = (
+    153,
+    """
+    Borrowings 2024 2023
+    """,
+)
+
+_HK_09987_2025_DEBT_NOTE_PAGE = (
+    154,
+    """
+    Short-term borrowings 127 168
+    Non-current operating lease liabilities 1,816 1,899
+    Non-current finance lease liabilities 49 44
+    """,
+)
+
+_DEBT_METRIC_IDS = {
+    "st_borr",
+    "lt_borr",
+    "bond_payable",
+    "non_cur_liab_due_1y",
+}
 
 
 _PAYABLE_NOTE_PAGE = (
@@ -67,6 +95,171 @@ def test_build_working_capital_note_candidate_facts_does_not_create_notes_candid
 
     assert "notes_receiv" not in metric_ids
     assert "notes_payable" not in metric_ids
+
+
+def test_build_debt_note_candidate_facts_extracts_hk_09987_2025_subset() -> None:
+    candidates, missing_status = build_debt_note_candidate_facts(
+        pages=[_HK_09987_2025_DEBT_NOTE_TITLE_PAGE, _HK_09987_2025_DEBT_NOTE_PAGE],
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    metric_ids = {candidate["metric_id"] for candidate in candidates}
+
+    assert metric_ids == {"st_borr"}
+    assert candidates[0]["numeric_value"] == 127.0
+    assert all(
+        candidate["extraction_method"] == "note_disclosure" for candidate in candidates
+    )
+    assert missing_status["st_borr"] == "present"
+    assert missing_status["lt_borr"] == "absent"
+    assert missing_status["bond_payable"] == "absent"
+    assert missing_status["non_cur_liab_due_1y"] == "absent"
+    assert "bond_payable" not in metric_ids
+
+
+def test_build_debt_note_candidate_facts_extracts_multiple_debt_rows() -> None:
+    candidates, missing_status = build_debt_note_candidate_facts(
+        pages=[
+            (
+                178,
+                """
+                Borrowings 2024 2023
+                Short-term borrowings 120 110
+                Long-term borrowings 560 600
+                Current portion of long-term debt 80 75
+                """,
+            )
+        ],
+        document_id="doc:debt",
+        period_id="2024FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "st_borr",
+        "lt_borr",
+        "non_cur_liab_due_1y",
+    }
+    assert {candidate["numeric_value"] for candidate in candidates} == {120.0, 560.0, 80.0}
+    assert all(
+        candidate["extraction_method"] == "note_disclosure" for candidate in candidates
+    )
+    assert missing_status["bond_payable"] == "absent"
+
+
+def test_build_debt_note_candidate_facts_reads_continuation_pages_without_repeated_surface_title() -> (
+    None
+):
+    candidates, missing_status = build_debt_note_candidate_facts(
+        pages=[
+            (
+                210,
+                """
+                Borrowings 2024 2023
+                """,
+            ),
+            (
+                211,
+                """
+                Long-term borrowings 560 600
+                Current portion of long-term debt 80 75
+                """,
+            ),
+        ],
+        document_id="doc:debt",
+        period_id="2024FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "lt_borr",
+        "non_cur_liab_due_1y",
+    }
+    assert {candidate["page_index"] for candidate in candidates} == {211}
+    assert missing_status["st_borr"] == "absent"
+    assert missing_status["bond_payable"] == "absent"
+
+
+def test_build_debt_note_candidate_facts_surfaces_long_term_only_debt_notes() -> None:
+    candidates, missing_status = build_debt_note_candidate_facts(
+        pages=[
+            (
+                220,
+                """
+                Long-term borrowings 2024 2023
+                """,
+            ),
+            (
+                221,
+                """
+                Long-term borrowings 560 600
+                """,
+            )
+        ],
+        document_id="doc:debt",
+        period_id="2024FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {"lt_borr"}
+    assert candidates[0]["numeric_value"] == 560.0
+    assert candidates[0]["page_index"] == 221
+    assert missing_status["lt_borr"] == "present"
+    assert missing_status["st_borr"] == "absent"
+
+
+def test_build_debt_note_candidate_facts_ignores_non_debt_liability_rows() -> None:
+    candidates, _ = build_debt_note_candidate_facts(
+        pages=[
+            (
+                178,
+                """
+                Accounts payable and other current liabilities 2024 2023
+                Accounts payable 801 786
+                Operating lease liabilities 417 426
+                Contract liabilities 196 196
+                """,
+            )
+        ],
+        document_id="doc:debt",
+        period_id="2024FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    assert candidates == []
+
+
+def test_build_debt_note_candidate_facts_does_not_activate_without_debt_disclosure_block() -> None:
+    candidates, missing_status = build_debt_note_candidate_facts(
+        pages=[
+            (
+                230,
+                """
+                Discussion of financing strategy
+                Short-term borrowings 127 168
+                """,
+            )
+        ],
+        document_id="doc:debt",
+        period_id="2024FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    assert candidates == []
+    assert missing_status == {
+        "st_borr": "not_surfaced",
+        "lt_borr": "not_surfaced",
+        "bond_payable": "not_surfaced",
+        "non_cur_liab_due_1y": "not_surfaced",
+    }
 
 
 def test_build_working_capital_note_candidate_facts_tracks_note_statuses() -> None:

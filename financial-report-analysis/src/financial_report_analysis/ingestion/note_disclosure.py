@@ -17,6 +17,56 @@ _TARGET_DISCLOSURE_METRIC_IDS: tuple[str, ...] = (
     "contract_liab",
 )
 
+_DEBT_NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
+    {
+        "surface_patterns": (
+            re.compile(
+                r"\b(?:borrowings|credit\s+facilities\s+and\s+short-term\s+borrowings)\b[^\n]{0,120}\b20\d{2}\b[^\n]{0,40}\b20\d{2}\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"\b(?:short-term\s+borrowings|long-term\s+borrowings|bonds?\s+payable|current\s+portion\s+of\s+long-term\s+(?:debt|borrowings))\b[^\n]{0,120}\b20\d{2}\b[^\n]{0,40}\b20\d{2}\b",
+                re.IGNORECASE,
+            ),
+        ),
+        "metrics": (
+            {
+                "metric_id": "st_borr",
+                "label": "Short-term borrowings",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*(?:short[-\s]+term(?:\s+bank)?\s+borrowings)\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+            {
+                "metric_id": "lt_borr",
+                "label": "Long-term borrowings",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*long[-\s]+term borrowings\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+            {
+                "metric_id": "bond_payable",
+                "label": "Bonds payable",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*bonds?\s+payable\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+            {
+                "metric_id": "non_cur_liab_due_1y",
+                "label": "Current portion of long-term debt",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*(?:current\s+portion\s+of\s+long[-\s]+term\s+(?:debt|borrowings)|current\s+portion\s+due\s+within\s+one\s+year)\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+        ),
+        "continuation_patterns": (
+            re.compile(
+                r"(?mi)^\s*(?:short[-\s]+term(?:\s+bank)?\s+borrowings|long[-\s]+term borrowings|bonds?\s+payable|current\s+portion\s+of\s+long[-\s]+term\s+(?:debt|borrowings)|current\s+portion\s+due\s+within\s+one\s+year)\b"
+            ),
+        ),
+    },
+)
+
 
 _NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
@@ -93,7 +143,10 @@ _NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
 )
 
-__all__ = ["build_working_capital_note_candidate_facts"]
+__all__ = [
+    "build_debt_note_candidate_facts",
+    "build_working_capital_note_candidate_facts",
+]
 
 
 def build_working_capital_note_candidate_facts(
@@ -109,56 +162,24 @@ def build_working_capital_note_candidate_facts(
         return ([], {})
 
     normalized_pages = list(pages)
-    candidates: list[dict[str, Any]] = []
-    missing_status: dict[str, str] = {}
-    candidate_index = 0
-    found_metric_ids = set(existing_metric_ids)
+    candidates, missing_status, candidate_index, found_metric_ids = (
+        _build_note_candidate_facts(
+            pages=normalized_pages,
+            document_id=document_id,
+            period_id=period_id,
+            market=market,
+            existing_metric_ids=existing_metric_ids,
+            note_definitions=_NOTE_DEFINITIONS,
+        )
+    )
     locator_call_count = 0
 
     for note_definition in _NOTE_DEFINITIONS:
         surfaced_pages = _searchable_pages_for_note_definition(
             pages=normalized_pages,
             surface_patterns=note_definition["surface_patterns"],
+            continuation_patterns=note_definition.get("continuation_patterns", ()),
         )
-
-        for metric in note_definition["metrics"]:
-            metric_id = metric["metric_id"]
-
-            if metric_id in found_metric_ids:
-                missing_status[metric_id] = "present"
-                continue
-
-            if not surfaced_pages:
-                missing_status[metric_id] = "not_surfaced"
-                continue
-
-            page_index, line, match = _first_metric_match(
-                pages=surfaced_pages,
-                pattern=metric["row_pattern"],
-            )
-            if page_index is None or line is None or match is None:
-                missing_status[metric_id] = "absent"
-                continue
-
-            candidate_index += 1
-            found_metric_ids.add(metric_id)
-            missing_status[metric_id] = "present"
-            candidates.append(
-                _build_candidate_payload(
-                    candidate_index=candidate_index,
-                    document_id=document_id,
-                    label=_label_from_line(line),
-                    metric_id=metric_id,
-                    period_id=period_id,
-                    page_index=page_index,
-                    raw_value=match.group(1),
-                    market=market,
-                    semantic_source="deterministic",
-                    semantic_confidence=None,
-                    fallback_reason=None,
-                )
-            )
-
         if semantic_fallback_service is None or not surfaced_pages:
             continue
 
@@ -224,6 +245,91 @@ def build_working_capital_note_candidate_facts(
     return (candidates, missing_status)
 
 
+def build_debt_note_candidate_facts(
+    *,
+    pages: Iterable[tuple[int, str]],
+    document_id: str,
+    period_id: str | None,
+    market: str,
+    existing_metric_ids: set[str],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    if market.upper() != "HK" or period_id is None:
+        return ([], {})
+
+    normalized_pages = list(pages)
+    candidates, missing_status, _, _ = _build_note_candidate_facts(
+        pages=normalized_pages,
+        document_id=document_id,
+        period_id=period_id,
+        market=market,
+        existing_metric_ids=existing_metric_ids,
+        note_definitions=_DEBT_NOTE_DEFINITIONS,
+    )
+    return (candidates, missing_status)
+
+
+def _build_note_candidate_facts(
+    *,
+    pages: list[tuple[int, str]],
+    document_id: str,
+    period_id: str,
+    market: str,
+    existing_metric_ids: set[str],
+    note_definitions: tuple[dict[str, Any], ...],
+) -> tuple[list[dict[str, Any]], dict[str, str], int, set[str]]:
+    candidates: list[dict[str, Any]] = []
+    missing_status: dict[str, str] = {}
+    candidate_index = 0
+    found_metric_ids = set(existing_metric_ids)
+
+    for note_definition in note_definitions:
+        surfaced_pages = _searchable_pages_for_note_definition(
+            pages=pages,
+            surface_patterns=note_definition["surface_patterns"],
+            continuation_patterns=note_definition.get("continuation_patterns", ()),
+        )
+
+        for metric in note_definition["metrics"]:
+            metric_id = metric["metric_id"]
+
+            if metric_id in found_metric_ids:
+                missing_status[metric_id] = "present"
+                continue
+
+            if not surfaced_pages:
+                missing_status[metric_id] = "not_surfaced"
+                continue
+
+            page_index, line, match = _first_metric_match(
+                pages=surfaced_pages,
+                pattern=metric["row_pattern"],
+            )
+            if page_index is None or line is None or match is None:
+                missing_status[metric_id] = "absent"
+                continue
+
+            candidate_index += 1
+            found_metric_ids.add(metric_id)
+            missing_status[metric_id] = "present"
+            candidates.append(
+                _build_candidate_payload(
+                    candidate_index=candidate_index,
+                    document_id=document_id,
+                    label=_label_from_line(line),
+                    metric_id=metric_id,
+                    period_id=period_id,
+                    page_index=page_index,
+                    raw_value=match.group(1),
+                    market=market,
+                    semantic_source="deterministic",
+                    semantic_confidence=None,
+                    fallback_reason=None,
+                )
+            )
+
+    return (candidates, missing_status, candidate_index, found_metric_ids)
+
+
 def _should_call_locator(
     text: str,
     existing_metric_ids: set[str],
@@ -241,6 +347,7 @@ def _searchable_pages_for_note_definition(
     *,
     pages: list[tuple[int, str]],
     surface_patterns: tuple[re.Pattern[str], ...],
+    continuation_patterns: tuple[re.Pattern[str], ...] = (),
 ) -> list[tuple[int, str]]:
     surfaced_index = next(
         (
@@ -261,6 +368,7 @@ def _searchable_pages_for_note_definition(
         if not _looks_like_note_continuation_page(
             text=page_text,
             surface_patterns=surface_patterns,
+            continuation_patterns=continuation_patterns,
         ):
             break
         searchable_pages.append(page)
@@ -271,20 +379,26 @@ def _looks_like_note_continuation_page(
     *,
     text: str,
     surface_patterns: tuple[re.Pattern[str], ...],
+    continuation_patterns: tuple[re.Pattern[str], ...] = (),
 ) -> bool:
     if any(pattern.search(text) for pattern in surface_patterns):
         return True
     if _has_table_like_title(text):
         return False
-    return _has_target_value_row(text)
+    return _has_target_value_row(text, continuation_patterns=continuation_patterns)
 
 
-def _has_target_value_row(text: str) -> bool:
+def _has_target_value_row(
+    text: str,
+    continuation_patterns: tuple[re.Pattern[str], ...] = (),
+) -> bool:
+    if continuation_patterns and any(pattern.search(text) for pattern in continuation_patterns):
+        return True
     lowered = text.casefold()
     return (
         re.search(
-        r"\b(accounts payable|accounts receivable,?\s+net|contract liabilities)\b\s+\$?\s*[0-9]",
-        lowered,
+            r"\b(accounts payable|accounts receivable,?\s+net|contract liabilities)\b\s+\$?\s*[0-9]",
+            lowered,
         )
         is not None
     )
@@ -321,6 +435,8 @@ def _match_metric_in_text(
     for line in _iter_candidate_lines(text):
         match = pattern.search(line)
         if match is not None:
+            if _is_year_header_line(line):
+                continue
             return (line, match)
     return None
 
@@ -342,6 +458,15 @@ def _iter_candidate_lines(text: str) -> Iterable[str]:
 
 def _label_from_line(line: str) -> str:
     return re.split(r"\s+\$?\s*[0-9]", line, maxsplit=1)[0].strip()
+
+
+def _is_year_header_line(line: str) -> bool:
+    if re.search(r"[$(),]", line) is not None:
+        return False
+    numbers = re.findall(r"\b\d+\b", line)
+    return len(numbers) >= 2 and all(
+        len(number) == 4 and number.startswith("20") for number in numbers
+    )
 
 
 def _build_candidate_payload(
