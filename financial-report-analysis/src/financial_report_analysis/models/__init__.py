@@ -7,6 +7,14 @@ from financial_report_analysis.models.facts import (
     CanonicalFact,
     DerivedFact,
 )
+from financial_report_analysis.models.governance import (
+    ConflictState,
+    ReviewPacket,
+    SourceKind,
+    SourcePolicy,
+    candidate_source_kind,
+    candidate_source_policy,
+)
 from financial_report_analysis.models.period import Period
 from financial_report_analysis.models.table import (
     PageTextBlock,
@@ -27,10 +35,12 @@ __all__ = [
     "CandidateFact",
     "CanonicalFact",
     "DocumentBlock",
+    "ConflictState",
     "EvidenceBundle",
     "EvidenceItem",
     "Extensions",
     "DerivedFact",
+    "ReviewPacket",
     "NormalizedTableCellValue",
     "NormalizedTableColumn",
     "NormalizedTableRow",
@@ -41,4 +51,8 @@ __all__ = [
     "ParsedColumn",
     "ParsedRow",
     "ParsedTable",
+    "SourceKind",
+    "SourcePolicy",
+    "candidate_source_kind",
+    "candidate_source_policy",
 ]

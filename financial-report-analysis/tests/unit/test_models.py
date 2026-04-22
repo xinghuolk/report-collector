@@ -4,10 +4,43 @@ import pytest
 
 from financial_report_analysis import CandidateFact as RootCandidateFact
 from financial_report_analysis import CanonicalFact as RootCanonicalFact
-from financial_report_analysis.models import DocumentBlock, DerivedFact
+from financial_report_analysis.models import (
+    DocumentBlock,
+    DerivedFact,
+    ReviewPacket,
+    candidate_source_kind,
+    candidate_source_policy,
+)
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact
 from financial_report_analysis.models.period import Period
+
+
+def _candidate_fact(**overrides: object) -> CandidateFact:
+    kwargs: dict[str, object] = {
+        "fact_id": "cand-1",
+        "fact_kind": "candidate",
+        "metric_id": "revenue",
+        "metric_label_raw": "Revenue",
+        "statement_type": "balance_sheet",
+        "period_id": "period-2024-fy",
+        "entity_scope": "consolidated",
+        "comparison_axis": "current",
+        "adjustment_basis": "reported",
+        "currency": "CNY",
+        "raw_value": "1000",
+        "numeric_value": 1000.0,
+        "raw_unit": "CNY",
+        "normalized_unit": "CNY",
+        "precision": 0,
+        "confidence": 0.91,
+        "document_id": "doc-1",
+        "block_id": "block-1",
+        "page_index": 3,
+        "evidence_bundle_id": "bundle-1",
+    }
+    kwargs.update(overrides)
+    return CandidateFact(**kwargs)
 
 
 def test_package_root_exports_core_fact_models() -> None:
@@ -213,6 +246,76 @@ def test_candidate_fact_supports_richer_constructor_shape() -> None:
     assert fact.fact_id == "cand-1"
     assert fact.evidence_bundle_id == "bundle-1"
     assert fact.extensions == {}
+
+
+def test_candidate_source_kind_detects_statement_note_and_locator_sources() -> None:
+    statement_candidate = _candidate_fact(
+        extraction_method="table_semantics",
+        extensions={
+            "table_kind": "balance_sheet",
+            "semantic_source": "deterministic",
+        },
+    )
+    deterministic_note_candidate = _candidate_fact(
+        extraction_method="note_disclosure",
+        extensions={
+            "table_kind": "note_disclosure",
+            "semantic_source": "deterministic",
+        },
+    )
+    locator_assisted_note_candidate = _candidate_fact(
+        extraction_method="note_disclosure",
+        extensions={
+            "table_kind": "note_disclosure",
+            "semantic_source": "llm_fallback",
+        },
+    )
+
+    assert candidate_source_kind(statement_candidate) == "statement_row"
+    assert candidate_source_kind(deterministic_note_candidate) == (
+        "deterministic_note_disclosure"
+    )
+    assert candidate_source_kind(locator_assisted_note_candidate) == (
+        "llm_locator_assisted_note_disclosure"
+    )
+
+
+def test_candidate_source_policy_defaults_to_supplement_only() -> None:
+    candidate = _candidate_fact()
+
+    assert candidate_source_policy(candidate) == "supplement_only"
+
+
+def test_review_packet_serializes_minimum_p4a_surface() -> None:
+    packet = ReviewPacket(
+        document_id="doc-1",
+        period_id="period-2024-fy",
+        metric_id="revenue",
+        entity_scope="consolidated",
+        source_kind="statement_row",
+        source_policy="review_required",
+        conflict_state="review_required",
+        candidate_value=1000.0,
+        competing_candidate_values=(900.0, None),
+        evidence_bundle_id="bundle-1",
+        resolution_reason="manual review required",
+        review_reason="scope conflict",
+    )
+
+    assert packet.to_dict() == {
+        "document_id": "doc-1",
+        "period_id": "period-2024-fy",
+        "metric_id": "revenue",
+        "entity_scope": "consolidated",
+        "source_kind": "statement_row",
+        "source_policy": "review_required",
+        "conflict_state": "review_required",
+        "candidate_value": 1000.0,
+        "competing_candidate_values": [900.0, None],
+        "evidence_bundle_id": "bundle-1",
+        "resolution_reason": "manual review required",
+        "review_reason": "scope conflict",
+    }
 
 
 def test_candidate_fact_rejects_incompatible_fact_kind() -> None:
