@@ -2,6 +2,7 @@ import re
 
 from financial_report_analysis.ingestion import note_disclosure as note_disclosure_module
 from financial_report_analysis.ingestion import (
+    build_asset_note_candidate_facts,
     build_debt_note_candidate_facts,
     build_working_capital_note_candidate_facts,
 )
@@ -219,6 +220,34 @@ def test_build_p3_asset_note_candidate_facts_ignores_negative_control_asset_rows
     assert missing_status == {
         "contract_assets": "absent",
         "other_non_current_assets": "absent",
+    }
+
+
+def test_build_p3_asset_note_candidate_facts_keeps_not_surfaced_without_asset_note_block() -> (
+    None
+):
+    candidates, missing_status = build_asset_note_candidate_facts(
+        pages=[
+            (
+                304,
+                """
+                Intangible assets 2024 2023
+                Goodwill 44 40
+                Inventories 18 17
+                """,
+            )
+        ],
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {
+        "contract_assets": "not_surfaced",
+        "other_non_current_assets": "not_surfaced",
     }
 
 

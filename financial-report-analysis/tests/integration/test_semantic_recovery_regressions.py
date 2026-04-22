@@ -1205,7 +1205,7 @@ def test_cn_601919_2025_surfaces_p3_asset_quality_candidates() -> None:
     payload = _extract_payload_for_pdf(pdf_path, market="CN")
 
     for metric_id, label_prefix in (
-        ("money_cap", "货币资金"),
+        ("cash", "货币资金"),
         ("trad_asset", "交易性金融资产"),
         ("inventories", "存货"),
         ("goodwill", "商誉"),
@@ -1271,7 +1271,7 @@ def test_hk_02498_2022_does_not_promote_p3_asset_negative_control_rows() -> None
         }
     )
 
-    assert not _candidate_labels_for_metric(payload, "money_cap")
+    assert not _candidate_labels_for_metric(payload, "cash")
     assert not _candidate_labels_for_metric(payload, "trad_asset")
 
 
@@ -1378,8 +1378,8 @@ def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> 
 
     assert asset_candidates == []
     assert payload.get("document_metadata", {}).get("asset_missing_status") == {
-        "contract_assets": "absent",
-        "other_non_current_assets": "absent",
+        "contract_assets": "not_surfaced",
+        "other_non_current_assets": "not_surfaced",
     }
 
 

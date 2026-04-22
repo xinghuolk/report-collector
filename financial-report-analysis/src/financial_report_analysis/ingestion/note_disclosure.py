@@ -221,13 +221,6 @@ def build_asset_note_candidate_facts(
         existing_metric_ids=existing_metric_ids,
         note_definitions=_ASSET_NOTE_DEFINITIONS,
     )
-    # For the bounded P3 asset note-only fields, we search the full extracted
-    # text pages. If no note block surfaces at all, treat the metrics as absent
-    # for the current document rather than a structure-level not_surfaced gap.
-    missing_status = {
-        metric_id: ("absent" if status == "not_surfaced" else status)
-        for metric_id, status in missing_status.items()
-    }
     return candidates, missing_status
 
 

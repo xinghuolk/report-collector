@@ -245,12 +245,12 @@ def test_metric_mapping_registry_keeps_notes_payable_distinct_from_bond_payable(
 @pytest.mark.parametrize(
     ("metric_id", "market", "label"),
     [
-        ("money_cap", "CN", "货币资金"),
+        ("cash", "CN", "货币资金"),
         ("trad_asset", "CN", "交易性金融资产"),
         ("inventories", "CN", "存货"),
         ("goodwill", "CN", "商誉"),
         ("intang_assets", "CN", "无形资产"),
-        ("money_cap", "HK", "cash and cash equivalents"),
+        ("cash", "HK", "cash and cash equivalents"),
         ("trad_asset", "HK", "trading assets"),
         ("inventories", "HK", "inventories"),
         ("goodwill", "HK", "goodwill"),
@@ -262,6 +262,8 @@ def test_metric_mapping_registry_matches_p3_asset_quality_fields(
     market: str,
     label: str,
 ) -> None:
+    # `money_cap` is the Turtle export alias for canonical `cash`; the registry
+    # keeps canonical metric identity stable for table-derived facts.
     registry = load_metric_registry()
 
     definition = registry.match(

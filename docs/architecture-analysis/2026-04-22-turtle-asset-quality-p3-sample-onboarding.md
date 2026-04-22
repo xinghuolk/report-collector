@@ -10,7 +10,8 @@ This artifact records the three fixed P3 anchors, their minimum onboarding metad
 
 Target phase scope for this artifact:
 
-- Primary statement-row metrics: `money_cap`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`
+- Primary statement-row canonical metrics: `cash`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`
+- Turtle field aliases: `money_cap` maps from canonical `cash`
 - Bounded note-only supplement metrics: `contract_assets`, `other_non_current_assets`
 
 Status vocabulary used in this artifact:
@@ -31,7 +32,7 @@ Failure classification vocabulary used in this artifact:
 
 `target_metric_ids` for all three anchors:
 
-- `money_cap`
+- `cash`
 - `trad_asset`
 - `inventories`
 - `goodwill`
@@ -51,11 +52,12 @@ Failure classification vocabulary used in this artifact:
 - `period_end`: `2025-12-31`
 - `report_family`: `cn_standard_balance_sheet_statement_row`
 - `target_phase`: `Turtle Asset Quality Inputs P3`
-- `target_metric_ids`: `money_cap`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`, `contract_assets`, `other_non_current_assets`
+- `target_metric_ids`: `cash`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`, `contract_assets`, `other_non_current_assets`
+- `turtle_aliases`: `money_cap -> cash`
 
 ### Current Expected Onboarding Classification
 
-- `present`: `money_cap`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`
+- `present`: `cash`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`
 - `absent`: none currently expected at plan level
 - `not_surfaced`: none currently expected for the primary statement-row path
 - `out_of_scope`: none at anchor scope; `contract_assets` and `other_non_current_assets` remain in-scope P3 metrics, but are not primary statement-row targets
@@ -84,13 +86,14 @@ Failure classification vocabulary used in this artifact:
 - `period_end`: `2022-12-31`
 - `report_family`: `hk_statement_row_asset_quality`
 - `target_phase`: `Turtle Asset Quality Inputs P3`
-- `target_metric_ids`: `money_cap`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`, `contract_assets`, `other_non_current_assets`
+- `target_metric_ids`: `cash`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`, `contract_assets`, `other_non_current_assets`
+- `turtle_aliases`: `money_cap -> cash`
 
 ### Current Expected Onboarding Classification
 
 - `present`: `inventories`, `goodwill`, `intang_assets`
 - `absent`: none currently expected at plan level
-- `not_surfaced`: `money_cap`, `trad_asset`
+- `not_surfaced`: `cash`, `trad_asset`
 - `out_of_scope`: none at anchor scope; `contract_assets` and `other_non_current_assets` remain bounded note-only metrics rather than primary statement-row targets
 
 ### Current Expected Failure Classification
@@ -103,7 +106,7 @@ Failure classification vocabulary used in this artifact:
 ### Anchor Notes
 
 - This anchor is the HK deterministic statement-row anchor for the five primary P3 asset metrics.
-- Current real-sample probing indicates `inventories`, `goodwill`, and `intang_assets` are the stable consolidated balance-sheet statement-row subset for this anchor, while `money_cap` and `trad_asset` are not currently surfaced through the same path.
+- Current real-sample probing indicates `inventories`, `goodwill`, and `intang_assets` are the stable consolidated balance-sheet statement-row subset for this anchor, while canonical `cash` / Turtle alias `money_cap` and `trad_asset` are not currently surfaced through the same path.
 - Negative-control rows should stay outside the P3 target set even if they appear near target asset rows.
 
 ## Anchor 3: HK 09987 2025
@@ -118,13 +121,14 @@ Failure classification vocabulary used in this artifact:
 - `period_end`: `2025-12-31`
 - `report_family`: `hk_mixed_structure_note_disclosure_asset_supplement`
 - `target_phase`: `Turtle Asset Quality Inputs P3`
-- `target_metric_ids`: `money_cap`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`, `contract_assets`, `other_non_current_assets`
+- `target_metric_ids`: `cash`, `trad_asset`, `inventories`, `goodwill`, `intang_assets`, `contract_assets`, `other_non_current_assets`
+- `turtle_aliases`: `money_cap -> cash`
 
 ### Current Expected Onboarding Classification
 
 - `present`: none currently expected at plan level
-- `absent`: `contract_assets`, `other_non_current_assets`
-- `not_surfaced`: `money_cap`, `trad_asset`, `inventories`, `goodwill`, `intang_assets` when the mixed-structure statement path is insufficient and P3 does not yet treat this anchor as the primary deterministic statement-row proof point
+- `absent`: none currently expected at plan level for the P3 note-only asset fields
+- `not_surfaced`: `cash`, `trad_asset`, `inventories`, `goodwill`, `intang_assets` when the mixed-structure statement path is insufficient and P3 does not yet treat this anchor as the primary deterministic statement-row proof point; `contract_assets`, `other_non_current_assets` when no bounded asset note/disclosure block is stably surfaced
 - `out_of_scope`: none currently expected at anchor scope
 
 ### Current Expected Failure Classification
@@ -138,7 +142,7 @@ Failure classification vocabulary used in this artifact:
 
 - This anchor represents the mixed-structure family where main-statement completeness is weaker and bounded note/disclosure supplement is more important.
 - This anchor should not be treated as an issuer-specific exception. The intended behavior is a reusable note/disclosure supplement path with statement-row precedence preserved.
-- Current onboarding expectation is an exact note-only asset absence state for this sample: surfaced subset `none`, `contract_assets = absent`, `other_non_current_assets = absent`.
+- Current onboarding expectation is that no bounded asset note/disclosure block is stably surfaced for this sample in the P3 path: surfaced subset `none`, `contract_assets = not_surfaced`, `other_non_current_assets = not_surfaced`.
 
 ## Review Notes
 

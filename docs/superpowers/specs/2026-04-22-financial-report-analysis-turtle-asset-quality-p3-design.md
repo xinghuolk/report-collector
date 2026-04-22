@@ -33,11 +33,13 @@
 
 ### 3.1 本轮纳入的主字段
 
-- `money_cap`
+- `cash`
 - `trad_asset`
 - `inventories`
 - `goodwill`
 - `intang_assets`
+
+其中 `cash` 是 `financial-report-analysis` 内部 canonical metric identity。Turtle / Tushare 风格字段名 `money_cap` 是下游导出或 Turtle input schema alias，不应抢占 canonical registry identity。
 
 ### 3.2 本轮允许纳入的 note-only 补充字段
 
@@ -195,8 +197,10 @@ P3 仍必须遵守：
 
 ### 7.1 主字段语义
 
-- `money_cap`
+- `cash` / Turtle alias `money_cap`
   - 明确指货币资金 / cash and cash equivalents / cash and bank balances 等主表现金储备口径
+  - candidate / canonical facts 中保持 `metric_id = cash`
+  - Turtle 专用导出层或 schema 映射层再映射为 `money_cap`
 - `trad_asset`
   - 明确指交易性金融资产 / trading assets / held-for-trading financial assets
 - `inventories`
@@ -230,7 +234,7 @@ P3 仍必须遵守：
 
 其中：
 
-- `restricted cash` 属于 Phase 4/notes bridge 主题，不应在本轮偷偷纳入 `money_cap`
+- `restricted cash` 属于 Phase 4/notes bridge 主题，不应在本轮偷偷纳入 `cash` / `money_cap`
 - `deferred tax assets` 仍属于 Phase 2/扩展 debt-and-tax 以外范围，不应顺带混入 P3
 
 ## 8. Ollama Fallback 边界
@@ -254,7 +258,7 @@ P3 仍必须遵守：
 
 P3 视为完成，仅当以下条件同时满足：
 
-- `money_cap / trad_asset / inventories / goodwill / intang_assets` 已进入稳定主路径
+- `cash / trad_asset / inventories / goodwill / intang_assets` 已进入稳定主路径，其中 `cash` 可作为 Turtle `money_cap` 的下游 alias 输入
 - `601919 2025` 能从 CN 资产负债表 deterministic 产出核心资产质量字段
 - `02498 2022` 能从 HK statement-row path deterministic 产出核心资产质量字段
 - `09987 2025` 在主表不充分时，可通过受限 note/disclosure supplement 补出真实独立披露的 `contract_assets` 或 `other_non_current_assets`，如果该样本真实存在

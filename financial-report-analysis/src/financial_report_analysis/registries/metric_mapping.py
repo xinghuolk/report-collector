@@ -449,20 +449,6 @@ _DEFAULT_DEFINITIONS = (
         },
     ),
     MetricMappingDefinition(
-        metric_id="money_cap",
-        statement_type="balance_sheet",
-        allowed_table_kinds=("balance_sheet",),
-        normalized_row_labels=("cash and cash equivalents", "cash", "money_cap"),
-        period_scope="point_in_time",
-        value_type="amount",
-        unit_expectation="currency_amount",
-        sign_rule="allow_negative",
-        aliases_by_market={
-            "CN": ("货币资金", "现金及现金等价物"),
-            "HK": ("cash and cash equivalents",),
-        },
-    ),
-    MetricMappingDefinition(
         metric_id="trad_asset",
         statement_type="balance_sheet",
         allowed_table_kinds=("balance_sheet",),

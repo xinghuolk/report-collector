@@ -412,7 +412,7 @@ def test_table_fact_builder_emits_p3_statement_row_asset_candidates() -> None:
         )
 
         assert {candidate["metric_id"] for candidate in candidates} == {
-            "money_cap",
+            "cash",
             "trad_asset",
             "inventories",
             "goodwill",

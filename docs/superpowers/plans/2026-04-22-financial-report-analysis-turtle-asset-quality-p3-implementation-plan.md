@@ -14,7 +14,7 @@
 
 This plan covers one coherent subsystem: Turtle Phase 3 asset-quality inputs for five primary statement-row fields:
 
-- `money_cap`
+- `cash` (Turtle export alias: `money_cap`)
 - `trad_asset`
 - `inventories`
 - `goodwill`
@@ -61,7 +61,7 @@ Do not dispatch Task 4 until Task 2 has landed and its review loop is complete.
 Modify existing files:
 
 - `financial-report-analysis/src/financial_report_analysis/registries/metric_mapping.py`
-  - Add only the five primary P3 asset-quality metric definitions.
+  - Add only new primary P3 asset-quality metric definitions that do not already exist. Keep existing canonical `cash`; do not add `money_cap` as a competing canonical metric.
 - `financial-report-analysis/src/financial_report_analysis/ingestion/table_semantics.py`
   - Normalize CN/HK labels for the five primary P3 asset fields and suppress negative controls.
 - `financial-report-analysis/src/financial_report_analysis/ingestion/note_disclosure.py`
@@ -162,12 +162,12 @@ import pytest
 @pytest.mark.parametrize(
     ("metric_id", "market", "label"),
     [
-        ("money_cap", "CN", "\u8d27\u5e01\u8d44\u91d1"),
+        ("cash", "CN", "\u8d27\u5e01\u8d44\u91d1"),
         ("trad_asset", "CN", "\u4ea4\u6613\u6027\u91d1\u878d\u8d44\u4ea7"),
         ("inventories", "CN", "\u5b58\u8d27"),
         ("goodwill", "CN", "\u5546\u8a89"),
         ("intang_assets", "CN", "\u65e0\u5f62\u8d44\u4ea7"),
-        ("money_cap", "HK", "cash and cash equivalents"),
+        ("cash", "HK", "cash and cash equivalents"),
         ("trad_asset", "HK", "trading assets"),
         ("inventories", "HK", "inventories"),
         ("goodwill", "HK", "goodwill"),
@@ -383,7 +383,7 @@ Expected: failures for missing P3 mappings and missing asset normalization / neg
 
 Add five `MetricMappingDefinition` entries in `metric_mapping.py` for:
 
-- `money_cap`
+- `cash` as canonical metric; `money_cap` remains a Turtle export alias
 - `trad_asset`
 - `inventories`
 - `goodwill`
@@ -480,7 +480,7 @@ Append a test ensuring `02498` does not promote:
 - `investment properties`
 - `right-of-use assets`
 
-into the five primary P3 metrics.
+into the five primary P3 metrics. `restricted cash` must not be absorbed into canonical `cash` or Turtle alias `money_cap`.
 
 - [ ] **Step 8: Run focused statement-row suite**
 
@@ -524,8 +524,8 @@ Inspect `report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf` and record 
 Expected: update `docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md` with the exact independently disclosed subset. For the current `09987 2025` anchor, the exact expectation is:
 
 - surfaced subset: none
-- `contract_assets`: `absent`
-- `other_non_current_assets`: `absent`
+- `contract_assets`: `not_surfaced`
+- `other_non_current_assets`: `not_surfaced`
 
 - [ ] **Step 2: Add bounded unit tests for asset note parsing**
 
@@ -583,8 +583,8 @@ def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     expected_metric_ids = set()
     expected_missing_status = {
-        "contract_assets": "absent",
-        "other_non_current_assets": "absent",
+        "contract_assets": "not_surfaced",
+        "other_non_current_assets": "not_surfaced",
     }
     asset_candidates = [
         candidate
@@ -600,7 +600,7 @@ def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> 
         assert candidate["extensions"]["semantic_source"] in {"deterministic", "llm_fallback"}
 ```
 
-This regression is intentionally exact for the current `09987 2025` anchor: no bounded note-only asset candidates should surface, and both metrics should remain `absent`. Do not assert facts the report does not independently disclose.
+This regression is intentionally exact for the current `09987 2025` anchor: no bounded note-only asset candidates should surface, and both metrics should remain `not_surfaced` until the P3 path stably surfaces a bounded asset note/disclosure block. Do not assert facts the report does not independently disclose.
 
 - [ ] **Step 5: Run tests to verify red state where expected**
 
@@ -828,7 +828,7 @@ git commit -m "test: close turtle asset quality p3 verification"
 
 P3 is complete only when:
 
-- The five primary asset-quality metric IDs exist in the metric registry with point-in-time balance-sheet semantics.
+- The five primary asset-quality canonical metric IDs exist in the metric registry with point-in-time balance-sheet semantics; `cash` is the canonical source for Turtle `money_cap`.
 - `contract_assets` and `other_non_current_assets` are handled only within the bounded note-only scope.
 - `docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md` exists and records anchor metadata, failure classifications, and exact missing-status expectations.
 - CN `601919 2025` produces deterministic asset candidate facts from balance-sheet rows.
