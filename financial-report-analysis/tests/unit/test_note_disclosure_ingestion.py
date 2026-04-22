@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from financial_report_analysis.ingestion import note_disclosure as note_disclosure_module
 from financial_report_analysis.ingestion import (
     build_asset_note_candidate_facts,
@@ -845,3 +847,106 @@ def test_build_cash_health_note_candidate_facts_extracts_explicit_chinese_restri
     assert {candidate["metric_id"] for candidate in candidates} == {"restricted_cash"}
     assert candidates[0]["numeric_value"] == 88.0
     assert missing_status == {"restricted_cash": "present"}
+
+
+def test_build_cash_health_note_candidate_facts_extracts_interest_paid_cash_from_cash_flow_supplement() -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                21,
+                """
+                Cash flows from operating activities
+                Cash paid for interest RMB 42 million
+                Finance costs 999
+                """,
+            )
+        ],
+        document_id="doc:interest-paid",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "interest_paid_cash"
+    }
+    assert candidates[0]["numeric_value"] == 42.0
+    assert missing_status == {"interest_paid_cash": "present"}
+
+
+@pytest.mark.parametrize(
+    ("raw_row", "expected_label"),
+    [
+        ("Time deposits RMB 321 million", "Time deposits"),
+        ("Term deposits RMB 287 million", "Term deposits"),
+        (
+            "Long-term bank deposits and notes RMB 145 million",
+            "Long-term bank deposits and notes",
+        ),
+        ("Wealth management products RMB 88 million", "Wealth management products"),
+        ("定期存款 人民币 66 百万元", "定期存款"),
+        ("结构性存款 人民币 77 百万元", "结构性存款"),
+        ("理财产品 人民币 99 百万元", "理财产品"),
+    ],
+)
+def test_build_cash_health_note_candidate_facts_extracts_time_deposits_or_wealth_products_from_bounded_rows(
+    raw_row: str,
+    expected_label: str,
+) -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                22,
+                f"""
+                Cash and cash equivalents
+                {raw_row}
+                Narrative deposit strategy with no numeric disclosure
+                """,
+            )
+        ],
+        document_id=f"doc:{expected_label}",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "time_deposits_or_wealth_products"
+    }
+    assert candidates[0]["metric_label_raw"] == expected_label
+    assert candidates[0]["numeric_value"] > 0
+    assert missing_status == {"time_deposits_or_wealth_products": "present"}
+
+
+@pytest.mark.parametrize(
+    "page_text",
+    [
+        """
+        Finance costs RMB 42 million
+        Interest expense RMB 39 million
+        """,
+        """
+        Short-term investments RMB 120 million
+        We continue to maintain a flexible deposit strategy.
+        """,
+        """
+        The group invests excess liquidity in time deposits and wealth products.
+        """,
+    ],
+)
+def test_build_cash_health_note_candidate_facts_ignores_non_local_or_narrative_text(
+    page_text: str,
+) -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[(23, page_text)],
+        document_id="doc:negative-controls",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}

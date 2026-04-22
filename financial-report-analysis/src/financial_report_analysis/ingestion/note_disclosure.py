@@ -189,6 +189,23 @@ _CASH_HEALTH_RESTRICTED_CASH_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
 )
 
+_CASH_HEALTH_INTEREST_PAID_LABEL_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)\b(cash paid for interest)\b"),
+    re.compile(r"(支付的利息)"),
+)
+
+_CASH_HEALTH_TIME_DEPOSITS_LABEL_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)\b(time deposits)\b"),
+    re.compile(r"(?i)\b(term deposits)\b"),
+    re.compile(r"(?i)\b(wealth management products)\b"),
+    re.compile(r"(?i)\b(long-term bank deposits and notes)\b"),
+    re.compile(r"(定期存款)"),
+    re.compile(r"(结构性存款)"),
+    re.compile(r"(理财产品)"),
+)
+
+_CASH_HEALTH_ROW_VALUE_PATTERN = re.compile(r"(?<!\d)(\d[\d,]*(?:\.\d+)?)(?!\d)")
+
 __all__ = [
     "build_asset_note_candidate_facts",
     "build_cash_health_note_candidate_facts",
@@ -353,37 +370,109 @@ def build_cash_health_note_candidate_facts(
     if market.upper() != "HK" or period_id is None:
         return ([], {})
 
-    if "restricted_cash" in existing_metric_ids:
-        return ([], {"restricted_cash": "present"})
+    normalized_pages = list(pages)
+    candidates: list[dict[str, Any]] = []
+    missing_status: dict[str, str] = {}
+    candidate_index = 0
+    found_metric_ids = set(existing_metric_ids)
 
-    for page_index, text in pages:
+    for page_index, text in normalized_pages:
         candidate_lines = list(_iter_candidate_lines(text))
         for line_index, line in enumerate(candidate_lines):
-            next_line = candidate_lines[line_index + 1] if line_index + 1 < len(candidate_lines) else None
-            match = _match_restricted_cash_line(line, next_line=next_line)
-            if match is None:
-                continue
+            next_line = (
+                candidate_lines[line_index + 1]
+                if line_index + 1 < len(candidate_lines)
+                else None
+            )
 
-            return (
-                [
+            restricted_match = _match_restricted_cash_line(line, next_line=next_line)
+            if restricted_match is not None and "restricted_cash" not in found_metric_ids:
+                candidate_index += 1
+                found_metric_ids.add("restricted_cash")
+                missing_status["restricted_cash"] = "present"
+                candidates.append(
                     _build_candidate_payload(
-                        candidate_index=1,
+                        candidate_index=candidate_index,
                         document_id=document_id,
                         label=_label_from_line(line),
                         metric_id="restricted_cash",
                         period_id=period_id,
                         page_index=page_index,
-                        raw_value=match.group(1),
+                        raw_value=restricted_match.group(1),
                         market=market,
                         semantic_source="deterministic",
                         semantic_confidence=None,
                         fallback_reason=None,
                     )
-                ],
-                {"restricted_cash": "present"},
-            )
+                )
 
-    return ([], {"restricted_cash": "not_surfaced"})
+            interest_match = _match_cash_health_label_line(
+                line=line,
+                next_line=next_line,
+                label_patterns=_CASH_HEALTH_INTEREST_PAID_LABEL_PATTERNS,
+            )
+            if interest_match is not None and "interest_paid_cash" not in found_metric_ids:
+                label, raw_value = interest_match
+                candidate_index += 1
+                found_metric_ids.add("interest_paid_cash")
+                missing_status["interest_paid_cash"] = "present"
+                candidates.append(
+                    _build_candidate_payload(
+                        candidate_index=candidate_index,
+                        document_id=document_id,
+                        label=label,
+                        metric_id="interest_paid_cash",
+                        period_id=period_id,
+                        page_index=page_index,
+                        raw_value=raw_value,
+                        market=market,
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                    )
+                )
+
+            time_deposits_match = _match_cash_health_label_line(
+                line=line,
+                next_line=next_line,
+                label_patterns=_CASH_HEALTH_TIME_DEPOSITS_LABEL_PATTERNS,
+            )
+            if (
+                time_deposits_match is not None
+                and "time_deposits_or_wealth_products" not in found_metric_ids
+            ):
+                label, raw_value = time_deposits_match
+                candidate_index += 1
+                found_metric_ids.add("time_deposits_or_wealth_products")
+                missing_status["time_deposits_or_wealth_products"] = "present"
+                candidates.append(
+                    _build_candidate_payload(
+                        candidate_index=candidate_index,
+                        document_id=document_id,
+                        label=label,
+                        metric_id="time_deposits_or_wealth_products",
+                        period_id=period_id,
+                        page_index=page_index,
+                        raw_value=raw_value,
+                        market=market,
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                    )
+                )
+
+    if not candidates and "restricted_cash" not in found_metric_ids:
+        return ([], {"restricted_cash": "not_surfaced"})
+
+    for metric_id in existing_metric_ids:
+        if metric_id in {
+            "restricted_cash",
+            "interest_paid_cash",
+            "time_deposits_or_wealth_products",
+        }:
+            missing_status.setdefault(metric_id, "present")
+
+    return (candidates, missing_status)
 
 
 def _build_note_candidate_facts(
@@ -588,6 +677,59 @@ def _match_restricted_cash_line(
 def _looks_like_restricted_cash_continuation_line(line: str) -> bool:
     return re.match(
         r"(?i)^\s*(?:HK\$|US\$|RMB|CNY|￥|\$|人民币|\d)",
+        line,
+    ) is not None
+
+
+def _match_cash_health_label_line(
+    *,
+    line: str,
+    next_line: str | None,
+    label_patterns: tuple[re.Pattern[str], ...],
+) -> tuple[str, str] | None:
+    if _is_year_header_line(line):
+        return None
+
+    for pattern in label_patterns:
+        match = pattern.search(line)
+        if match is None:
+            continue
+
+        value_match = _CASH_HEALTH_ROW_VALUE_PATTERN.search(line[match.end() :])
+        if value_match is None and next_line is not None:
+            value_match = _match_cash_health_continuation_value(
+                line=line,
+                next_line=next_line,
+                pattern=pattern,
+            )
+        if value_match is None:
+            continue
+
+        return (match.group(1), value_match.group(1))
+
+    return None
+
+
+def _match_cash_health_continuation_value(
+    *,
+    line: str,
+    next_line: str,
+    pattern: re.Pattern[str],
+) -> re.Match[str] | None:
+    if not _looks_like_cash_health_continuation_line(next_line):
+        return None
+
+    combined = f"{line} {next_line}"
+    match = pattern.search(combined)
+    if match is None:
+        return None
+
+    return _CASH_HEALTH_ROW_VALUE_PATTERN.search(combined[match.end() :])
+
+
+def _looks_like_cash_health_continuation_line(line: str) -> bool:
+    return re.match(
+        r"(?i)^\s*(?:HK\$|US\$|RMB|CNY|人民币|\$|\(?\d)",
         line,
     ) is not None
 
