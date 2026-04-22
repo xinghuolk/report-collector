@@ -49,7 +49,47 @@ _P2B_DEBT_SUPPRESSED_LABELS: frozenset[str] = frozenset(
     }
 )
 
+_P3_ASSET_NOTE_ONLY_LABELS: frozenset[str] = frozenset(
+    {
+        "contract assets",
+        "other non-current assets",
+        "合同资产",
+        "其他非流动资产",
+    }
+)
+
+_P3_ASSET_SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\brestricted cash\b", re.IGNORECASE),
+    re.compile(r"\bassets held for sale\b", re.IGNORECASE),
+    re.compile(r"\binvestment properties\b", re.IGNORECASE),
+    re.compile(r"\bprepayments\b", re.IGNORECASE),
+    re.compile(r"\bright[- ]of[- ]use assets\b", re.IGNORECASE),
+    re.compile(r"\bdeferred tax assets\b", re.IGNORECASE),
+    re.compile(r"\bcapitali[sz]ed development costs\b", re.IGNORECASE),
+    re.compile(r"\btotal non[- ]current assets\b", re.IGNORECASE),
+    re.compile(r"受限资金"),
+    re.compile(r"持有待售资产"),
+    re.compile(r"投资性房地产"),
+    re.compile(r"预付款项"),
+    re.compile(r"使用权资产"),
+    re.compile(r"递延所得税资产"),
+    re.compile(r"开发支出"),
+    re.compile(r"非流动资产合计"),
+)
+
 _ROW_LABEL_ALIASES: dict[str, str] = {
+    "cash and cash equivalents": "cash and cash equivalents",
+    "货币资金": "cash and cash equivalents",
+    "现金及现金等价物": "cash and cash equivalents",
+    "trading assets": "trading assets",
+    "交易性金融资产": "trading assets",
+    "inventories": "inventories",
+    "inventory": "inventories",
+    "存货": "inventories",
+    "goodwill": "goodwill",
+    "商誉": "goodwill",
+    "intangible assets": "intangible assets",
+    "无形资产": "intangible assets",
     "cost of sales": "operating cost",
     "cost of revenue": "operating cost",
     "gross profit for the period": "gross profit",
@@ -243,6 +283,10 @@ def _normalize_label(raw_label: str) -> str | None:
     if any(pattern.search(normalized) for pattern in _WORKING_CAPITAL_SUPPRESSED_PATTERNS):
         return None
     if _is_p2b_debt_negative_control(normalized):
+        return None
+    if normalized in {label.casefold() for label in _P3_ASSET_NOTE_ONLY_LABELS}:
+        return None
+    if any(pattern.search(normalized) for pattern in _P3_ASSET_SUPPRESSED_PATTERNS):
         return None
 
     return _ROW_LABEL_ALIASES.get(normalized, normalized)

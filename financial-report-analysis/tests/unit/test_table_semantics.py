@@ -260,6 +260,73 @@ def test_normalized_table_semantics_emit_deterministic_unit_currency_provenance(
     assert semantics.currency_semantic_source == "deterministic"
 
 
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("货币资金", "cash and cash equivalents"),
+        ("交易性金融资产", "trading assets"),
+        ("存货", "inventories"),
+        ("商誉", "goodwill"),
+        ("无形资产", "intangible assets"),
+        ("Cash and cash equivalents", "cash and cash equivalents"),
+        ("Trading assets", "trading assets"),
+        ("Inventories", "inventories"),
+        ("Goodwill", "goodwill"),
+        ("Intangible assets", "intangible assets"),
+    ],
+)
+def test_table_semantics_normalizes_p3_asset_labels(
+    label: str,
+    expected: str,
+) -> None:
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
+
+    assert semantics.rows[0].normalized_row_label == expected
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "合同资产",
+        "其他非流动资产",
+        "Contract assets",
+        "Other non-current assets",
+    ],
+)
+def test_table_semantics_keeps_p3_note_only_asset_labels_out_of_primary_row_semantics(
+    label: str,
+) -> None:
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
+
+    assert semantics.rows[0].normalized_row_label is None
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "restricted cash",
+        "assets held for sale",
+        "investment properties",
+        "prepayments",
+        "right-of-use assets",
+        "deferred tax assets",
+        "capitalized development costs",
+        "total non-current assets",
+        "受限资金",
+        "持有待售资产",
+        "投资性房地产",
+        "预付款项",
+        "使用权资产",
+        "递延所得税资产",
+        "开发支出",
+    ],
+)
+def test_table_semantics_suppresses_p3_asset_negative_controls(label: str) -> None:
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
+
+    assert semantics.rows[0].normalized_row_label is None
+
+
 def test_normalized_table_semantics_emit_unknown_sentinels_for_unresolved_unit_currency() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(

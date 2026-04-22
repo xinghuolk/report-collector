@@ -1,3 +1,6 @@
+import re
+
+from financial_report_analysis.ingestion import note_disclosure as note_disclosure_module
 from financial_report_analysis.ingestion import (
     build_debt_note_candidate_facts,
     build_working_capital_note_candidate_facts,
@@ -42,6 +45,34 @@ _PAYABLE_NOTE_PAGE = (
     """,
 )
 
+_P3_ASSET_NOTE_DEFINITIONS = (
+    {
+        "surface_patterns": (
+            re.compile(r"\bcontract\s+assets\b[^\n]{0,120}\b20\d{2}\b", re.IGNORECASE),
+            re.compile(
+                r"\bother\s+non[-\s]+current\s+assets\b[^\n]{0,120}\b20\d{2}\b",
+                re.IGNORECASE,
+            ),
+        ),
+        "metrics": (
+            {
+                "metric_id": "contract_assets",
+                "label": "Contract assets",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*contract\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+            {
+                "metric_id": "other_non_current_assets",
+                "label": "Other non-current assets",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*other\s+non[-\s]+current\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+        ),
+    },
+)
+
 
 class _StubSemanticFallbackService:
     def __init__(self, *results: DisclosureLocatorResult) -> None:
@@ -53,6 +84,21 @@ class _StubSemanticFallbackService:
         if not self._results:
             raise AssertionError("locator called without a queued result")
         return self._results.pop(0)
+
+
+def _build_p3_asset_note_candidate_facts(
+    *,
+    pages: list[tuple[int, str]],
+) -> tuple[list[dict[str, object]], dict[str, str]]:
+    candidates, missing_status, _, _ = note_disclosure_module._build_note_candidate_facts(
+        pages=pages,
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        note_definitions=_P3_ASSET_NOTE_DEFINITIONS,
+    )
+    return candidates, missing_status
 
 
 def test_build_working_capital_note_candidate_facts_extracts_hk_09987_candidates() -> None:
@@ -95,6 +141,85 @@ def test_build_working_capital_note_candidate_facts_does_not_create_notes_candid
 
     assert "notes_receiv" not in metric_ids
     assert "notes_payable" not in metric_ids
+
+
+def test_build_p3_asset_note_candidate_facts_extracts_contract_assets_from_bounded_fragment() -> (
+    None
+):
+    candidates, missing_status = _build_p3_asset_note_candidate_facts(
+        pages=[
+            (
+                301,
+                """
+                Contract assets 2024 2023
+                Contract assets 80 65
+                """,
+            )
+        ]
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {"contract_assets"}
+    assert candidates[0]["metric_label_raw"] == "Contract assets"
+    assert candidates[0]["numeric_value"] == 80.0
+    assert candidates[0]["extraction_method"] == "note_disclosure"
+    assert candidates[0]["extensions"]["semantic_source"] == "deterministic"
+    assert missing_status == {
+        "contract_assets": "present",
+        "other_non_current_assets": "absent",
+    }
+
+
+def test_build_p3_asset_note_candidate_facts_extracts_other_non_current_assets_from_bounded_fragment() -> (
+    None
+):
+    candidates, missing_status = _build_p3_asset_note_candidate_facts(
+        pages=[
+            (
+                302,
+                """
+                Other non-current assets 2024 2023
+                Other non-current assets 120 95
+                """,
+            )
+        ]
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "other_non_current_assets"
+    }
+    assert candidates[0]["metric_label_raw"] == "Other non-current assets"
+    assert candidates[0]["numeric_value"] == 120.0
+    assert candidates[0]["extraction_method"] == "note_disclosure"
+    assert candidates[0]["extensions"]["semantic_source"] == "deterministic"
+    assert missing_status == {
+        "contract_assets": "absent",
+        "other_non_current_assets": "present",
+    }
+
+
+def test_build_p3_asset_note_candidate_facts_ignores_negative_control_asset_rows() -> None:
+    candidates, missing_status = _build_p3_asset_note_candidate_facts(
+        pages=[
+            (
+                303,
+                """
+                Contract assets 2024 2023
+                Restricted cash 33 21
+                Investment properties 44 40
+                Prepayments 18 17
+                Deferred tax assets 27 24
+                Capitalized development costs 61 59
+                Total non-current assets 999 888
+                """,
+            )
+        ]
+    )
+
+    assert candidates == []
+    assert missing_status == {
+        "contract_assets": "absent",
+        "other_non_current_assets": "absent",
+    }
 
 
 def test_build_debt_note_candidate_facts_extracts_hk_09987_2025_subset() -> None:

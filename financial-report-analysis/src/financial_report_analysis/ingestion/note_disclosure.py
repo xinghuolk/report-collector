@@ -16,6 +16,56 @@ _TARGET_DISCLOSURE_METRIC_IDS: tuple[str, ...] = (
     "acct_payable",
     "contract_liab",
 )
+_ASSET_NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
+    {
+        "surface_patterns": (
+            re.compile(
+                r"\bcontract\s+assets\b[^\n]{0,120}\b20\d{2}\b",
+                re.IGNORECASE,
+            ),
+        ),
+        "metrics": (
+            {
+                "metric_id": "contract_assets",
+                "label": "Contract assets",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*contract\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+            {
+                "metric_id": "other_non_current_assets",
+                "label": "Other non-current assets",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*other\s+non[-\s]+current\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+        ),
+    },
+    {
+        "surface_patterns": (
+            re.compile(
+                r"\bother\s+non[-\s]+current\s+assets\b[^\n]{0,120}\b20\d{2}\b",
+                re.IGNORECASE,
+            ),
+        ),
+        "metrics": (
+            {
+                "metric_id": "contract_assets",
+                "label": "Contract assets",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*contract\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+            {
+                "metric_id": "other_non_current_assets",
+                "label": "Other non-current assets",
+                "row_pattern": re.compile(
+                    r"(?mi)^\s*other\s+non[-\s]+current\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
+                ),
+            },
+        ),
+    },
+)
 
 _DEBT_NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
@@ -144,9 +194,41 @@ _NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
 )
 
 __all__ = [
+    "build_asset_note_candidate_facts",
     "build_debt_note_candidate_facts",
     "build_working_capital_note_candidate_facts",
 ]
+
+
+def build_asset_note_candidate_facts(
+    *,
+    pages: Iterable[tuple[int, str]],
+    document_id: str,
+    period_id: str | None,
+    market: str,
+    existing_metric_ids: set[str],
+    semantic_fallback_service: SemanticFallbackService | None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    del semantic_fallback_service
+    if market.upper() != "HK" or period_id is None:
+        return ([], {})
+
+    candidates, missing_status, _, _ = _build_note_candidate_facts(
+        pages=list(pages),
+        document_id=document_id,
+        period_id=period_id,
+        market=market,
+        existing_metric_ids=existing_metric_ids,
+        note_definitions=_ASSET_NOTE_DEFINITIONS,
+    )
+    # For the bounded P3 asset note-only fields, we search the full extracted
+    # text pages. If no note block surfaces at all, treat the metrics as absent
+    # for the current document rather than a structure-level not_surfaced gap.
+    missing_status = {
+        metric_id: ("absent" if status == "not_surfaced" else status)
+        for metric_id, status in missing_status.items()
+    }
+    return candidates, missing_status
 
 
 def build_working_capital_note_candidate_facts(
