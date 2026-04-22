@@ -872,6 +872,8 @@ def test_build_cash_health_note_candidate_facts_extracts_interest_paid_cash_from
         "interest_paid_cash"
     }
     assert candidates[0]["numeric_value"] == 42.0
+    assert candidates[0]["statement_type"] == "cash_flow_statement"
+    assert candidates[0]["extensions"]["period_scope"] == "duration"
     assert missing_status == {"interest_paid_cash": "present"}
 
 
@@ -942,6 +944,53 @@ def test_build_cash_health_note_candidate_facts_ignores_non_local_or_narrative_t
     candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
         pages=[(23, page_text)],
         document_id="doc:negative-controls",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}
+
+
+def test_build_cash_health_note_candidate_facts_does_not_parse_narrative_date_as_time_deposit_value() -> (
+    None
+):
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                24,
+                """
+                The group invests excess liquidity in time deposits and wealth products.
+                As of 31 December 2022, the portfolio remained diversified.
+                """,
+            )
+        ],
+        document_id="doc:narrative-date",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}
+
+
+def test_build_cash_health_note_candidate_facts_does_not_parse_prose_date_as_time_deposit_value() -> (
+    None
+):
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                25,
+                """
+                The group invests excess liquidity in time deposits and wealth products on 31 December 2022.
+                """,
+            )
+        ],
+        document_id="doc:prose-date",
         period_id="2022FY",
         market="HK",
         existing_metric_ids=set(),

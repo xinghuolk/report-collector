@@ -429,6 +429,8 @@ def build_cash_health_note_candidate_facts(
                         semantic_source="deterministic",
                         semantic_confidence=None,
                         fallback_reason=None,
+                        statement_type="cash_flow_statement",
+                        period_scope="duration",
                     )
                 )
 
@@ -436,6 +438,7 @@ def build_cash_health_note_candidate_facts(
                 line=line,
                 next_line=next_line,
                 label_patterns=_CASH_HEALTH_TIME_DEPOSITS_LABEL_PATTERNS,
+                require_line_start=True,
             )
             if (
                 time_deposits_match is not None
@@ -686,6 +689,7 @@ def _match_cash_health_label_line(
     line: str,
     next_line: str | None,
     label_patterns: tuple[re.Pattern[str], ...],
+    require_line_start: bool = False,
 ) -> tuple[str, str] | None:
     if _is_year_header_line(line):
         return None
@@ -693,6 +697,8 @@ def _match_cash_health_label_line(
     for pattern in label_patterns:
         match = pattern.search(line)
         if match is None:
+            continue
+        if require_line_start and line[: match.start()].strip():
             continue
 
         value_match = _CASH_HEALTH_ROW_VALUE_PATTERN.search(line[match.end() :])
@@ -767,6 +773,8 @@ def _build_candidate_payload(
     semantic_source: str,
     semantic_confidence: float | None,
     fallback_reason: str | None,
+    statement_type: str = "balance_sheet",
+    period_scope: str = "point_in_time",
 ) -> dict[str, Any]:
     source_kind = (
         "llm_locator_assisted_note_disclosure"
@@ -778,7 +786,7 @@ def _build_candidate_payload(
         "fact_kind": "candidate",
         "metric_id": metric_id,
         "metric_label_raw": label,
-        "statement_type": "balance_sheet",
+        "statement_type": statement_type,
         "entity_scope": "consolidated",
         "comparison_axis": "current",
         "adjustment_basis": "reported",
@@ -797,7 +805,7 @@ def _build_candidate_payload(
             "source_kind": source_kind,
             "source_policy": "supplement_only",
             "statement_scope_guess": "consolidated",
-            "period_scope": "point_in_time",
+            "period_scope": period_scope,
             "value_type": "amount",
             "unit_expectation": "currency_amount",
             "sign_rule": "allow_negative",
