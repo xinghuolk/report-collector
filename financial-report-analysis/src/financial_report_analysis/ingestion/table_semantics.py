@@ -29,7 +29,6 @@ _WORKING_CAPITAL_SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\blong[- ]term receivables\b", re.IGNORECASE),
     re.compile(r"\bemployee compensation payable\b", re.IGNORECASE),
     re.compile(r"\btaxes payable\b", re.IGNORECASE),
-    re.compile(r"\bbonds payable\b", re.IGNORECASE),
     re.compile(r"\bchanges in accounts receivable\b", re.IGNORECASE),
     re.compile(r"应收款项融资"),
     re.compile(r"长期应收款"),
@@ -37,6 +36,17 @@ _WORKING_CAPITAL_SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"应交税费"),
     re.compile(r"应付债券"),
     re.compile(r"经营性应收项目的减少"),
+)
+
+_P2B_DEBT_SUPPRESSED_LABELS: frozenset[str] = frozenset(
+    {
+        "lease liabilities",
+        "total borrowings",
+        "borrowings and other liabilities",
+        "租赁负债",
+        "借款及其他负债",
+        "借款合计",
+    }
 )
 
 _ROW_LABEL_ALIASES: dict[str, str] = {
@@ -62,6 +72,14 @@ _ROW_LABEL_ALIASES: dict[str, str] = {
     "应付账款": "accounts payable",
     "notes payable": "notes payable",
     "应付票据": "notes payable",
+    "short-term borrowings": "short-term borrowings",
+    "long-term borrowings": "long-term borrowings",
+    "bonds payable": "bonds payable",
+    "current portion of long-term debt": "current portion of long-term debt",
+    "\u77ed\u671f\u501f\u6b3e": "short-term borrowings",
+    "\u957f\u671f\u501f\u6b3e": "long-term borrowings",
+    "\u5e94\u4ed8\u503a\u5238": "bonds payable",
+    "\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a": "current portion of long-term debt",
     "net cash from operating activities": "operating cash flow",
     "net cash generated from operating activities": "operating cash flow",
     "net cash used in operating activities": "operating cash flow",
@@ -218,9 +236,13 @@ def _normalize_label(raw_label: str) -> str | None:
         return None
     if _is_narrative_cash_flow_label(normalized):
         return None
+    if normalized == "\u5e94\u4ed8\u503a\u5238":
+        return "bonds payable"
     if any(pattern.search(normalized) for pattern in _SUPPRESSED_SUMMARY_PATTERNS):
         return None
     if any(pattern.search(normalized) for pattern in _WORKING_CAPITAL_SUPPRESSED_PATTERNS):
+        return None
+    if _is_p2b_debt_negative_control(normalized):
         return None
 
     return _ROW_LABEL_ALIASES.get(normalized, normalized)
@@ -279,6 +301,10 @@ def _is_narrative_cash_flow_label(normalized_label: str) -> bool:
             r"营运资金变动前的现金流量",
         )
     )
+
+
+def _is_p2b_debt_negative_control(normalized_label: str) -> bool:
+    return normalized_label in _P2B_DEBT_SUPPRESSED_LABELS
 
 
 def _strip_note_suffixes(value: str) -> str:

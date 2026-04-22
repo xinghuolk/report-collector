@@ -41,6 +41,13 @@ def _make_balance_sheet_table(
     )
 
 
+def _balance_sheet_table_with_row(label: str) -> ParsedTable:
+    return _make_balance_sheet_table(
+        table_id=f"doc:table:{label.replace(' ', '-')}",
+        row_labels=[label],
+    )
+
+
 def test_normalize_table_semantics_keeps_row_hint_separate_from_metric_mapping() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -899,13 +906,11 @@ def test_balance_sheet_row_labels_normalize_deterministically(
         "long-term receivables",
         "employee compensation payable",
         "taxes payable",
-        "bonds payable",
         "Changes in accounts receivable",
         "应收款项融资",
         "长期应收款",
         "应付职工薪酬",
         "应交税费",
-        "应付债券",
         "经营性应收项目的减少（增加以“－”号填列）",
     ],
 )
@@ -920,3 +925,57 @@ def test_balance_sheet_working_capital_false_positives_are_suppressed(
     )
 
     assert semantics.rows[0].normalized_row_label is None
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("\u77ed\u671f\u501f\u6b3e", "short-term borrowings"),
+        ("\u957f\u671f\u501f\u6b3e", "long-term borrowings"),
+        ("\u5e94\u4ed8\u503a\u5238", "bonds payable"),
+        (
+            "\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a",
+            "current portion of long-term debt",
+        ),
+        ("Short-term borrowings", "short-term borrowings"),
+        ("Long-term borrowings", "long-term borrowings"),
+        ("Bonds payable", "bonds payable"),
+        ("Current portion of long-term debt", "current portion of long-term debt"),
+    ],
+)
+def test_table_semantics_normalizes_p2b_debt_labels(
+    label: str,
+    expected: str,
+) -> None:
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
+
+    assert semantics.rows[0].normalized_row_label == expected
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "lease liabilities",
+        "total borrowings",
+        "\u79df\u8d41\u8d1f\u503a",
+        "\u501f\u6b3e\u53ca\u5176\u4ed6\u8d1f\u503a",
+    ],
+)
+def test_table_semantics_suppresses_p2b_negative_controls(label: str) -> None:
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
+
+    assert semantics.rows[0].normalized_row_label is None
+
+
+def test_table_semantics_suppresses_p2b_cn_aggregate_borrowings() -> None:
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row("借款合计"))
+
+    assert semantics.rows[0].normalized_row_label is None
+
+
+def test_table_semantics_keeps_more_specific_debt_rows_with_covered_phrase() -> None:
+    semantics = normalize_table_semantics(
+        _balance_sheet_table_with_row("Lease liabilities and other borrowings")
+    )
+
+    assert semantics.rows[0].normalized_row_label == "lease liabilities and other borrowings"

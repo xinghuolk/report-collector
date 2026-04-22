@@ -91,19 +91,17 @@ def test_metric_mapping_registry_matches_p2a_working_capital_rows(
 
 @pytest.mark.parametrize(
     ("market", "normalized_row_label"),
-    [
-        ("HK", "accounts receivable financing"),
-        ("HK", "long-term receivables"),
-        ("HK", "employee compensation payable"),
-        ("HK", "taxes payable"),
-        ("HK", "bonds payable"),
-        ("CN", "应收款项融资"),
-        ("CN", "长期应收款"),
-        ("CN", "应付职工薪酬"),
-        ("CN", "应交税费"),
-        ("CN", "应付债券"),
-    ],
-)
+        [
+            ("HK", "accounts receivable financing"),
+            ("HK", "long-term receivables"),
+            ("HK", "employee compensation payable"),
+            ("HK", "taxes payable"),
+            ("CN", "应收款项融资"),
+            ("CN", "长期应收款"),
+            ("CN", "应付职工薪酬"),
+            ("CN", "应交税费"),
+        ],
+    )
 def test_metric_mapping_registry_rejects_p2a_false_positives(
     market: str,
     normalized_row_label: str,
@@ -149,3 +147,96 @@ def test_metric_mapping_registry_matches_p2a_working_capital_token_outputs(
 
     assert definition is not None
     assert definition.metric_id == metric_id
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "label"),
+    [
+        ("st_borr", "CN", "\u77ed\u671f\u501f\u6b3e"),
+        ("lt_borr", "CN", "\u957f\u671f\u501f\u6b3e"),
+        ("bond_payable", "CN", "\u5e94\u4ed8\u503a\u5238"),
+        (
+            "non_cur_liab_due_1y",
+            "CN",
+            "\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a",
+        ),
+        ("st_borr", "HK", "short-term borrowings"),
+        ("lt_borr", "HK", "long-term borrowings"),
+        ("bond_payable", "HK", "bonds payable"),
+        ("non_cur_liab_due_1y", "HK", "current portion of long-term debt"),
+    ],
+)
+def test_metric_mapping_registry_matches_p2b_debt_fields(
+    metric_id: str,
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+    assert definition.statement_type == "balance_sheet"
+    assert definition.period_scope == "point_in_time"
+    assert definition.value_type == "amount"
+    assert definition.unit_expectation == "currency_amount"
+    assert definition.sign_rule == "allow_negative"
+
+
+@pytest.mark.parametrize(
+    ("market", "label"),
+    [
+        ("HK", "lease liabilities"),
+        ("HK", "total borrowings"),
+        ("CN", "\u79df\u8d41\u8d1f\u503a"),
+        ("CN", "\u501f\u6b3e\u5408\u8ba1"),
+    ],
+)
+def test_metric_mapping_registry_rejects_p2b_negative_controls(
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is None
+
+
+@pytest.mark.parametrize(
+    ("market", "label"),
+    [
+        ("HK", "notes payable"),
+        ("CN", "\u5e94\u4ed8\u7968\u636e"),
+    ],
+)
+def test_metric_mapping_registry_keeps_notes_payable_distinct_from_bond_payable(
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == "notes_payable"
+    assert definition.metric_id != "bond_payable"
