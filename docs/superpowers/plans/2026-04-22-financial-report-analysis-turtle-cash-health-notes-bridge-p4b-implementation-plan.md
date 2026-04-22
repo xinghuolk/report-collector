@@ -262,7 +262,7 @@ Expected: FAIL because the three P4B metrics and their row families are not yet 
 In `financial-report-analysis/src/financial_report_analysis/registries/metric_mapping.py`, add three `MetricMappingDefinition` entries with:
 
 - `metric_id="restricted_cash"`
-  - `statement_type="cash_flow_statement"`
+  - `statement_type="balance_sheet"`
   - `period_scope="point_in_time"`
   - `normalized_row_labels` including:
     - `"restricted cash"`
@@ -583,7 +583,7 @@ def test_cash_health_note_candidates_do_not_override_statement_row_fact() -> Non
         candidate_fact_id="candidate::statement-row",
         metric_id="restricted_cash",
         metric_label_raw="Restricted cash",
-        statement_type="cash_flow_statement",
+        statement_type="balance_sheet",
         entity_scope="consolidated",
         comparison_axis="current",
         adjustment_basis="reported",
@@ -602,7 +602,7 @@ def test_cash_health_note_candidates_do_not_override_statement_row_fact() -> Non
         candidate_fact_id="candidate::note",
         metric_id="restricted_cash",
         metric_label_raw="Restricted cash",
-        statement_type="cash_flow_statement",
+        statement_type="balance_sheet",
         entity_scope="consolidated",
         comparison_axis="current",
         adjustment_basis="reported",
