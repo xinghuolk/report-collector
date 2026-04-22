@@ -357,8 +357,10 @@ def build_cash_health_note_candidate_facts(
         return ([], {"restricted_cash": "present"})
 
     for page_index, text in pages:
-        for line in _iter_candidate_lines(text):
-            match = _match_restricted_cash_line(line)
+        candidate_lines = list(_iter_candidate_lines(text))
+        for line_index, line in enumerate(candidate_lines):
+            next_line = candidate_lines[line_index + 1] if line_index + 1 < len(candidate_lines) else None
+            match = _match_restricted_cash_line(line, next_line=next_line)
             if match is None:
                 continue
 
@@ -565,11 +567,19 @@ def _metric_definition(metric_id: str) -> dict[str, Any] | None:
     return None
 
 
-def _match_restricted_cash_line(line: str) -> re.Match[str] | None:
+def _match_restricted_cash_line(
+    line: str,
+    *,
+    next_line: str | None = None,
+) -> re.Match[str] | None:
     for pattern in _CASH_HEALTH_RESTRICTED_CASH_PATTERNS:
         match = pattern.search(line)
         if match is not None:
             return match
+        if next_line is not None:
+            match = pattern.search(f"{line} {next_line}")
+            if match is not None:
+                return match
     return None
 
 

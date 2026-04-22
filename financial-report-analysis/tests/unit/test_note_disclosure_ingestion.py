@@ -758,6 +758,29 @@ def test_build_cash_health_note_candidate_facts_extracts_restricted_cash_only() 
     assert missing_status == {"restricted_cash": "present"}
 
 
+def test_build_cash_health_note_candidate_facts_extracts_wrapped_restricted_cash_amount() -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                13,
+                """
+                Restricted cash and cash equivalents
+                RMB 123 million as of December 31, 2022.
+                """,
+            )
+        ],
+        document_id="doc:wrapped-restricted-cash",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {"restricted_cash"}
+    assert candidates[0]["numeric_value"] == 123.0
+    assert missing_status == {"restricted_cash": "present"}
+
+
 def test_build_cash_health_note_candidate_facts_ignores_plain_cash_and_collateral_narrative() -> None:
     candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
         pages=[
