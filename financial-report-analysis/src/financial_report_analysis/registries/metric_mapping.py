@@ -406,7 +406,7 @@ _DEFAULT_DEFINITIONS = (
     ),
     MetricMappingDefinition(
         metric_id="restricted_cash",
-        statement_type="note_disclosure",
+        statement_type="balance_sheet",
         allowed_table_kinds=("note_disclosure",),
         normalized_row_labels=(
             "restricted cash",
@@ -422,13 +422,13 @@ _DEFAULT_DEFINITIONS = (
     ),
     MetricMappingDefinition(
         metric_id="interest_paid_cash",
-        statement_type="note_disclosure",
+        statement_type="cash_flow_statement",
         allowed_table_kinds=("note_disclosure",),
         normalized_row_labels=(
             "cash paid for interest",
             "支付的利息",
         ),
-        period_scope="point_in_time",
+        period_scope="duration",
         value_type="amount",
         unit_expectation="currency_amount",
         sign_rule="non_negative",
@@ -436,7 +436,7 @@ _DEFAULT_DEFINITIONS = (
     ),
     MetricMappingDefinition(
         metric_id="time_deposits_or_wealth_products",
-        statement_type="note_disclosure",
+        statement_type="balance_sheet",
         allowed_table_kinds=("note_disclosure",),
         normalized_row_labels=(
             "time deposits",

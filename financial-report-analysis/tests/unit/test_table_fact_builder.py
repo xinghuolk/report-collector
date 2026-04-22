@@ -1,4 +1,5 @@
 from financial_report_analysis.models import (
+    CandidateFact,
     NormalizedTableCellValue,
     NormalizedTableColumn,
     NormalizedTableRow,
@@ -189,3 +190,115 @@ def test_table_fact_builder_emits_p4a_source_metadata_for_statement_rows() -> No
 
     assert candidates[0]["extensions"]["source_kind"] == "statement_row"
     assert candidates[0]["extensions"]["source_policy"] == "supplement_only"
+
+
+def test_table_fact_builder_runtime_candidate_facts_accept_p4b_statement_types() -> None:
+    candidates = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-p4b",
+                document_id="doc-p4b",
+                page_range=(1, 1),
+                table_kind="note_disclosure",
+                title_text="Note disclosure",
+                statement_scope_guess="consolidated",
+                table_unit="million",
+                table_currency="HKD",
+                semantic_source="deterministic",
+                semantic_confidence=None,
+                semantic_ambiguity_reason=None,
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="point_in_time",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-restricted",
+                        label_raw="Restricted cash",
+                        normalized_row_label="restricted cash",
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="100",
+                                numeric_value=100.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point_in_time",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-interest",
+                        label_raw="Cash paid for interest",
+                        normalized_row_label="cash paid for interest",
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="25",
+                                numeric_value=25.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-time-deposits",
+                        label_raw="Time deposits",
+                        normalized_row_label="time deposits",
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=3,
+                                column_index=1,
+                                raw_text="300",
+                                numeric_value=300.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point_in_time",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-p4b",
+        market="HK",
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "restricted_cash",
+        "interest_paid_cash",
+        "time_deposits_or_wealth_products",
+    }
+    assert [candidate["statement_type"] for candidate in candidates] == [
+        "balance_sheet",
+        "cash_flow_statement",
+        "balance_sheet",
+    ]
+
+    # This is the runtime boundary that previously failed with ValueError.
+    for candidate in candidates:
+        fact = CandidateFact(**candidate)
+        assert fact.statement_type in {
+            "balance_sheet",
+            "cash_flow_statement",
+        }
