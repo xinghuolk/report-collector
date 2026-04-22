@@ -12,7 +12,15 @@ StatementType = Literal[
     "cash_flow_statement",
     "metrics",
 ]
-EntityScope = Literal["consolidated", "parent", "segment", "other"]
+EntityScope = Literal[
+    "consolidated",
+    "parent_company",
+    "unknown",
+    "review_required",
+    "parent",
+    "segment",
+    "other",
+]
 ComparisonAxis = Literal["current", "prior", "period_end", "period_begin"]
 AdjustmentBasis = Literal[
     "reported",
@@ -29,7 +37,15 @@ _STATEMENT_TYPES = {
     "cash_flow_statement",
     "metrics",
 }
-_ENTITY_SCOPES = {"consolidated", "parent", "segment", "other"}
+_ENTITY_SCOPES = {
+    "consolidated",
+    "parent_company",
+    "unknown",
+    "review_required",
+    "parent",
+    "segment",
+    "other",
+}
 _COMPARISON_AXES = {"current", "prior", "period_end", "period_begin"}
 _ADJUSTMENT_BASES = {
     "reported",

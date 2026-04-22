@@ -103,10 +103,10 @@ def _build_candidate_payload(
 
 def _entity_scope(statement_scope_guess: str) -> str:
     if statement_scope_guess == "parent_only":
-        return "parent"
+        return "parent_company"
     if statement_scope_guess == "consolidated":
         return "consolidated"
-    return "other"
+    return "unknown"
 
 
 def _fact_semantic_provenance(

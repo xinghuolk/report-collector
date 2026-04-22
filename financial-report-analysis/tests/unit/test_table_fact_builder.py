@@ -72,3 +72,62 @@ def test_table_fact_builder_emits_candidate_fact_for_hk_q3_revenue() -> None:
     assert "semantic_confidence" in candidates[0]["extensions"]
     assert "fallback_reason" in candidates[0]["extensions"]
     assert candidates[0]["extensions"]["statement_scope_guess"] == "consolidated"
+
+
+def test_table_fact_builder_maps_parent_only_scope_to_parent_company() -> None:
+    candidates = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-1",
+                document_id="09987-q3",
+                page_range=(1, 1),
+                table_kind="balance_sheet",
+                title_text="Separate Statement of Financial Position",
+                statement_scope_guess="parent_only",
+                table_unit="million",
+                table_currency="HKD",
+                semantic_source="deterministic",
+                semantic_confidence=None,
+                semantic_ambiguity_reason=None,
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="point",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-1",
+                        label_raw="Cash and cash equivalents",
+                        normalized_row_label="cash_and_cash_equivalents",
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="1,234",
+                                numeric_value=1234.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="09987-q3",
+        market="HK",
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["entity_scope"] == "parent_company"
+    assert candidates[0]["extensions"]["statement_scope_guess"] == "parent_only"

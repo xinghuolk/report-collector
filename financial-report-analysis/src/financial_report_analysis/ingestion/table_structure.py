@@ -282,7 +282,14 @@ class PdfTableStructureAdapter:
         haystack = f"{title_text}\n{local_context}".casefold()
         if "consolidated" in haystack or "合并" in haystack:
             return "consolidated"
-        if "parent company" in haystack or "母公司" in haystack:
+        parent_patterns = (
+            r"company statement of financial position",
+            r"separate statement of financial position",
+            r"statement of financial position of the company",
+            r"separate statement",
+            r"company statement",
+        )
+        if "母公司" in haystack or any(re.search(pattern, haystack) for pattern in parent_patterns):
             return "parent_only"
         return "unknown"
 

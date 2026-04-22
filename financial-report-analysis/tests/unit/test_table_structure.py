@@ -114,6 +114,33 @@ def test_build_parsed_table_sets_statement_scope_guess_from_title() -> None:
     assert table.statement_scope_guess == "consolidated"
 
 
+def test_statement_scope_does_not_treat_owners_of_parent_label_as_parent_company() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Consolidated Statement of Profit or Loss",
+        local_context="Profit attributable to owners of the parent 100 90",
+    )
+
+    assert scope == "consolidated"
+
+
+def test_statement_scope_detects_separate_company_statement_as_parent_company() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Company Statement of Financial Position",
+        local_context="Unit: HKD million",
+    )
+
+    assert scope == "parent_only"
+
+
+def test_statement_scope_detects_separate_statement_as_parent_company() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Separate Statement of Financial Position",
+        local_context="Unit: HKD million",
+    )
+
+    assert scope == "parent_only"
+
+
 def test_build_parsed_table_recovers_rows_from_numeric_only_statement_page_text() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(
