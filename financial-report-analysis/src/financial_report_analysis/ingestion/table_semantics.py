@@ -59,7 +59,6 @@ _P3_ASSET_NOTE_ONLY_LABELS: frozenset[str] = frozenset(
 )
 
 _P3_ASSET_SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\brestricted cash\b", re.IGNORECASE),
     re.compile(r"\bassets held for sale\b", re.IGNORECASE),
     re.compile(r"\binvestment properties\b", re.IGNORECASE),
     re.compile(r"\bprepayments\b", re.IGNORECASE),
@@ -78,6 +77,20 @@ _P3_ASSET_SUPPRESSED_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _ROW_LABEL_ALIASES: dict[str, str] = {
+    "restricted cash": "restricted cash",
+    "restricted cash and cash equivalents": "restricted cash and cash equivalents",
+    "restricted monetary funds": "restricted monetary funds",
+    "受限货币资金": "受限货币资金",
+    "cash paid for interest": "cash paid for interest",
+    "支付的利息": "支付的利息",
+    "time deposits": "time deposits",
+    "term deposits": "term deposits",
+    "wealth management products": "wealth management products",
+    "structured deposits": "structured deposits",
+    "long-term bank deposits and notes": "long-term bank deposits and notes",
+    "定期存款": "定期存款",
+    "理财产品": "理财产品",
+    "结构性存款": "结构性存款",
     "cash and cash equivalents": "cash and cash equivalents",
     "货币资金": "cash and cash equivalents",
     "现金及现金等价物": "cash and cash equivalents",

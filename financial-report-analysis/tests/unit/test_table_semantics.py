@@ -304,7 +304,6 @@ def test_table_semantics_keeps_p3_note_only_asset_labels_out_of_primary_row_sema
 @pytest.mark.parametrize(
     "label",
     [
-        "restricted cash",
         "assets held for sale",
         "investment properties",
         "prepayments",
@@ -1046,3 +1045,31 @@ def test_table_semantics_keeps_more_specific_debt_rows_with_covered_phrase() -> 
     )
 
     assert semantics.rows[0].normalized_row_label == "lease liabilities and other borrowings"
+
+
+@pytest.mark.parametrize(
+    ("raw_label", "market", "expected"),
+    [
+        ("Restricted cash", "HK", "restricted cash"),
+        (
+            "Restricted cash and cash equivalents",
+            "HK",
+            "restricted cash and cash equivalents",
+        ),
+        ("Cash paid for interest", "HK", "cash paid for interest"),
+        ("Time deposits", "HK", "time deposits"),
+        ("Wealth management products", "HK", "wealth management products"),
+        ("\u53d7\u9650\u8d27\u5e01\u8d44\u91d1", "CN", "\u53d7\u9650\u8d27\u5e01\u8d44\u91d1"),
+        ("\u652f\u4ed8\u7684\u5229\u606f", "CN", "\u652f\u4ed8\u7684\u5229\u606f"),
+        ("\u7ed3\u6784\u6027\u5b58\u6b3e", "CN", "\u7ed3\u6784\u6027\u5b58\u6b3e"),
+    ],
+)
+def test_normalize_row_label_supports_p4b_cash_health_families(
+    raw_label: str,
+    market: str,
+    expected: str,
+) -> None:
+    del market
+    semantics = normalize_table_semantics(_balance_sheet_table_with_row(raw_label))
+
+    assert semantics.rows[0].normalized_row_label == expected

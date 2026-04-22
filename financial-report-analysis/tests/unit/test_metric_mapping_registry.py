@@ -341,3 +341,64 @@ def test_metric_mapping_registry_rejects_p3_asset_negative_controls(
     )
 
     assert definition is None
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "label"),
+    [
+        ("restricted_cash", "HK", "restricted cash"),
+        ("restricted_cash", "HK", "restricted cash and cash equivalents"),
+        ("interest_paid_cash", "HK", "cash paid for interest"),
+        ("time_deposits_or_wealth_products", "HK", "time deposits"),
+        ("time_deposits_or_wealth_products", "HK", "wealth management products"),
+        ("time_deposits_or_wealth_products", "CN", "\u5b9a\u671f\u5b58\u6b3e"),
+        ("time_deposits_or_wealth_products", "CN", "\u7406\u8d22\u4ea7\u54c1"),
+    ],
+)
+def test_metric_mapping_registry_matches_p4b_cash_health_fields(
+    metric_id: str,
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="note_disclosure",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+
+
+@pytest.mark.parametrize(
+    ("market", "label"),
+    [
+        ("HK", "finance costs"),
+        ("HK", "interest expense"),
+        ("HK", "short-term investments"),
+        ("HK", "cash and cash equivalents"),
+        ("CN", "\u8d22\u52a1\u8d39\u7528"),
+        ("CN", "\u5229\u606f\u652f\u51fa"),
+        ("CN", "\u8d27\u5e01\u8d44\u91d1"),
+        ("CN", "\u4ea4\u6613\u6027\u91d1\u878d\u8d44\u4ea7"),
+    ],
+)
+def test_metric_mapping_registry_does_not_misclassify_non_cash_health_rows(
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="note_disclosure",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is None
