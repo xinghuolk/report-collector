@@ -105,6 +105,8 @@
 - `target_metric_ids`
 - `known_special_shape`
 
+本轮 P3 不要求先引入数据库或新配置系统，但要求这些字段至少落在一个可审阅的文档化 artifact 中，而不是只留在临时终端记录里。
+
 ### 5.2 缺失状态
 
 本轮至少区分：
@@ -115,6 +117,8 @@
 - `out_of_scope`
 
 不得只通过 candidate omission 表达缺失。
+
+对于 note-only 字段，缺失状态必须按“逐 metric、逐锚点”显式记录，而不是只写一个笼统结论。
 
 ### 5.3 失败归类
 
@@ -208,6 +212,8 @@ P3 仍必须遵守：
   - 只在主表缺失、但附注明确独立披露时补充
 - `other_non_current_assets`
   - 只在结构和上下文足够清晰、且附注明确为目标字段时补充
+
+这两个字段在本轮 P3 中不是主表 statement-row 覆盖目标。它们不应被纳入“默认 balance-sheet 主路径字段集合”，也不应因为主表上出现相似标签就自动扩展为普通 statement-row 字段。
 
 ### 7.3 Negative controls
 

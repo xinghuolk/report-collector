@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add Turtle Phase 3 asset-quality extraction for five core balance-sheet asset fields plus two bounded note-only supplement fields across CN annual, HK statement-row annual, and HK mixed-structure annual anchors.
+**Goal:** Add Turtle Phase 3 asset-quality extraction for five primary balance-sheet asset fields, plus two bounded note-only supplement fields used only when the primary statement-row path is insufficient, across CN annual, HK statement-row annual, and HK mixed-structure annual anchors.
 
 **Architecture:** Keep the balance-sheet statement-row path as the primary path: table semantics -> metric registry -> candidate facts -> canonical resolver. Add a narrow deterministic note/disclosure supplement only for `contract_assets` and `other_non_current_assets`, with Ollama used only as a gated semantic locator for ambiguous asset disclosure rows and never as the direct source of canonical financial facts.
 
@@ -12,13 +12,16 @@
 
 ## Scope Check
 
-This plan covers one coherent subsystem: Turtle Phase 3 asset-quality inputs for:
+This plan covers one coherent subsystem: Turtle Phase 3 asset-quality inputs for five primary statement-row fields:
 
 - `money_cap`
 - `trad_asset`
 - `inventories`
 - `goodwill`
 - `intang_assets`
+
+and two bounded note-only supplement fields:
+
 - `contract_assets`
 - `other_non_current_assets`
 
@@ -42,7 +45,7 @@ Every new anchor assertion added in this plan must reflect the onboarding proces
 - classify failures before fixing them
 - distinguish `present`, `absent`, `not_surfaced`, and `out_of_scope`
 
-At minimum, Task 3 and Task 4 regressions must encode the correct missing-status behavior for note-only asset fields.
+At minimum, Task 0, Task 3, and Task 4 must encode the correct missing-status behavior for note-only asset fields in a reviewable onboarding artifact.
 
 ## Execution Note
 
@@ -58,9 +61,9 @@ Do not dispatch Task 4 until Task 2 has landed and its review loop is complete.
 Modify existing files:
 
 - `financial-report-analysis/src/financial_report_analysis/registries/metric_mapping.py`
-  - Add five P3 asset-quality metric definitions and any bounded note-only definitions needed for `contract_assets` / `other_non_current_assets`.
+  - Add only the five primary P3 asset-quality metric definitions.
 - `financial-report-analysis/src/financial_report_analysis/ingestion/table_semantics.py`
-  - Normalize CN/HK asset row labels and suppress negative controls.
+  - Normalize CN/HK labels for the five primary P3 asset fields and suppress negative controls.
 - `financial-report-analysis/src/financial_report_analysis/ingestion/note_disclosure.py`
   - Add bounded asset note/disclosure parsing for `contract_assets` / `other_non_current_assets` only if deterministic note parsing is needed for the selected anchors.
 - `financial-report-analysis/src/financial_report_analysis/ingestion/pdf_ingestion.py`
@@ -76,6 +79,68 @@ Modify existing files:
 - `financial-report-analysis/tests/unit/test_semantic_fallback_models.py`
 - `financial-report-analysis/tests/unit/test_semantic_fallback_service.py`
 - `financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py`
+
+Add one new documentation artifact:
+
+- `docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md`
+  - Record anchor metadata, report family, target metric IDs, and per-anchor failure classification / missing-status expectations.
+
+---
+
+### Task 0: Record P3 Anchor Onboarding And Failure Classification
+
+**Files:**
+
+- Add: `docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md`
+
+- [ ] **Step 1: Create the onboarding artifact**
+
+Create a reviewable markdown artifact at:
+
+`docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md`
+
+- [ ] **Step 2: Record required metadata for each anchor**
+
+For each of these anchors:
+
+- CN `601919 2025`
+- HK `02498 2022`
+- HK `09987 2025`
+
+record:
+
+- `sample_id`
+- `market`
+- `language`
+- `issuer_code`
+- `report_type`
+- `period_end`
+- `report_family`
+- `target_phase`
+- `target_metric_ids`
+
+- [ ] **Step 3: Record failure classification and missing-status expectations**
+
+For each anchor, record the current expectation for:
+
+- `present`
+- `absent`
+- `not_surfaced`
+- `out_of_scope`
+
+and classify current gaps using:
+
+- `structure_recovery_gap`
+- `semantic_normalization_gap`
+- `metric_mapping_gap`
+- `note_disclosure_supplement_gap`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md
+git commit -m "docs: record turtle asset quality p3 onboarding"
+```
 
 ---
 
@@ -130,22 +195,21 @@ def test_metric_mapping_registry_matches_p3_asset_quality_fields(
     assert definition.period_scope == "point_in_time"
 ```
 
-- [ ] **Step 2: Add bounded note-only registry tests**
+- [ ] **Step 2: Add note-only boundary tests**
 
 Append this test to `financial-report-analysis/tests/unit/test_metric_mapping_registry.py`:
 
 ```python
 @pytest.mark.parametrize(
-    ("metric_id", "market", "label"),
+    ("market", "label"),
     [
-        ("contract_assets", "CN", "\u5408\u540c\u8d44\u4ea7"),
-        ("other_non_current_assets", "CN", "\u5176\u4ed6\u975e\u6d41\u52a8\u8d44\u4ea7"),
-        ("contract_assets", "HK", "contract assets"),
-        ("other_non_current_assets", "HK", "other non-current assets"),
+        ("CN", "\u5408\u540c\u8d44\u4ea7"),
+        ("CN", "\u5176\u4ed6\u975e\u6d41\u52a8\u8d44\u4ea7"),
+        ("HK", "contract assets"),
+        ("HK", "other non-current assets"),
     ],
 )
-def test_metric_mapping_registry_matches_p3_note_only_asset_fields(
-    metric_id: str,
+def test_metric_mapping_registry_does_not_promote_p3_note_only_asset_fields_into_primary_path(
     market: str,
     label: str,
 ) -> None:
@@ -159,8 +223,7 @@ def test_metric_mapping_registry_matches_p3_note_only_asset_fields(
         market=market,
     )
 
-    assert definition is not None
-    assert definition.metric_id == metric_id
+    assert definition is None
 ```
 
 - [ ] **Step 3: Add registry negative-control tests**
@@ -176,11 +239,17 @@ Append this test to `financial-report-analysis/tests/unit/test_metric_mapping_re
         ("HK", "investment properties"),
         ("HK", "prepayments"),
         ("HK", "right-of-use assets"),
+        ("HK", "deferred tax assets"),
+        ("HK", "capitalized development costs"),
+        ("HK", "total non-current assets"),
         ("CN", "\u53d7\u9650\u8d44\u91d1"),
         ("CN", "\u6301\u6709\u5f85\u552e\u8d44\u4ea7"),
         ("CN", "\u6295\u8d44\u6027\u623f\u5730\u4ea7"),
         ("CN", "\u9884\u4ed8\u6b3e\u9879"),
         ("CN", "\u4f7f\u7528\u6743\u8d44\u4ea7"),
+        ("CN", "\u9012\u5ef6\u6240\u5f97\u7a0e\u8d44\u4ea7"),
+        ("CN", "\u5f00\u53d1\u652f\u51fa"),
+        ("CN", "\u8d44\u4ea7\u603b\u8ba1"),
     ],
 )
 def test_metric_mapping_registry_rejects_p3_asset_negative_controls(
@@ -229,27 +298,26 @@ def test_table_semantics_normalizes_p3_asset_labels(
     assert semantics.rows[0].normalized_row_label == expected
 ```
 
-- [ ] **Step 5: Add bounded note-only semantics tests**
+- [ ] **Step 5: Add note-only semantics boundary tests**
 
 Append this test to `financial-report-analysis/tests/unit/test_table_semantics.py`:
 
 ```python
 @pytest.mark.parametrize(
-    ("label", "expected"),
+    "label",
     [
-        ("\u5408\u540c\u8d44\u4ea7", "contract assets"),
-        ("\u5176\u4ed6\u975e\u6d41\u52a8\u8d44\u4ea7", "other non-current assets"),
-        ("Contract assets", "contract assets"),
-        ("Other non-current assets", "other non-current assets"),
+        "\u5408\u540c\u8d44\u4ea7",
+        "\u5176\u4ed6\u975e\u6d41\u52a8\u8d44\u4ea7",
+        "Contract assets",
+        "Other non-current assets",
     ],
 )
-def test_table_semantics_normalizes_p3_note_only_asset_labels(
+def test_table_semantics_keeps_p3_note_only_asset_labels_out_of_primary_row_semantics(
     label: str,
-    expected: str,
 ) -> None:
     semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
 
-    assert semantics.rows[0].normalized_row_label == expected
+    assert semantics.rows[0].normalized_row_label is None
 ```
 
 - [ ] **Step 6: Add table-semantics negative-control tests**
@@ -265,11 +333,17 @@ Append this test to `financial-report-analysis/tests/unit/test_table_semantics.p
         "investment properties",
         "prepayments",
         "right-of-use assets",
+        "deferred tax assets",
+        "capitalized development costs",
+        "total non-current assets",
         "\u53d7\u9650\u8d44\u91d1",
         "\u6301\u6709\u5f85\u552e\u8d44\u4ea7",
         "\u6295\u8d44\u6027\u623f\u5730\u4ea7",
         "\u9884\u4ed8\u6b3e\u9879",
         "\u4f7f\u7528\u6743\u8d44\u4ea7",
+        "\u9012\u5ef6\u6240\u5f97\u7a0e\u8d44\u4ea7",
+        "\u5f00\u53d1\u652f\u51fa",
+        "\u8d44\u4ea7\u603b\u8ba1",
     ],
 )
 def test_table_semantics_suppresses_p3_asset_negative_controls(label: str) -> None:
@@ -326,14 +400,9 @@ unit_expectation="currency_amount"
 sign_rule="allow_negative"
 ```
 
-- [ ] **Step 2: Add bounded note-only metric definitions**
+- [ ] **Step 2: Keep note-only asset fields out of primary statement-row registry**
 
-Add bounded `MetricMappingDefinition` entries for:
-
-- `contract_assets`
-- `other_non_current_assets`
-
-Do not widen aliases beyond directly disclosed asset labels.
+Verify `contract_assets` and `other_non_current_assets` do not become generic primary statement-row metric definitions in `metric_mapping.py`. If helper comments are needed, add them, but do not introduce default balance-sheet registry entries for these two note-only fields in this task.
 
 - [ ] **Step 3: Add deterministic asset row normalization**
 
@@ -346,15 +415,11 @@ Extend `table_semantics.py` so the following normalize deterministically:
     "\u5b58\u8d27": "inventories",
     "\u5546\u8a89": "goodwill",
     "\u65e0\u5f62\u8d44\u4ea7": "intangible assets",
-    "\u5408\u540c\u8d44\u4ea7": "contract assets",
-    "\u5176\u4ed6\u975e\u6d41\u52a8\u8d44\u4ea7": "other non-current assets",
     "cash and cash equivalents": "cash and cash equivalents",
     "trading assets": "trading assets",
     "inventories": "inventories",
     "goodwill": "goodwill",
     "intangible assets": "intangible assets",
-    "contract assets": "contract assets",
-    "other non-current assets": "other non-current assets",
 }
 ```
 
@@ -368,11 +433,17 @@ Ensure labels such as these remain unmapped:
 "investment properties"
 "prepayments"
 "right-of-use assets"
+"deferred tax assets"
+"capitalized development costs"
+"total non-current assets"
 "\u53d7\u9650\u8d44\u91d1"
 "\u6301\u6709\u5f85\u552e\u8d44\u4ea7"
 "\u6295\u8d44\u6027\u623f\u5730\u4ea7"
 "\u9884\u4ed8\u6b3e\u9879"
 "\u4f7f\u7528\u6743\u8d44\u4ea7"
+"\u9012\u5ef6\u6240\u5f97\u7a0e\u8d44\u4ea7"
+"\u5f00\u53d1\u652f\u51fa"
+"\u8d44\u4ea7\u603b\u8ba1"
 ```
 
 - [ ] **Step 5: Add statement-row candidate unit coverage**
@@ -450,7 +521,11 @@ Inspect `report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf` and record 
 - `contract_assets`
 - `other_non_current_assets`
 
-Expected: a short note in the test comments stating the exact independently disclosed subset and whether each missing field is `absent` or `not_surfaced`.
+Expected: update `docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md` with the exact independently disclosed subset. For the current `09987 2025` anchor, the exact expectation is:
+
+- surfaced subset: none
+- `contract_assets`: `absent`
+- `other_non_current_assets`: `absent`
 
 - [ ] **Step 2: Add bounded unit tests for asset note parsing**
 
@@ -491,6 +566,9 @@ Append a unit test ensuring rows like:
 - `restricted cash`
 - `investment properties`
 - `prepayments`
+- `deferred tax assets`
+- `capitalized development costs`
+- `summary asset rows`
 
 do not emit any P3 asset metric IDs.
 
@@ -503,18 +581,26 @@ def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> 
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
-    asset_metric_ids = {"contract_assets", "other_non_current_assets"}
+    expected_metric_ids = set()
+    expected_missing_status = {
+        "contract_assets": "absent",
+        "other_non_current_assets": "absent",
+    }
     asset_candidates = [
         candidate
         for candidate in payload.get("candidate_facts", [])
         if isinstance(candidate, dict)
-        and candidate.get("metric_id") in asset_metric_ids
+        and candidate.get("metric_id") in expected_missing_status
     ]
 
-    assert {candidate["metric_id"] for candidate in asset_candidates} <= asset_metric_ids
+    assert {candidate["metric_id"] for candidate in asset_candidates} == expected_metric_ids
+    assert payload["document_metadata"]["asset_missing_status"] == expected_missing_status
+    for candidate in asset_candidates:
+        assert candidate["extraction_method"] == "note_disclosure"
+        assert candidate["extensions"]["semantic_source"] in {"deterministic", "llm_fallback"}
 ```
 
-Replace the open subset assertion with the exact expected subset discovered in Step 1. Do not assert facts the report does not independently disclose.
+This regression is intentionally exact for the current `09987 2025` anchor: no bounded note-only asset candidates should surface, and both metrics should remain `absent`. Do not assert facts the report does not independently disclose.
 
 - [ ] **Step 5: Run tests to verify red state where expected**
 
@@ -576,6 +662,13 @@ and `document_metadata` exposes bounded asset missing status with:
 - `absent`
 - `not_surfaced`
 - `out_of_scope` only if explicitly required
+
+The `09987` regression must assert the exact surfaced subset, the exact `asset_missing_status` map for:
+
+- `contract_assets`
+- `other_non_current_assets`
+
+and provenance for every surfaced note-only candidate.
 
 - [ ] **Step 5: Add precedence regression**
 
@@ -693,7 +786,7 @@ cd financial-report-analysis
 uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_surfaces_phase1_api_visible_metrics tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_p2a_note_disclosure_candidates_without_hallucination tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates tests/integration/test_semantic_recovery_regressions.py::test_hk_anchor_candidate_facts_do_not_map_growth_margin_ratio_rows -q -o addopts=
 ```
 
-Expected: all pass.
+Expected: all pass. These are intentional cross-phase non-regression checks guarding P2A/P2B behavior while P3 lands.
 
 - [ ] **Step 4: Run Ruff**
 
@@ -737,10 +830,11 @@ P3 is complete only when:
 
 - The five primary asset-quality metric IDs exist in the metric registry with point-in-time balance-sheet semantics.
 - `contract_assets` and `other_non_current_assets` are handled only within the bounded note-only scope.
+- `docs/architecture-analysis/2026-04-22-turtle-asset-quality-p3-sample-onboarding.md` exists and records anchor metadata, failure classifications, and exact missing-status expectations.
 - CN `601919 2025` produces deterministic asset candidate facts from balance-sheet rows.
 - HK `02498 2022` produces deterministic asset candidate facts from statement rows.
 - HK `09987 2025` produces only independently disclosed bounded note-only asset facts when statement rows are insufficient.
 - `present / absent / not_surfaced / out_of_scope` behavior is explicit where relevant.
-- Summary asset rows and non-target asset disclosures do not get absorbed into the P3 metrics.
+- Summary asset rows, deferred tax assets, capitalized development costs, and other non-target asset disclosures do not get absorbed into the P3 metrics.
 - Ollama locator output, if used, remains bounded, gated, provenance-carrying, and never directly becomes canonical facts.
 - Existing Phase 1, P2A, and P2B paths continue to pass.
