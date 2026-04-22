@@ -13,10 +13,15 @@ from financial_report_analysis.models import (
     NormalizedTableRow,
     NormalizedTableSemantics,
 )
-from financial_report_analysis.ingestion.table_semantics import normalize_table_semantics
+from financial_report_analysis.ingestion.table_semantics import (
+    normalize_table_semantics,
+)
 from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.registries import load_metric_registry
-from financial_report_analysis.registries.metric_mapping import MetricMappingDefinition, MetricMappingRegistry
+from financial_report_analysis.registries.metric_mapping import (
+    MetricMappingDefinition,
+    MetricMappingRegistry,
+)
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
@@ -39,16 +44,19 @@ def _candidate(
     metric_id: str = "raw_revenue",
     metric_label_raw: str = "Revenue",
     statement_type: str = "income_statement",
+    entity_scope: str = "consolidated",
     currency: str = "CNY",
     raw_unit: str = "unit",
+    extraction_method: str | None = None,
     extensions: dict[str, object] | None = None,
 ) -> CandidateFact:
+    candidate_extensions = dict(extensions or {})
     return CandidateFact(
         fact_id=fact_id,
         metric_id=metric_id,
         metric_label_raw=metric_label_raw,
         statement_type=statement_type,
-        entity_scope="consolidated",
+        entity_scope=entity_scope,
         comparison_axis="current",
         adjustment_basis="reported",
         period_id=period_id,
@@ -59,11 +67,12 @@ def _candidate(
         normalized_unit=None,
         precision=0,
         confidence=0.9,
-        extensions=extensions or {},
+        extensions=candidate_extensions,
         document_id="doc-1",
         block_id="block-1",
         page_index=0,
         evidence_bundle_id="bundle-1",
+        extraction_method=extraction_method,
         source_rank_hint=source_rank_hint,
     )
 
@@ -105,7 +114,9 @@ def _normalized_table_semantics(
                     )
                 ],
             )
-            for index, (label_raw, normalized_row_label, value) in enumerate(rows, start=1)
+            for index, (label_raw, normalized_row_label, value) in enumerate(
+                rows, start=1
+            )
         ],
     )
 
@@ -173,7 +184,9 @@ def test_fact_pipeline_normalizes_common_cn_units() -> None:
     assert fact.normalized_unit == "CNY"
 
 
-def test_build_table_candidate_facts_carries_phase1_eps_metadata_and_provenance() -> None:
+def test_build_table_candidate_facts_carries_phase1_eps_metadata_and_provenance() -> (
+    None
+):
     registry = MetricMappingRegistry(
         [
             MetricMappingDefinition(
@@ -271,7 +284,9 @@ def test_table_fact_builder_emits_p2a_working_capital_candidate_facts() -> None:
         "acct_payable",
         "notes_payable",
     }
-    assert all(candidate["statement_type"] == "balance_sheet" for candidate in candidates)
+    assert all(
+        candidate["statement_type"] == "balance_sheet" for candidate in candidates
+    )
     assert all(candidate["period_id"] == "2025FY" for candidate in candidates)
 
 
@@ -361,9 +376,16 @@ def test_table_fact_builder_emits_p2b_debt_candidate_facts() -> None:
             market=market,
         )
 
-        assert {candidate["metric_id"] for candidate in candidates} == expected_metric_ids
-        assert all(candidate["statement_type"] == "balance_sheet" for candidate in candidates)
-        assert all(candidate["extraction_method"] == "table_semantics" for candidate in candidates)
+        assert {
+            candidate["metric_id"] for candidate in candidates
+        } == expected_metric_ids
+        assert all(
+            candidate["statement_type"] == "balance_sheet" for candidate in candidates
+        )
+        assert all(
+            candidate["extraction_method"] == "table_semantics"
+            for candidate in candidates
+        )
 
 
 def test_table_fact_builder_emits_p3_statement_row_asset_candidates() -> None:
@@ -418,8 +440,13 @@ def test_table_fact_builder_emits_p3_statement_row_asset_candidates() -> None:
             "goodwill",
             "intang_assets",
         }
-        assert all(candidate["statement_type"] == "balance_sheet" for candidate in candidates)
-        assert all(candidate["extraction_method"] == "table_semantics" for candidate in candidates)
+        assert all(
+            candidate["statement_type"] == "balance_sheet" for candidate in candidates
+        )
+        assert all(
+            candidate["extraction_method"] == "table_semantics"
+            for candidate in candidates
+        )
 
 
 def test_table_fact_builder_rejects_p3_asset_negative_control_rows() -> None:
@@ -484,7 +511,9 @@ def test_fact_pipeline_normalizes_basic_eps_as_per_share_metric() -> None:
     assert fact.extensions["unit_expectation"] == "per_share_amount"
 
 
-def test_fact_pipeline_preserves_deterministic_metric_id_when_label_alias_is_not_in_normalizer_table() -> None:
+def test_fact_pipeline_preserves_deterministic_metric_id_when_label_alias_is_not_in_normalizer_table() -> (
+    None
+):
     normalizer = FactNormalizer()
 
     normalized = normalizer.normalize_candidates(
@@ -576,7 +605,9 @@ def test_conflict_resolver_keeps_highest_priority_candidate() -> None:
     assert canonical.evidence_bundle_id == "bundle-1"
 
 
-def test_conflict_resolver_keeps_business_key_order_without_phase_specific_reordering() -> None:
+def test_conflict_resolver_keeps_business_key_order_without_phase_specific_reordering() -> (
+    None
+):
     normalizer = FactNormalizer()
     resolver = ConflictResolver()
 
@@ -626,13 +657,188 @@ def test_conflict_resolver_keeps_business_key_order_without_phase_specific_reord
         "n_income_attr_p",
         "revenue",
     ]
-    net_income_fact = next(fact for fact in canonical_facts if fact.metric_id == "n_income_attr_p")
+    net_income_fact = next(
+        fact for fact in canonical_facts if fact.metric_id == "n_income_attr_p"
+    )
     assert net_income_fact.extensions["semantic_source"] == "llm_fallback"
     assert net_income_fact.extensions["semantic_confidence"] == 0.72
     assert net_income_fact.extensions["fallback_reason"] == "owner_scope_disambiguation"
 
 
-def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provenance() -> None:
+def test_conflict_resolver_preserves_statement_row_when_note_is_supplement_only() -> (
+    None
+):
+    resolver = ConflictResolver()
+
+    result = resolver.resolve_with_review(
+        [
+            _candidate(
+                fact_id="statement-cash",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                metric_id="cash",
+                metric_label_raw="Cash",
+                extensions={
+                    "source_kind": "statement_row",
+                    "source_policy": "supplement_only",
+                },
+            ),
+            _candidate(
+                fact_id="note-cash",
+                period_id="2024Q1",
+                source_rank_hint=2,
+                numeric_value=120.0,
+                metric_id="cash",
+                metric_label_raw="Cash",
+                extraction_method="note_disclosure",
+                extensions={
+                    "source_kind": "deterministic_note_disclosure",
+                    "source_policy": "supplement_only",
+                },
+            ),
+        ]
+    )
+
+    assert len(result.canonical_facts) == 1
+    canonical = result.canonical_facts[0]
+    assert canonical.numeric_value == 100.0
+    assert canonical.resolution_reason == "source_policy_supplement_only"
+    assert result.review_packets == []
+
+
+def test_conflict_resolver_allows_explicit_note_override() -> None:
+    resolver = ConflictResolver()
+
+    result = resolver.resolve_with_review(
+        [
+            _candidate(
+                fact_id="statement-restricted-cash",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                metric_id="restricted_cash",
+                metric_label_raw="Restricted cash",
+                extensions={
+                    "source_kind": "statement_row",
+                    "source_policy": "supplement_only",
+                },
+            ),
+            _candidate(
+                fact_id="note-restricted-cash",
+                period_id="2024Q1",
+                source_rank_hint=2,
+                numeric_value=120.0,
+                metric_id="restricted_cash",
+                metric_label_raw="Restricted cash",
+                extraction_method="note_disclosure",
+                extensions={
+                    "source_kind": "deterministic_note_disclosure",
+                    "source_policy": "override_allowed",
+                },
+            ),
+        ]
+    )
+
+    assert len(result.canonical_facts) == 1
+    canonical = result.canonical_facts[0]
+    assert canonical.numeric_value == 120.0
+    assert canonical.resolution_reason == "source_policy_override_allowed"
+    assert canonical.validation_flags == []
+    assert result.review_packets == []
+
+
+def test_conflict_resolver_emits_review_packet_for_review_required_source_conflict() -> (
+    None
+):
+    resolver = ConflictResolver()
+
+    result = resolver.resolve_with_review(
+        [
+            _candidate(
+                fact_id="statement-cash-review",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                metric_id="cash",
+                metric_label_raw="Cash",
+                extensions={
+                    "source_kind": "statement_row",
+                    "source_policy": "supplement_only",
+                },
+            ),
+            _candidate(
+                fact_id="note-cash-review",
+                period_id="2024Q1",
+                source_rank_hint=2,
+                numeric_value=120.0,
+                metric_id="cash",
+                metric_label_raw="Cash",
+                extraction_method="note_disclosure",
+                extensions={
+                    "source_kind": "deterministic_note_disclosure",
+                    "source_policy": "review_required",
+                },
+            ),
+        ]
+    )
+
+    assert len(result.canonical_facts) == 1
+    canonical = result.canonical_facts[0]
+    assert canonical.numeric_value == 100.0
+    assert canonical.validation_flags == ["source_conflict_review_required"]
+    assert len(result.review_packets) == 1
+    packet = result.review_packets[0]
+    assert packet.conflict_state == "source_conflict"
+    assert packet.candidate_value == 120.0
+    assert packet.competing_candidate_values == (100.0,)
+
+
+def test_conflict_resolver_blocks_blocked_policy_candidate() -> None:
+    resolver = ConflictResolver()
+
+    result = resolver.resolve_with_review(
+        [
+            _candidate(
+                fact_id="statement-cash-blocked",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                metric_id="cash",
+                metric_label_raw="Cash",
+                extensions={
+                    "source_kind": "statement_row",
+                    "source_policy": "supplement_only",
+                },
+            ),
+            _candidate(
+                fact_id="note-cash-blocked",
+                period_id="2024Q1",
+                source_rank_hint=2,
+                numeric_value=120.0,
+                metric_id="cash",
+                metric_label_raw="Cash",
+                extraction_method="note_disclosure",
+                extensions={
+                    "source_kind": "deterministic_note_disclosure",
+                    "source_policy": "blocked",
+                },
+            ),
+        ]
+    )
+
+    assert len(result.canonical_facts) == 1
+    canonical = result.canonical_facts[0]
+    assert canonical.numeric_value == 100.0
+    assert canonical.validation_flags == ["blocked_competing_candidate"]
+    assert len(result.review_packets) == 1
+    packet = result.review_packets[0]
+    assert packet.conflict_state == "blocked"
+
+
+def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provenance() -> (
+    None
+):
     extracted_payload = {
         "candidate_facts": [
             {
@@ -720,14 +926,18 @@ def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provena
     )
 
     canonical_metric_ids = [fact.metric_id for fact in pipeline_result.canonical_facts]
-    assert {"basic_eps", "n_income_attr_p", "finance_exp"} <= set(
-        canonical_metric_ids
+    assert {"basic_eps", "n_income_attr_p", "finance_exp"} <= set(canonical_metric_ids)
+    basic_eps = next(
+        fact
+        for fact in pipeline_result.canonical_facts
+        if fact.metric_id == "basic_eps"
     )
-    basic_eps = next(fact for fact in pipeline_result.canonical_facts if fact.metric_id == "basic_eps")
     assert basic_eps.normalized_unit == "per_share_amount"
     assert basic_eps.numeric_value == 1.23
     n_income_attr_p = next(
-        fact for fact in pipeline_result.canonical_facts if fact.metric_id == "n_income_attr_p"
+        fact
+        for fact in pipeline_result.canonical_facts
+        if fact.metric_id == "n_income_attr_p"
     )
     assert n_income_attr_p.extensions["semantic_source"] == "llm_fallback"
     assert n_income_attr_p.extensions["semantic_confidence"] == 0.8
@@ -1469,7 +1679,9 @@ def test_table_candidate_facts_match_income_statement_core_metric_aliases() -> N
     }
 
 
-def test_analyze_report_promotes_income_statement_core_metrics_to_canonical_facts() -> None:
+def test_analyze_report_promotes_income_statement_core_metrics_to_canonical_facts() -> (
+    None
+):
     candidate_facts = build_table_candidate_facts(
         [
             NormalizedTableSemantics(
@@ -1707,7 +1919,9 @@ def test_analyze_report_promotes_gross_profit_to_canonical_facts() -> None:
     assert {fact.metric_id for fact in result.canonical_facts} >= {"gross_profit"}
 
 
-def test_analyze_report_promotes_cash_flow_primary_sections_to_canonical_facts() -> None:
+def test_analyze_report_promotes_cash_flow_primary_sections_to_canonical_facts() -> (
+    None
+):
     candidate_facts = build_table_candidate_facts(
         [
             normalize_table_semantics(
@@ -1945,7 +2159,9 @@ def test_analyze_report_skips_summary_style_gross_profit_rows() -> None:
     assert result.canonical_facts == []
 
 
-def test_analyze_report_promotes_equity_and_attributable_equity_to_canonical_facts() -> None:
+def test_analyze_report_promotes_equity_and_attributable_equity_to_canonical_facts() -> (
+    None
+):
     candidate_facts = build_table_candidate_facts(
         [
             NormalizedTableSemantics(
@@ -2041,10 +2257,15 @@ def test_analyze_report_promotes_equity_and_attributable_equity_to_canonical_fac
         for fact in result.canonical_facts
     )
     assert all(fact.entity_scope == "consolidated" for fact in result.canonical_facts)
-    assert all(fact.extensions["semantic_source"] == "deterministic" for fact in result.canonical_facts)
+    assert all(
+        fact.extensions["semantic_source"] == "deterministic"
+        for fact in result.canonical_facts
+    )
 
 
-def test_balance_sheet_english_attributable_equity_survives_to_candidate_facts() -> None:
+def test_balance_sheet_english_attributable_equity_survives_to_candidate_facts() -> (
+    None
+):
     semantics = normalize_table_semantics(
         ParsedTable(
             table_id="table-balance-equity-en",
@@ -2097,7 +2318,9 @@ def test_balance_sheet_english_attributable_equity_survives_to_candidate_facts()
     assert len(candidate_facts) == 1
     candidate = candidate_facts[0]
     assert candidate["metric_id"] == "equity_attributable_to_owners"
-    assert candidate["metric_label_raw"] == "Equity attributable to owners of the parent"
+    assert (
+        candidate["metric_label_raw"] == "Equity attributable to owners of the parent"
+    )
     assert candidate["extensions"]["statement_scope_guess"] == "consolidated"
 
 
@@ -2238,7 +2461,9 @@ def test_table_candidate_facts_do_not_fabricate_market_default_currency() -> Non
 
     assert candidate_facts[0]["currency"] == "unknown"
     assert candidate_facts[0]["raw_unit"] == "unknown"
-    assert candidate_facts[0]["extensions"]["currency_semantic_source"] == "deterministic"
+    assert (
+        candidate_facts[0]["extensions"]["currency_semantic_source"] == "deterministic"
+    )
 
 
 def test_evidence_repository_round_trips_bundle_through_links() -> None:
@@ -2317,9 +2542,7 @@ def test_evidence_repository_rejects_linking_items_to_missing_bundles() -> None:
     except ValueError as exc:
         assert "missing-bundle" in str(exc)
     else:
-        raise AssertionError(
-            "link_evidence_bundle_item should reject missing bundles"
-        )
+        raise AssertionError("link_evidence_bundle_item should reject missing bundles")
 
 
 def test_evidence_repository_rejects_missing_linked_items_on_read() -> None:
@@ -2345,6 +2568,7 @@ def test_evidence_repository_rejects_missing_linked_items_on_read() -> None:
         assert "missing linked evidence item" in str(exc)
     else:
         raise AssertionError("get_evidence_bundle should reject missing linked items")
+
 
 def test_pdf_ingestion_adapter_extracts_revenue_candidate_from_text(
     monkeypatch,
