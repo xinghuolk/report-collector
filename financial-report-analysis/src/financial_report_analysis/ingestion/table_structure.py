@@ -23,6 +23,9 @@ _HK_ANNUAL_DATE_PATTERN = re.compile(
     r"\d{1,2}\s+[A-Za-z]+\s+20\d{2}",
     re.IGNORECASE,
 )
+_CN_POINT_IN_TIME_DATE_PATTERN = re.compile(
+    r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"
+)
 
 
 class PdfTableStructureAdapter:
@@ -62,6 +65,14 @@ class PdfTableStructureAdapter:
         title_text = self._infer_table_title(block, market=market)
         table_kind = classify_table_kind(title_text, market=market)
         if table_kind == "unknown":
+            continuation_title = self._infer_statement_continuation_title(
+                block=block,
+                market=market,
+            )
+            if continuation_title is not None:
+                title_text = continuation_title
+                table_kind = classify_table_kind(title_text, market=market)
+        if table_kind == "unknown":
             return None
 
         recovered_rows, semantic_ambiguity_reason = self._recover_rows_for_statement_block(
@@ -99,6 +110,7 @@ class PdfTableStructureAdapter:
             table_currency=detect_table_currency(local_context, market=market),
             period_columns=self._parse_period_columns(
                 title_text=title_text,
+                table_kind=table_kind,
                 header_rows=header_rows,
                 market=market,
                 rows=recovered_rows,
@@ -298,6 +310,7 @@ class PdfTableStructureAdapter:
         self,
         *,
         title_text: str,
+        table_kind: str,
         header_rows: list[list[str]],
         market: str | None,
         rows: list[list[str]],
@@ -307,9 +320,269 @@ class PdfTableStructureAdapter:
             header_rows=header_rows,
             market=market,
         )
+        if market == "CN" and table_kind == "balance_sheet":
+            if parsed_columns:
+                for column in parsed_columns:
+                    column.value_time_shape = "point"
+                return parsed_columns
+            fallback_columns = self._fallback_cn_balance_sheet_period_columns(
+                header_rows=header_rows,
+            )
+            if fallback_columns:
+                return fallback_columns
         if parsed_columns or market != "HK":
             return parsed_columns
         return self._fallback_hk_period_columns(rows)
+
+    def _infer_statement_continuation_title(
+        self,
+        *,
+        block: RawTableBlock,
+        market: str | None,
+    ) -> str | None:
+        header_start_index, header_rows = self._select_continuation_header_rows(block.rows)
+        if not header_rows:
+            return None
+        if self._looks_like_numbered_section_heading(
+            local_context=block.local_context,
+            page_text=block.page_text,
+        ) and not self._has_explicit_continuation_marker(
+            local_context=block.local_context,
+            page_text=block.page_text,
+        ):
+            return None
+
+        body_rows = block.rows[header_start_index + len(header_rows) :]
+        body_text = "\n".join(
+            " ".join(cell for cell in row if cell).strip()
+            for row in body_rows
+            if any(cell.strip() for cell in row)
+        )
+        if not body_text:
+            return None
+
+        table_kind = self._statement_kind_from_continuation_body(body_text)
+        if table_kind is None:
+            return None
+
+        parsed_columns = parse_header_rows(
+            title_text="",
+            header_rows=header_rows,
+            market=market,
+        )
+        if not parsed_columns and not (
+            market == "CN"
+            and table_kind == "balance_sheet"
+            and self._fallback_cn_balance_sheet_period_columns(
+                header_rows=header_rows,
+            )
+        ):
+            return None
+
+        return self._continuation_title_for_kind(table_kind, market=market)
+
+    @staticmethod
+    def _select_continuation_header_rows(
+        rows: list[list[str]],
+    ) -> tuple[int, list[list[str]]]:
+        for index, row in enumerate(rows[:2]):
+            if PdfTableStructureAdapter._looks_like_continuation_header_row(row):
+                return index, [row]
+        return 0, []
+
+    @staticmethod
+    def _looks_like_continuation_header_row(row: list[str]) -> bool:
+        non_empty = [cell.strip() for cell in row if cell.strip()]
+        if len(non_empty) < 3:
+            return False
+
+        period_like_cells = sum(
+            1
+            for cell in non_empty
+            if PdfTableStructureAdapter._looks_like_period_header_cell(cell)
+        )
+        if period_like_cells >= 2:
+            return True
+
+        header_marker_cells = sum(
+            1
+            for cell in non_empty
+            if PdfTableStructureAdapter._looks_like_statement_header_marker(cell)
+        )
+        return period_like_cells >= 1 and header_marker_cells >= 1
+
+    @staticmethod
+    def _looks_like_period_header_cell(cell: str) -> bool:
+        normalized = re.sub(r"\s+", " ", cell).strip().casefold()
+        return bool(
+            re.search(r"20\d{2}", normalized)
+            or "month ended" in normalized
+            or "months ended" in normalized
+            or "as at" in normalized
+            or "at " in normalized
+            or "年度" in normalized
+        )
+
+    @staticmethod
+    def _looks_like_statement_header_marker(cell: str) -> bool:
+        normalized = re.sub(r"\s+", "", cell).casefold()
+        return normalized in {"项目", "附注", "item", "items", "note", "notes"}
+
+    @staticmethod
+    def _has_explicit_continuation_marker(
+        *,
+        local_context: str,
+        page_text: str,
+    ) -> bool:
+        candidate_lines = [
+            line.strip()
+            for line in "\n".join((local_context, page_text)).splitlines()
+            if line.strip()
+        ]
+        marker_pattern = re.compile(r"(（续）|续表|\(continued\)|continued)$", re.IGNORECASE)
+        return any(marker_pattern.search(line) for line in candidate_lines[:6])
+
+    @staticmethod
+    def _looks_like_numbered_section_heading(
+        *,
+        local_context: str,
+        page_text: str,
+    ) -> bool:
+        first_line = next(
+            (
+                line.strip()
+                for line in (local_context or page_text).splitlines()
+                if line.strip()
+            ),
+            "",
+        )
+        return bool(
+            re.match(r"^\d+\s*[.、．)]", first_line)
+            or re.match(r"^[IVXLCDM]+\.\s+", first_line)
+        )
+
+    @staticmethod
+    def _continuation_title_for_kind(
+        table_kind: str,
+        *,
+        market: str | None,
+    ) -> str | None:
+        if market == "CN":
+            return {
+                "income_statement": "利润表（续）",
+                "balance_sheet": "资产负债表（续）",
+                "cash_flow_statement": "现金流量表（续）",
+            }.get(table_kind)
+
+        return {
+            "income_statement": "Statement of Income (continued)",
+            "balance_sheet": "Balance Sheet (continued)",
+            "cash_flow_statement": "Statement of Cash Flows (continued)",
+        }.get(table_kind)
+
+    @staticmethod
+    def _statement_kind_from_continuation_body(body_text: str) -> str | None:
+        normalized_body = re.sub(r"\s+", "", body_text).casefold()
+        if PdfTableStructureAdapter._has_balance_sheet_continuation_signals(
+            normalized_body
+        ):
+            return "balance_sheet"
+
+        income_statement_matches = sum(
+            token in normalized_body
+            for token in (
+                "营业收入",
+                "营业成本",
+                "净利润",
+                "财务费用",
+                "其他收益",
+                "投资收益",
+                "公允价值变动收益",
+                "信用减值损失",
+                "资产减值损失",
+                "basicearningspershare",
+                "revenue",
+                "financecosts",
+                "otherincome",
+                "investmentincome",
+                "fairvaluegains",
+                "creditimpairmentlosses",
+                "assetimpairmentlosses",
+                "operatingprofit",
+                "profitfortheyear",
+            )
+        )
+        if income_statement_matches >= 2:
+            return "income_statement"
+
+        cash_flow_matches = sum(
+            token in normalized_body
+            for token in (
+                "经营活动产生的现金流量净额",
+                "投资活动产生的现金流量净额",
+                "筹资活动产生的现金流量净额",
+                "现金及现金等价物净增加额",
+                "netcashgeneratedfromoperatingactivities",
+                "netcashusedininvestingactivities",
+                "netcashgeneratedfromfinancingactivities",
+                "cashandcashequivalents",
+            )
+        )
+        if cash_flow_matches >= 2:
+            return "cash_flow_statement"
+
+        return None
+
+    @staticmethod
+    def _fallback_cn_balance_sheet_period_columns(
+        *,
+        header_rows: list[list[str]],
+    ) -> list[ParsedColumn]:
+        columns: list[ParsedColumn] = []
+        seen_period_ids: set[str] = set()
+        for row in header_rows:
+            for column_index, cell in enumerate(row):
+                period_id = PdfTableStructureAdapter._cn_balance_sheet_period_id_from_date(
+                    cell
+                )
+                if period_id is None or period_id in seen_period_ids:
+                    continue
+                seen_period_ids.add(period_id)
+                columns.append(
+                    ParsedColumn(
+                        column_id=f"column-{column_index}",
+                        column_index=column_index,
+                        header_text=cell,
+                        period_id=period_id,
+                        value_time_shape="point",
+                        comparison_axis="current" if not columns else "prior",
+                        is_current=not columns,
+                        is_comparison=bool(columns),
+                    )
+                )
+        return columns
+
+    @staticmethod
+    def _has_balance_sheet_continuation_signals(normalized_body: str) -> bool:
+        tail_markers = (
+            "非流动资产合计",
+            "资产总计",
+            "负债合计",
+            "totalassets",
+            "totalliabilities",
+        )
+        next_section_markers = (
+            "流动负债",
+            "非流动负债",
+            "所有者权益",
+            "股东权益",
+            "currentliabilities",
+            "non-currentliabilities",
+            "equityattributable",
+        )
+        return any(token in normalized_body for token in tail_markers) and any(
+            token in normalized_body for token in next_section_markers
+        )
 
     @staticmethod
     def _fallback_hk_period_columns(rows: list[list[str]]) -> list[ParsedColumn]:
@@ -352,6 +625,17 @@ class PdfTableStructureAdapter:
         if quarter is None:
             return None
         return f"{year}{quarter}"
+
+    @staticmethod
+    def _cn_balance_sheet_period_id_from_date(raw_text: str) -> str | None:
+        match = _CN_POINT_IN_TIME_DATE_PATTERN.search(raw_text)
+        if match is None:
+            return None
+        month = int(match.group(2))
+        day = int(match.group(3))
+        if (month, day) != (12, 31):
+            return None
+        return f"{match.group(1)}FY"
 
     @staticmethod
     def _document_id(pdf_path: str | None, pdf_url: str | None) -> str:

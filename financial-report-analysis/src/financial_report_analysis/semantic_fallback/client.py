@@ -4,6 +4,8 @@ from typing import Protocol
 
 from financial_report_analysis.semantic_fallback.models import (
     CurrencyFallbackRequest,
+    DisclosureLocatorRequest,
+    DisclosureLocatorResult,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     TableKindFallbackRequest,
@@ -31,3 +33,8 @@ class SemanticFallbackClient(Protocol):
         self,
         request: UnitFallbackRequest,
     ) -> SemanticFallbackResult: ...
+
+    def locate_disclosure_metric(
+        self,
+        request: DisclosureLocatorRequest,
+    ) -> DisclosureLocatorResult: ...

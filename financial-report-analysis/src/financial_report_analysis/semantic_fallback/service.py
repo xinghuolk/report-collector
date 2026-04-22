@@ -7,11 +7,14 @@ import threading
 from financial_report_analysis.semantic_fallback.client import SemanticFallbackClient
 from financial_report_analysis.semantic_fallback.models import (
     CurrencyFallbackRequest,
+    DisclosureLocatorRequest,
+    DisclosureLocatorResult,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     TableKindFallbackRequest,
     UnitFallbackRequest,
     supported_currency_outputs,
+    supported_disclosure_metric_outputs,
     supported_row_label_outputs,
     supported_table_kind_outputs,
     supported_unit_outputs,
@@ -81,6 +84,47 @@ class SemanticFallbackService:
             invoke_client=self._client.interpret_unit if self._client is not None else None,
         )
 
+    def locate_disclosure_metric(
+        self,
+        request: DisclosureLocatorRequest,
+    ) -> DisclosureLocatorResult:
+        if self._client is None or not request.ambiguity_reason:
+            return DisclosureLocatorResult(
+                metric_id="none",
+                matched_label="",
+                source_text_span="",
+                semantic_source="deterministic",
+                semantic_confidence=None,
+                fallback_reason=None,
+            )
+        try:
+            with self._semaphore:
+                result = self._client.locate_disclosure_metric(request)
+        except Exception:
+            LOGGER.warning(
+                "Disclosure semantic locator failed; continuing without locator result.",
+                exc_info=True,
+            )
+            return DisclosureLocatorResult(
+                metric_id="none",
+                matched_label="",
+                source_text_span="",
+                semantic_source="deterministic",
+                semantic_confidence=None,
+                fallback_reason=None,
+            )
+        metric_id = _bounded_disclosure_metric(result.metric_id)
+        if metric_id not in request.target_metric_ids:
+            metric_id = "none"
+        return DisclosureLocatorResult(
+            metric_id=metric_id,
+            matched_label=result.matched_label if metric_id != "none" else "",
+            source_text_span=result.source_text_span if metric_id != "none" else "",
+            semantic_source=result.semantic_source,
+            semantic_confidence=result.semantic_confidence,
+            fallback_reason=result.fallback_reason,
+        )
+
     def _resolve_with_fallback(
         self,
         *,
@@ -134,7 +178,6 @@ class SemanticFallbackService:
             fallback_reason=None,
         )
 
-
 def _bounded_table_kind(value: str) -> str:
     normalized = value.strip().casefold()
     return normalized if normalized in supported_table_kind_outputs() else "unknown"
@@ -148,6 +191,12 @@ def _bounded_row_label(value: str) -> str:
 def _bounded_currency(value: str) -> str:
     normalized = value.strip().upper()
     return normalized if normalized in supported_currency_outputs() else "unknown"
+
+
+def _bounded_disclosure_metric(value: str) -> str:
+    normalized = value.strip().casefold()
+    allowed = supported_disclosure_metric_outputs()
+    return normalized if normalized in allowed else "none"
 
 
 def _bounded_unit(value: str) -> str:

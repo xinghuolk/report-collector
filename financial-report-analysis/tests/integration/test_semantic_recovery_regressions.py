@@ -34,6 +34,78 @@ def _resolve_sample(*relative_parts: str) -> Path:
     raise AssertionError(f"Sample PDF not found for {relative_parts}")
 
 
+def _candidate_labels_for_metric(
+    payload: dict[str, object],
+    metric_id: str,
+) -> set[str]:
+    return {
+        str(candidate.get("metric_label_raw", "")).casefold()
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict) and str(candidate.get("metric_id")) == metric_id
+    }
+
+
+def _extract_payload_for_pdf(pdf_path: Path, *, market: str) -> dict[str, object]:
+    return PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market=market,
+        min_confidence=None,
+    )
+
+
+def _metric_ids_from_candidates(payload: dict[str, object]) -> set[str]:
+    return {
+        str(candidate.get("metric_id"))
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict) and candidate.get("metric_id") is not None
+    }
+
+
+def _candidate_facts_for_metric(
+    payload: dict[str, object],
+    metric_id: str,
+) -> list[dict[str, object]]:
+    return [
+        candidate
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict) and str(candidate.get("metric_id")) == metric_id
+    ]
+
+
+def _assert_deterministic_balance_sheet_candidates(
+    payload: dict[str, object],
+    *,
+    metric_id: str,
+    label_prefix: str,
+    period_ids: set[str],
+    statement_scope_guess: str,
+) -> None:
+    candidates_by_period: dict[str, dict[str, object]] = {}
+    for candidate in _candidate_facts_for_metric(payload, metric_id):
+        extensions = candidate.get("extensions")
+        if not isinstance(extensions, dict):
+            continue
+        if candidate.get("extraction_method") != "table_semantics":
+            continue
+        if candidate.get("statement_type") != "balance_sheet":
+            continue
+        if extensions.get("table_kind") != "balance_sheet":
+            continue
+        if extensions.get("semantic_source") != "deterministic":
+            continue
+        if extensions.get("statement_scope_guess") != statement_scope_guess:
+            continue
+        label = str(candidate.get("metric_label_raw", "")).casefold()
+        if not label.startswith(label_prefix.casefold()):
+            continue
+        period_id = str(candidate.get("period_id"))
+        assert period_id not in candidates_by_period, metric_id
+        candidates_by_period[period_id] = candidate
+
+    assert set(candidates_by_period) == period_ids
+
+
 def _ollama_model_available(*, base_url: str, model: str) -> bool:
     try:
         response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=3.0)
@@ -987,6 +1059,123 @@ def test_cn_annual_601919_2025_surfaces_phase1_real_pdf_floor() -> None:
     )
     assert basic_eps.normalized_unit == "per_share_amount"
     assert basic_eps.extensions["value_type"] == "per_share"
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_cn_601919_2025_surfaces_p2a_working_capital_candidates() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="CN")
+
+    for metric_id, label_prefix in (
+        ("accounts_receiv", "应收账款"),
+        ("notes_receiv", "应收票据"),
+        ("oth_receiv", "其他应收款"),
+        ("acct_payable", "应付账款"),
+        ("notes_payable", "应付票据"),
+    ):
+        _assert_deterministic_balance_sheet_candidates(
+            payload,
+            metric_id=metric_id,
+            label_prefix=label_prefix,
+            period_ids={"2024FY", "2025FY"},
+            statement_scope_guess="consolidated",
+        )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_surfaces_p2a_statement_row_candidates() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+
+    for metric_id, label_prefix, period_ids in (
+        ("accounts_receiv", "accounts receivable", {"2021FY", "2022FY"}),
+        ("notes_receiv", "notes receivable", {"2021FY", "2022FY"}),
+        ("oth_receiv", "other receivables", {"2021FY", "2022FY"}),
+        ("contract_liab", "contract liabilities", {"2021FY", "2022FY"}),
+        ("adv_receipts", "payments received in advance", {"2022FY"}),
+        ("acct_payable", "accounts payable", {"2021FY", "2022FY"}),
+        ("notes_payable", "notes payable", {"2021FY", "2022FY"}),
+    ):
+        _assert_deterministic_balance_sheet_candidates(
+            payload,
+            metric_id=metric_id,
+            label_prefix=label_prefix,
+            period_ids=period_ids,
+            statement_scope_guess="consolidated",
+        )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_does_not_promote_p2a_negative_control_rows() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+
+    assert "accounts receivable financing" not in _candidate_labels_for_metric(
+        payload,
+        "accounts_receiv",
+    )
+    assert "long-term receivables" not in _candidate_labels_for_metric(
+        payload,
+        "oth_receiv",
+    )
+    assert "bonds payable" not in _candidate_labels_for_metric(
+        payload,
+        "notes_payable",
+    )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_surfaces_p2a_note_disclosure_candidates_without_hallucination() -> (
+    None
+):
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    metric_ids = _metric_ids_from_candidates(payload)
+
+    assert {"accounts_receiv", "acct_payable", "contract_liab"}.issubset(metric_ids)
+    assert "notes_receiv" not in metric_ids
+    assert "notes_payable" not in metric_ids
+    missing_status = payload.get("document_metadata", {}).get(
+        "working_capital_missing_status",
+        {},
+    )
+    assert missing_status["notes_receiv"] == "absent"
+    assert missing_status["notes_payable"] == "absent"
+    assert missing_status["adv_receipts"] == "not_surfaced"
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_note_disclosure_candidates_keep_note_provenance() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    p2a_candidates = [
+        candidate
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict)
+        and candidate.get("metric_id")
+        in {"accounts_receiv", "acct_payable", "contract_liab"}
+    ]
+
+    assert p2a_candidates
+    assert any(
+        candidate.get("extraction_method") == "note_disclosure"
+        for candidate in p2a_candidates
+    )
+    assert all(
+        candidate.get("extensions", {}).get("semantic_source")
+        in {"deterministic", "llm_fallback"}
+        for candidate in p2a_candidates
+    )
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,10 @@
 from financial_report_analysis.semantic_fallback import (
+    DisclosureLocatorRequest,
+    DisclosureLocatorResult,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     TableKindFallbackRequest,
+    supported_disclosure_metric_outputs,
     supported_row_label_outputs,
     supported_table_kind_outputs,
 )
@@ -47,3 +50,30 @@ def test_semantic_fallback_request_and_result_shapes_are_stable() -> None:
     assert table_request.ambiguity_reason == "weak_title_match"
     assert row_request.raw_label == "Profit for the period"
     assert result.semantic_source == "llm_fallback"
+
+
+def test_disclosure_locator_supported_outputs_are_p2a_bounded() -> None:
+    assert supported_disclosure_metric_outputs() == (
+        "accounts_receiv",
+        "notes_receiv",
+        "oth_receiv",
+        "contract_liab",
+        "adv_receipts",
+        "acct_payable",
+        "notes_payable",
+        "none",
+    )
+
+
+def test_disclosure_locator_result_carries_span_and_provenance() -> None:
+    result = DisclosureLocatorResult(
+        metric_id="acct_payable",
+        matched_label="Accounts payable",
+        source_text_span="Accounts payable $ 801 $ 786",
+        semantic_source="llm_fallback",
+        semantic_confidence=0.91,
+        fallback_reason="missing_statement_row",
+    )
+
+    assert result.metric_id == "acct_payable"
+    assert result.source_text_span.startswith("Accounts payable")

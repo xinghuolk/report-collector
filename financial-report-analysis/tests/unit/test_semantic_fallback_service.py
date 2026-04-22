@@ -5,6 +5,8 @@ import time
 
 from financial_report_analysis.semantic_fallback import (
     CurrencyFallbackRequest,
+    DisclosureLocatorRequest,
+    DisclosureLocatorResult,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     SemanticFallbackService,
@@ -53,6 +55,25 @@ class _StubFallbackClient:
             value="million",
             semantic_source="llm_fallback",
             semantic_confidence=0.69,
+            fallback_reason=request.ambiguity_reason,
+        )
+
+
+class _DisclosureLocatorClient(_StubFallbackClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.disclosure_locator_calls = 0
+
+    def locate_disclosure_metric(
+        self, request: DisclosureLocatorRequest
+    ) -> DisclosureLocatorResult:
+        self.disclosure_locator_calls += 1
+        return DisclosureLocatorResult(
+            metric_id="acct_payable",
+            matched_label="Accounts payable",
+            source_text_span="Accounts payable $ 801 $ 786",
+            semantic_source="llm_fallback",
+            semantic_confidence=0.9,
             fallback_reason=request.ambiguity_reason,
         )
 
@@ -130,6 +151,66 @@ def test_semantic_fallback_service_does_not_run_unit_without_ambiguity() -> None
     assert result.semantic_source == "deterministic"
     assert result.value == "million"
     assert client.unit_calls == 0
+
+
+def test_semantic_fallback_service_locates_disclosure_metric_when_gated() -> None:
+    client = _DisclosureLocatorClient()
+    service = SemanticFallbackService(client=client)
+
+    result = service.locate_disclosure_metric(
+        DisclosureLocatorRequest(
+            target_metric_ids=("acct_payable", "contract_liab"),
+            local_context="Accounts payable $ 801 $ 786",
+            deterministic_candidates=(),
+            ambiguity_reason="missing_statement_row",
+        )
+    )
+
+    assert client.disclosure_locator_calls == 1
+    assert result.metric_id == "acct_payable"
+    assert result.semantic_source == "llm_fallback"
+    assert result.source_text_span == "Accounts payable $ 801 $ 786"
+
+
+def test_semantic_fallback_service_does_not_locate_disclosure_without_gate() -> None:
+    client = _DisclosureLocatorClient()
+    service = SemanticFallbackService(client=client)
+
+    result = service.locate_disclosure_metric(
+        DisclosureLocatorRequest(
+            target_metric_ids=("acct_payable",),
+            local_context="Accounts payable $ 801 $ 786",
+            deterministic_candidates=(),
+            ambiguity_reason=None,
+        )
+    )
+
+    assert client.disclosure_locator_calls == 0
+    assert result.semantic_source == "deterministic"
+    assert result.metric_id == "none"
+    assert result.semantic_confidence is None
+    assert result.fallback_reason is None
+    assert result.matched_label == ""
+    assert result.source_text_span == ""
+
+
+def test_semantic_fallback_service_bounds_disclosure_metric_to_requested_subset() -> None:
+    client = _DisclosureLocatorClient()
+    service = SemanticFallbackService(client=client)
+
+    result = service.locate_disclosure_metric(
+        DisclosureLocatorRequest(
+            target_metric_ids=("contract_liab",),
+            local_context="Accounts payable $ 801 $ 786",
+            deterministic_candidates=(),
+            ambiguity_reason="missing_statement_row",
+        )
+    )
+
+    assert client.disclosure_locator_calls == 1
+    assert result.metric_id == "none"
+    assert result.matched_label == ""
+    assert result.source_text_span == ""
 
 
 class _TimeoutFallbackClient(_StubFallbackClient):

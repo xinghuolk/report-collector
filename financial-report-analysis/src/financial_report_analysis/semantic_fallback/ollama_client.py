@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import math
 
 import httpx
 
 from financial_report_analysis.semantic_fallback.models import (
     CurrencyFallbackRequest,
+    DisclosureLocatorRequest,
+    DisclosureLocatorResult,
     RowLabelFallbackRequest,
     SemanticFallbackResult,
     TableKindFallbackRequest,
     UnitFallbackRequest,
     supported_currency_outputs,
+    supported_disclosure_metric_outputs,
     supported_row_label_outputs,
     supported_table_kind_outputs,
     supported_unit_outputs,
@@ -169,6 +173,47 @@ class OllamaSemanticFallbackClient:
             fallback_reason=request.ambiguity_reason,
         )
 
+    def locate_disclosure_metric(
+        self,
+        request: DisclosureLocatorRequest,
+    ) -> DisclosureLocatorResult:
+        prompt = (
+            "You are locating working-capital disclosure rows in a financial report. "
+            "Choose exactly one metric_id from this set: "
+            f"{', '.join(supported_disclosure_metric_outputs())}.\n"
+            "Return none if the text does not independently disclose the target metric.\n"
+            "Do not infer missing notes receivable or notes payable from aggregate rows.\n"
+            "Allowed meanings:\n"
+            "- accounts_receiv: accounts receivable or accounts receivable, net\n"
+            "- notes_receiv: notes receivable only\n"
+            "- oth_receiv: other receivables only\n"
+            "- contract_liab: contract liabilities or contract liability\n"
+            "- adv_receipts: payments received in advance or advances from customers\n"
+            "- acct_payable: accounts payable only\n"
+            "- notes_payable: notes payable only\n"
+            "Negative controls: accounts payable and other current liabilities aggregate, "
+            "bonds payable, taxes payable, employee compensation payable, long-term receivables.\n"
+            f"Target metric ids: {', '.join(request.target_metric_ids)}\n"
+            f"Context: {request.local_context}\n"
+            f"Deterministic candidates: {', '.join(request.deterministic_candidates) or 'none'}\n"
+            'Return exactly JSON like {"metric_id":"acct_payable","matched_label":"Accounts payable","source_text_span":"Accounts payable $ 801 $ 786","confidence":0.95}.'
+        )
+        payload = self._invoke(prompt)
+        metric_id = _normalize_choice(
+            payload.get("metric_id", payload.get("value", "")),
+            allowed=supported_disclosure_metric_outputs(),
+            default="none",
+        )
+        confidence = _parse_confidence(payload.get("confidence"))
+        return DisclosureLocatorResult(
+            metric_id=metric_id,
+            matched_label=str(payload.get("matched_label", "")),
+            source_text_span=str(payload.get("source_text_span", "")),
+            semantic_source="llm_fallback",
+            semantic_confidence=confidence,
+            fallback_reason=request.ambiguity_reason,
+        )
+
     def _invoke(self, prompt: str) -> dict[str, object]:
         response = httpx.post(
             f"{self._base_url}/api/generate",
@@ -213,6 +258,11 @@ def _parse_confidence(value: object) -> float | None:
     if value is None:
         return None
     try:
-        return float(value)
+        confidence = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(confidence):
+        return None
+    if confidence < 0.0 or confidence > 1.0:
+        return None
+    return confidence

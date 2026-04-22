@@ -41,6 +41,17 @@ _CURRENCY_OUTPUTS = (
     "unknown",
 )
 
+_DISCLOSURE_METRIC_OUTPUTS = (
+    "accounts_receiv",
+    "notes_receiv",
+    "oth_receiv",
+    "contract_liab",
+    "adv_receipts",
+    "acct_payable",
+    "notes_payable",
+    "none",
+)
+
 _UNIT_OUTPUTS = (
     "yuan",
     "thousand",
@@ -85,8 +96,26 @@ class UnitFallbackRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class DisclosureLocatorRequest:
+    target_metric_ids: tuple[str, ...]
+    local_context: str
+    deterministic_candidates: tuple[str, ...]
+    ambiguity_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticFallbackResult:
     value: str
+    semantic_source: str
+    semantic_confidence: float | None
+    fallback_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DisclosureLocatorResult:
+    metric_id: str
+    matched_label: str
+    source_text_span: str
     semantic_source: str
     semantic_confidence: float | None
     fallback_reason: str | None
@@ -102,6 +131,10 @@ def supported_row_label_outputs() -> tuple[str, ...]:
 
 def supported_currency_outputs() -> tuple[str, ...]:
     return _CURRENCY_OUTPUTS
+
+
+def supported_disclosure_metric_outputs() -> tuple[str, ...]:
+    return _DISCLOSURE_METRIC_OUTPUTS
 
 
 def supported_unit_outputs() -> tuple[str, ...]:

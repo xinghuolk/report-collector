@@ -9,6 +9,9 @@ from typing import Any
 import httpx
 from pypdf import PdfReader
 
+from financial_report_analysis.ingestion.note_disclosure import (
+    build_working_capital_note_candidate_facts,
+)
 from financial_report_analysis.ingestion.table_semantics import (
     normalize_table_semantics,
 )
@@ -162,7 +165,8 @@ class PdfIngestionAdapter:
         document_id = pdf_path or pdf_url or "unknown-document"
         self._semantic_fallback_call_counts = self._new_semantic_fallback_call_counts()
         self._semantic_fallback_budget_exhausted = False
-        text = self._extract_text(pdf_path=pdf_path, pdf_url=pdf_url)
+        text_pages = self._extract_text_pages(pdf_path=pdf_path, pdf_url=pdf_url)
+        text = "\n".join(page_text for _, page_text in text_pages)
         parsed_tables = self._extract_parsed_tables(
             pdf_path=pdf_path,
             pdf_url=pdf_url,
@@ -191,6 +195,22 @@ class PdfIngestionAdapter:
             market=market or "CN",
         )
         candidate_facts = self._prefer_main_income_statement_facts(candidate_facts)
+        existing_metric_ids = {
+            str(candidate.get("metric_id"))
+            for candidate in candidate_facts
+            if candidate.get("metric_id") is not None
+        }
+        note_candidates, working_capital_missing_status = (
+            build_working_capital_note_candidate_facts(
+                pages=text_pages,
+                document_id=document_id,
+                period_id=period_id,
+                market=market or "CN",
+                existing_metric_ids=existing_metric_ids,
+                semantic_fallback_service=self._semantic_fallback_service,
+            )
+        )
+        candidate_facts.extend(note_candidates)
         if not candidate_facts:
             revenue_fact = self._extract_revenue_fact_from_text(
                 document_id=document_id,
@@ -222,24 +242,45 @@ class PdfIngestionAdapter:
                 "semantic_fallback_budget_exhausted": (
                     self._semantic_fallback_budget_exhausted
                 ),
+                "working_capital_missing_status": working_capital_missing_status,
             },
         }
 
-    def _extract_text(self, *, pdf_path: str | None, pdf_url: str | None) -> str:
+    def _extract_text_pages(
+        self,
+        *,
+        pdf_path: str | None,
+        pdf_url: str | None,
+    ) -> list[tuple[int, str]]:
         if pdf_path:
             path = Path(pdf_path)
             if not path.exists():
                 raise PdfIngestionInputError("pdf_path does not exist")
             reader = PdfReader(str(path))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
+            return [
+                (page_index + 1, page.extract_text() or "")
+                for page_index, page in enumerate(reader.pages)
+            ]
 
         if pdf_url:
             response = httpx.get(pdf_url, timeout=30.0)
             response.raise_for_status()
             reader = PdfReader(BytesIO(response.content))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
+            return [
+                (page_index + 1, page.extract_text() or "")
+                for page_index, page in enumerate(reader.pages)
+            ]
 
-        return ""
+        return []
+
+    def _extract_text(self, *, pdf_path: str | None, pdf_url: str | None) -> str:
+        return "\n".join(
+            page_text
+            for _, page_text in self._extract_text_pages(
+                pdf_path=pdf_path,
+                pdf_url=pdf_url,
+            )
+        )
 
     def _extract_parsed_tables(
         self,

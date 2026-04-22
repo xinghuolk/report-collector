@@ -9,6 +9,7 @@ from financial_report_analysis.semantic_fallback.ollama_client import (
 )
 from financial_report_analysis.semantic_fallback.models import (
     CurrencyFallbackRequest,
+    DisclosureLocatorRequest,
     RowLabelFallbackRequest,
     TableKindFallbackRequest,
     UnitFallbackRequest,
@@ -265,3 +266,36 @@ def test_ollama_client_bounds_invalid_unit_output_to_unknown(monkeypatch) -> Non
     assert result.value == "unknown"
     assert result.semantic_source == "llm_fallback"
     assert result.semantic_confidence == 0.57
+
+
+def test_ollama_client_parses_disclosure_locator_response(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> _FakeResponse:
+        captured["json"] = json
+        del url, timeout
+        return _FakeResponse(
+            {
+                "response": '{"metric_id": "acct_payable", "matched_label": "Accounts payable", "source_text_span": "Accounts payable $ 801 $ 786", "confidence": 0.95}'
+            }
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = OllamaSemanticFallbackClient()
+    result = client.locate_disclosure_metric(
+        DisclosureLocatorRequest(
+            target_metric_ids=("acct_payable", "contract_liab"),
+            local_context="Accounts payable $ 801 $ 786",
+            deterministic_candidates=(),
+            ambiguity_reason="missing_statement_row",
+        )
+    )
+
+    prompt = str(captured["json"]["prompt"])
+    assert "Target metric ids: acct_payable, contract_liab" in prompt
+    assert "Do not infer missing notes receivable or notes payable" in prompt
+    assert result.metric_id == "acct_payable"
+    assert result.matched_label == "Accounts payable"
+    assert result.source_text_span == "Accounts payable $ 801 $ 786"
+    assert result.semantic_confidence == 0.95
