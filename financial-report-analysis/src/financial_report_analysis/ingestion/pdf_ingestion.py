@@ -10,6 +10,7 @@ import httpx
 from pypdf import PdfReader
 
 from financial_report_analysis.ingestion.note_disclosure import (
+    build_debt_note_candidate_facts,
     build_working_capital_note_candidate_facts,
 )
 from financial_report_analysis.ingestion.table_semantics import (
@@ -39,6 +40,12 @@ class PdfIngestionInputError(ValueError):
 
 class PdfIngestionAdapter:
     _max_row_label_fallback_calls_per_document = 20
+    _DEBT_NOTE_TITLE_PATTERN = re.compile(
+        r"(?is)\bNote\s+\d+\b[^\n]{0,160}\b(?:credit\s+facilities\s+and\s+short-term\s+borrowings|borrowings)\b"
+    )
+    _SHORT_TERM_BORROWINGS_SENTENCE_PATTERN = re.compile(
+        r"(?is)outstanding\s+short-term(?:\s+bank)?\s+borrowings\s+of\s+\$?\s*([0-9][0-9,]*(?:\.\d+)?)\s+million\s+and\s+\$?\s*([0-9][0-9,]*(?:\.\d+)?)\s+million"
+    )
     _INCOME_STATEMENT_CORE_METRICS: tuple[str, ...] = (
         "revenue",
         "operating_cost",
@@ -211,6 +218,19 @@ class PdfIngestionAdapter:
             )
         )
         candidate_facts.extend(note_candidates)
+        existing_metric_ids.update(
+            str(candidate.get("metric_id"))
+            for candidate in note_candidates
+            if candidate.get("metric_id") is not None
+        )
+        debt_note_candidates, debt_missing_status = build_debt_note_candidate_facts(
+            pages=self._debt_note_search_pages(text_pages, period_id=period_id),
+            document_id=document_id,
+            period_id=period_id,
+            market=market or "CN",
+            existing_metric_ids=existing_metric_ids,
+        )
+        candidate_facts.extend(debt_note_candidates)
         if not candidate_facts:
             revenue_fact = self._extract_revenue_fact_from_text(
                 document_id=document_id,
@@ -243,6 +263,7 @@ class PdfIngestionAdapter:
                     self._semantic_fallback_budget_exhausted
                 ),
                 "working_capital_missing_status": working_capital_missing_status,
+                "debt_missing_status": debt_missing_status,
             },
         }
 
@@ -487,6 +508,96 @@ class PdfIngestionAdapter:
             return f"{chinese_quarter.group(1)}Q{quarter_map[chinese_quarter.group(2)]}"
 
         return None
+
+    @classmethod
+    def _debt_note_search_pages(
+        cls,
+        pages: list[tuple[int, str]],
+        *,
+        period_id: str | None,
+    ) -> list[tuple[int, str]]:
+        period_year = cls._period_year(period_id)
+        if period_year is None:
+            return pages
+
+        prior_year = str(int(period_year) - 1)
+        search_pages: list[tuple[int, str]] = []
+        for index, (page_index, page_text) in enumerate(pages):
+            next_page = pages[index + 1] if index + 1 < len(pages) else None
+            seeded_page = cls._seeded_debt_note_surface_page(
+                current_page=(page_index, page_text),
+                next_page=next_page,
+                period_year=period_year,
+                prior_year=prior_year,
+            )
+            search_pages.append((page_index, page_text))
+            if seeded_page is not None:
+                search_pages.append(seeded_page)
+        return search_pages
+
+    @classmethod
+    def _seeded_debt_note_surface_page(
+        cls,
+        *,
+        current_page: tuple[int, str],
+        next_page: tuple[int, str] | None,
+        period_year: str,
+        prior_year: str,
+    ) -> tuple[int, str] | None:
+        page_index, page_text = current_page
+        if cls._DEBT_NOTE_TITLE_PATTERN.search(page_text) is None:
+            return None
+
+        current_seed = cls._seeded_short_term_borrowings_page(
+            page_index=page_index,
+            text=page_text,
+            period_year=period_year,
+            prior_year=prior_year,
+        )
+        if current_seed is not None:
+            return current_seed
+
+        if next_page is None:
+            return None
+
+        next_page_index, next_page_text = next_page
+        return cls._seeded_short_term_borrowings_page(
+            page_index=next_page_index,
+            text=next_page_text,
+            period_year=period_year,
+            prior_year=prior_year,
+        )
+
+    @classmethod
+    def _seeded_short_term_borrowings_page(
+        cls,
+        *,
+        page_index: int,
+        text: str,
+        period_year: str,
+        prior_year: str,
+    ) -> tuple[int, str] | None:
+        match = cls._SHORT_TERM_BORROWINGS_SENTENCE_PATTERN.search(text)
+        if match is None:
+            return None
+        return (
+            page_index,
+            "\n".join(
+                (
+                    f"Borrowings {period_year} {prior_year}",
+                    f"Short-term borrowings {match.group(1)} {match.group(2)}",
+                )
+            ),
+        )
+
+    @staticmethod
+    def _period_year(period_id: str | None) -> str | None:
+        if period_id is None:
+            return None
+        match = re.match(r"(20\d{2})", period_id)
+        if match is None:
+            return None
+        return match.group(1)
 
     @staticmethod
     def _detect_language(text: str, market: str | None) -> str:

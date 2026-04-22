@@ -13,7 +13,12 @@ from financial_report_analysis.ingestion import (
     PdfTableStructureAdapter,
     normalize_table_semantics,
 )
-from financial_report_analysis.models import ParsedRow, ParsedTable
+from financial_report_analysis.models import (
+    ParsedCell,
+    ParsedColumn,
+    ParsedRow,
+    ParsedTable,
+)
 from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.semantic_fallback import (
     SemanticFallbackSettings,
@@ -1238,6 +1243,142 @@ def test_hk_09987_2025_note_disclosure_candidates_keep_note_provenance() -> None
         in {"deterministic", "llm_fallback"}
         for candidate in p2a_candidates
     )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    debt_metric_ids = {
+        "st_borr",
+        "lt_borr",
+        "bond_payable",
+        "non_cur_liab_due_1y",
+    }
+    debt_candidates = [
+        candidate
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict)
+        and candidate.get("metric_id") in debt_metric_ids
+    ]
+
+    assert debt_candidates
+    assert {candidate["metric_id"] for candidate in debt_candidates} == {"st_borr"}
+    assert len(debt_candidates) == 1
+    candidate = debt_candidates[0]
+    assert candidate["metric_label_raw"].casefold().startswith("short-term borrowings")
+    assert candidate["extraction_method"] == "note_disclosure"
+    assert candidate["extensions"]["table_kind"] == "note_disclosure"
+    assert candidate["extensions"]["semantic_source"] in {
+        "deterministic",
+        "llm_fallback",
+    }
+    missing_status = payload.get("document_metadata", {}).get("debt_missing_status", {})
+    assert missing_status == {
+        "st_borr": "present",
+        "lt_borr": "absent",
+        "bond_payable": "absent",
+        "non_cur_liab_due_1y": "absent",
+    }
+
+
+def test_hk_09987_debt_note_disclosure_supplement_preserves_statement_row_precedence(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    debt_statement = ParsedTable(
+        table_id="doc:parsed-table:balance-sheet",
+        document_id="doc",
+        page_range=(42, 42),
+        table_kind="balance_sheet",
+        title_text="Consolidated Statement of Financial Position",
+        statement_scope_guess="consolidated",
+        header_rows=[["Item", "2025"]],
+        body_rows=[
+            ParsedRow(
+                row_id="row-st-borr",
+                row_index=1,
+                label_raw="Short-term borrowings",
+                normalized_label_hint="short-term borrowings",
+                value_cells=[
+                    ParsedCell(
+                        row_index=1,
+                        column_index=1,
+                        text_raw="500",
+                        numeric_value=500.0,
+                        page_index=42,
+                    )
+                ],
+            )
+        ],
+        table_unit="million",
+        table_currency="HKD",
+        period_columns=[
+            ParsedColumn(
+                column_id="column-current",
+                column_index=1,
+                header_text="2025",
+                period_id="2025FY",
+                value_time_shape="point_in_time",
+                comparison_axis="current",
+                is_current=True,
+            )
+        ],
+        comparison_columns=[],
+        source_blocks=[],
+    )
+
+    monkeypatch.setattr(
+        PdfTableStructureAdapter,
+        "extract_tables",
+        lambda self, **kwargs: [debt_statement],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text_pages",
+        lambda self, **kwargs: [
+            (153, "Note 9 - Credit Facilities and Short-term Borrowings"),
+            (
+                154,
+                "\n".join(
+                    [
+                        (
+                            "As of December 31, 2025 and 2024, we had outstanding "
+                            "short-term bank borrowings of $127 million and $168 "
+                            "million, respectively."
+                        ),
+                        "Long-term borrowings 560 600",
+                    ]
+                ),
+            ),
+        ],
+    )
+
+    pdf_path = tmp_path / "09987-annual.pdf"
+    pdf_path.touch()
+
+    payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=None,
+    )
+
+    st_borr_candidates = _candidate_facts_for_metric(payload, "st_borr")
+    lt_borr_candidates = _candidate_facts_for_metric(payload, "lt_borr")
+
+    assert len(st_borr_candidates) == 1
+    assert st_borr_candidates[0]["extraction_method"] == "table_semantics"
+    assert st_borr_candidates[0]["numeric_value"] == 500.0
+    assert all(
+        candidate["extraction_method"] != "note_disclosure"
+        for candidate in st_borr_candidates
+    )
+    assert len(lt_borr_candidates) == 1
+    assert lt_borr_candidates[0]["extraction_method"] == "note_disclosure"
+    assert lt_borr_candidates[0]["numeric_value"] == 560.0
 
 
 @pytest.mark.parametrize(
