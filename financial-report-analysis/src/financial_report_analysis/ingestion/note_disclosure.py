@@ -23,26 +23,6 @@ _ASSET_NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
                 r"\bcontract\s+assets\b[^\n]{0,120}\b20\d{2}\b",
                 re.IGNORECASE,
             ),
-        ),
-        "metrics": (
-            {
-                "metric_id": "contract_assets",
-                "label": "Contract assets",
-                "row_pattern": re.compile(
-                    r"(?mi)^\s*contract\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
-                ),
-            },
-            {
-                "metric_id": "other_non_current_assets",
-                "label": "Other non-current assets",
-                "row_pattern": re.compile(
-                    r"(?mi)^\s*other\s+non[-\s]+current\s+assets\b(?:\s*\([^)]+\))?\s+(?:HK\$|\$)?\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)(?:\s|$)"
-                ),
-            },
-        ),
-    },
-    {
-        "surface_patterns": (
             re.compile(
                 r"\bother\s+non[-\s]+current\s+assets\b[^\n]{0,120}\b20\d{2}\b",
                 re.IGNORECASE,

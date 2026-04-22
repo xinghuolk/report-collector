@@ -147,7 +147,7 @@ def test_build_working_capital_note_candidate_facts_does_not_create_notes_candid
 def test_build_p3_asset_note_candidate_facts_extracts_contract_assets_from_bounded_fragment() -> (
     None
 ):
-    candidates, missing_status = _build_p3_asset_note_candidate_facts(
+    candidates, missing_status = build_asset_note_candidate_facts(
         pages=[
             (
                 301,
@@ -156,7 +156,12 @@ def test_build_p3_asset_note_candidate_facts_extracts_contract_assets_from_bound
                 Contract assets 80 65
                 """,
             )
-        ]
+        ],
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
     )
 
     assert {candidate["metric_id"] for candidate in candidates} == {"contract_assets"}
@@ -173,7 +178,7 @@ def test_build_p3_asset_note_candidate_facts_extracts_contract_assets_from_bound
 def test_build_p3_asset_note_candidate_facts_extracts_other_non_current_assets_from_bounded_fragment() -> (
     None
 ):
-    candidates, missing_status = _build_p3_asset_note_candidate_facts(
+    candidates, missing_status = build_asset_note_candidate_facts(
         pages=[
             (
                 302,
@@ -182,7 +187,12 @@ def test_build_p3_asset_note_candidate_facts_extracts_other_non_current_assets_f
                 Other non-current assets 120 95
                 """,
             )
-        ]
+        ],
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
     )
 
     assert {candidate["metric_id"] for candidate in candidates} == {
@@ -199,7 +209,7 @@ def test_build_p3_asset_note_candidate_facts_extracts_other_non_current_assets_f
 
 
 def test_build_p3_asset_note_candidate_facts_ignores_negative_control_asset_rows() -> None:
-    candidates, missing_status = _build_p3_asset_note_candidate_facts(
+    candidates, missing_status = build_asset_note_candidate_facts(
         pages=[
             (
                 303,
@@ -213,13 +223,49 @@ def test_build_p3_asset_note_candidate_facts_ignores_negative_control_asset_rows
                 Total non-current assets 999 888
                 """,
             )
-        ]
+        ],
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
     )
 
     assert candidates == []
     assert missing_status == {
         "contract_assets": "absent",
         "other_non_current_assets": "absent",
+    }
+
+
+def test_build_p3_asset_note_candidate_facts_preserves_existing_metric_precedence() -> (
+    None
+):
+    candidates, missing_status = build_asset_note_candidate_facts(
+        pages=[
+            (
+                305,
+                """
+                Contract assets 2024 2023
+                Contract assets 80 65
+                Other non-current assets 120 95
+                """,
+            )
+        ],
+        document_id="doc:09987",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids={"contract_assets"},
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {
+        "other_non_current_assets"
+    }
+    assert candidates[0]["numeric_value"] == 120.0
+    assert missing_status == {
+        "contract_assets": "present",
+        "other_non_current_assets": "present",
     }
 
 
