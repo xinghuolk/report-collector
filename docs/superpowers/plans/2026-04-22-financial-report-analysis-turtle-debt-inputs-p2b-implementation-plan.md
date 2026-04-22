@@ -31,6 +31,15 @@ All tasks in this plan must preserve the following precedence:
 
 Lower-priority sources may fill missing debt metric IDs only. They must not overwrite an existing higher-priority debt fact in the same document.
 
+## Execution Note
+
+This plan is designed for subagent-driven execution, but Tasks 3 and 5 must be executed serially rather than in parallel because both touch `tests/integration/test_semantic_recovery_regressions.py`.
+
+- Task 3 owns only the statement-row debt regressions for `601919` / `02498` plus the synthetic unit candidate-coverage test.
+- Task 5 owns only the `09987` note/disclosure regressions and `pdf_ingestion.py` wiring.
+
+Do not dispatch Task 5 until Task 3 has landed and its review loop is complete.
+
 ## File Structure
 
 Modify existing files:
@@ -79,10 +88,10 @@ import pytest
 @pytest.mark.parametrize(
     ("metric_id", "market", "label"),
     [
-        ("st_borr", "CN", "短期借款"),
-        ("lt_borr", "CN", "长期借款"),
-        ("bond_payable", "CN", "应付债券"),
-        ("non_cur_liab_due_1y", "CN", "一年内到期的非流动负债"),
+        ("st_borr", "CN", "\u77ed\u671f\u501f\u6b3e"),
+        ("lt_borr", "CN", "\u957f\u671f\u501f\u6b3e"),
+        ("bond_payable", "CN", "\u5e94\u4ed8\u503a\u5238"),
+        ("non_cur_liab_due_1y", "CN", "\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a"),
         ("st_borr", "HK", "short-term borrowings"),
         ("lt_borr", "HK", "long-term borrowings"),
         ("bond_payable", "HK", "bonds payable"),
@@ -122,10 +131,10 @@ Append this test to `financial-report-analysis/tests/unit/test_metric_mapping_re
         ("HK", "accounts payable"),
         ("HK", "contract liabilities"),
         ("HK", "total borrowings"),
-        ("CN", "租赁负债"),
-        ("CN", "应付账款"),
-        ("CN", "合同负债"),
-        ("CN", "借款合计"),
+        ("CN", "\u79df\u8d41\u8d1f\u503a"),
+        ("CN", "\u5e94\u4ed8\u8d26\u6b3e"),
+        ("CN", "\u5408\u540c\u8d1f\u503a"),
+        ("CN", "\u501f\u6b3e\u5408\u8ba1"),
     ],
 )
 def test_metric_mapping_registry_rejects_p2b_negative_controls(
@@ -153,10 +162,10 @@ Append a debt-table helper and this test to `financial-report-analysis/tests/uni
 @pytest.mark.parametrize(
     ("label", "expected"),
     [
-        ("短期借款", "short-term borrowings"),
-        ("长期借款", "long-term borrowings"),
-        ("应付债券", "bonds payable"),
-        ("一年内到期的非流动负债", "current portion of long-term debt"),
+        ("\u77ed\u671f\u501f\u6b3e", "short-term borrowings"),
+        ("\u957f\u671f\u501f\u6b3e", "long-term borrowings"),
+        ("\u5e94\u4ed8\u503a\u5238", "bonds payable"),
+        ("\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a", "current portion of long-term debt"),
         ("Short-term borrowings", "short-term borrowings"),
         ("Long-term borrowings", "long-term borrowings"),
         ("Bonds payable", "bonds payable"),
@@ -185,11 +194,11 @@ Append this test to `financial-report-analysis/tests/unit/test_table_semantics.p
         "notes payable",
         "contract liabilities",
         "total borrowings",
-        "租赁负债",
-        "应付账款",
-        "应付票据",
-        "合同负债",
-        "借款及其他负债",
+        "\u79df\u8d41\u8d1f\u503a",
+        "\u5e94\u4ed8\u8d26\u6b3e",
+        "\u5e94\u4ed8\u7968\u636e",
+        "\u5408\u540c\u8d1f\u503a",
+        "\u501f\u6b3e\u53ca\u5176\u4ed6\u8d1f\u503a",
     ],
 )
 def test_table_semantics_suppresses_p2b_negative_controls(label: str) -> None:
@@ -245,14 +254,16 @@ CN/HK aliases should cover only directly disclosed debt labels and should not in
 Extend the balance-sheet normalization rules so the following normalize deterministically:
 
 ```python
-"短期借款" -> "short-term borrowings"
-"长期借款" -> "long-term borrowings"
-"应付债券" -> "bonds payable"
-"一年内到期的非流动负债" -> "current portion of long-term debt"
-"short-term borrowings" -> "short-term borrowings"
-"long-term borrowings" -> "long-term borrowings"
-"bonds payable" -> "bonds payable"
-"current portion of long-term debt" -> "current portion of long-term debt"
+{
+    "\u77ed\u671f\u501f\u6b3e": "short-term borrowings",
+    "\u957f\u671f\u501f\u6b3e": "long-term borrowings",
+    "\u5e94\u4ed8\u503a\u5238": "bonds payable",
+    "\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a": "current portion of long-term debt",
+    "short-term borrowings": "short-term borrowings",
+    "long-term borrowings": "long-term borrowings",
+    "bonds payable": "bonds payable",
+    "current portion of long-term debt": "current portion of long-term debt",
+}
 ```
 
 - [ ] **Step 3: Add negative-control suppression**
@@ -265,11 +276,11 @@ Ensure labels such as these remain unmapped:
 "notes payable"
 "contract liabilities"
 "total borrowings"
-"租赁负债"
-"应付账款"
-"应付票据"
-"合同负债"
-"借款及其他负债"
+"\u79df\u8d41\u8d1f\u503a"
+"\u5e94\u4ed8\u8d26\u6b3e"
+"\u5e94\u4ed8\u7968\u636e"
+"\u5408\u540c\u8d1f\u503a"
+"\u501f\u6b3e\u53ca\u5176\u4ed6\u8d1f\u503a"
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -298,6 +309,12 @@ git commit -m "feat: add turtle debt registry semantics"
 
 - Modify: `financial-report-analysis/tests/unit/test_fact_pipeline.py`
 - Modify: `financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py`
+
+**Ownership:**
+
+- This task owns statement-row candidate coverage only.
+- This task must not modify `note_disclosure.py`, `pdf_ingestion.py`, or any `09987`-specific assertions.
+- Any production behavior change in this task must be limited to existing statement-row candidate emission via registry / table semantics.
 
 - [ ] **Step 1: Add unit candidate-coverage test**
 
@@ -384,7 +401,18 @@ git commit -m "test: cover turtle debt statement-row anchors"
 - Modify: `financial-report-analysis/src/financial_report_analysis/ingestion/__init__.py`
 - Modify: `financial-report-analysis/tests/unit/test_note_disclosure_ingestion.py`
 
-- [ ] **Step 1: Add failing note/disclosure unit test**
+- [ ] **Step 1: Inspect the 09987 anchor and record independently disclosed debt metrics**
+
+Before writing parser assertions, inspect `report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf` and record which of the four P2B metrics are independently disclosed in note/disclosure rows:
+
+- `st_borr`
+- `lt_borr`
+- `bond_payable`
+- `non_cur_liab_due_1y`
+
+Expected: a short note in the test comments or task implementation notes stating the exact independently disclosed subset for `09987 2025`.
+
+- [ ] **Step 2: Add failing note/disclosure unit test**
 
 Append a deterministic debt parser test to `financial-report-analysis/tests/unit/test_note_disclosure_ingestion.py` using a single page snippet like:
 
@@ -410,7 +438,16 @@ and assert emission of:
 
 with `extraction_method == "note_disclosure"`.
 
-- [ ] **Step 2: Add negative-control note test**
+- [ ] **Step 3: Make `bond_payable` explicit rather than implicit**
+
+Based on Step 1, do exactly one of the following:
+
+- If `09987 2025` independently discloses `bond_payable`, add a deterministic parser test for it in this task.
+- If `09987 2025` does not independently disclose `bond_payable`, add an explicit negative assertion documenting that no `bond_payable` fact should be emitted for this anchor.
+
+Do not leave `bond_payable` behavior unspecified.
+
+- [ ] **Step 4: Add negative-control note test**
 
 Append a unit test ensuring rows like:
 
@@ -420,11 +457,11 @@ Append a unit test ensuring rows like:
 
 do not emit any of the four P2B metric IDs.
 
-- [ ] **Step 3: Implement deterministic debt note parsing**
+- [ ] **Step 5: Implement deterministic debt note parsing**
 
 Extend `note_disclosure.py` with a narrow parser for debt disclosure rows. Keep it separate from working-capital matching logic; share helpers only where they are genuinely common.
 
-- [ ] **Step 4: Run focused unit tests**
+- [ ] **Step 6: Run focused unit tests**
 
 Run:
 
@@ -435,7 +472,7 @@ uv run pytest tests/unit/test_note_disclosure_ingestion.py -q -o addopts=
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add financial-report-analysis/src/financial_report_analysis/ingestion/note_disclosure.py financial-report-analysis/src/financial_report_analysis/ingestion/__init__.py financial-report-analysis/tests/unit/test_note_disclosure_ingestion.py
@@ -451,7 +488,18 @@ git commit -m "feat: add turtle debt note disclosure parser"
 - Modify: `financial-report-analysis/src/financial_report_analysis/ingestion/pdf_ingestion.py`
 - Modify: `financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py`
 
-- [ ] **Step 1: Add failing 09987 integration regression**
+**Ownership:**
+
+- This task owns `09987` integration regressions and `pdf_ingestion.py` wiring only.
+- This task begins only after Task 3 is complete.
+
+- [ ] **Step 1: Convert 09987 sample inspection into an exact integration contract**
+
+Using the Step 1 outcome from Task 4, write down the exact independently disclosed `09987 2025` debt metric subset that this anchor should surface.
+
+Expected: one exact expected set for `09987 2025`, not an open-ended “refine later” placeholder.
+
+- [ ] **Step 2: Add failing 09987 integration regression**
 
 Append this integration target:
 
@@ -462,17 +510,25 @@ def test_hk_09987_2025_surfaces_p2b_debt_candidates_without_summary_hallucinatio
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     metric_ids = _metric_ids_from_candidates(payload)
 
-    assert {"st_borr", "lt_borr", "non_cur_liab_due_1y"} & metric_ids
-    assert "bond_payable" not in _candidate_labels_for_metric(payload, "bond_payable")
+    assert metric_ids >= EXPECTED_09987_P2B_DEBT_METRICS
+    assert _candidate_labels_for_metric(payload, "st_borr") <= EXPECTED_09987_ST_BORR_LABELS
 ```
 
-Refine the exact expected set after inspecting the real sample, but do not assert facts that the report does not independently disclose.
+Replace the placeholder constants with concrete expectations derived from Task 4’s anchor inspection. Do not assert facts that the report does not independently disclose.
 
-- [ ] **Step 2: Append note-disclosure candidates after statement-row candidates**
+- [ ] **Step 3: Add precedence assertion**
+
+Append an integration assertion proving that any `09987` note/disclosure debt candidate:
+
+- uses `extraction_method == "note_disclosure"`
+- appears only for missing P2B metric IDs
+- does not replace an already present `statement_row` debt fact
+
+- [ ] **Step 4: Append note-disclosure candidates after statement-row candidates**
 
 Modify `pdf_ingestion.py` so debt note/disclosure candidates are added only for missing P2B metric IDs, preserving the plan’s precedence policy.
 
-- [ ] **Step 3: Preserve provenance**
+- [ ] **Step 5: Preserve provenance**
 
 Ensure debt supplement candidates retain:
 
@@ -481,7 +537,7 @@ candidate["extraction_method"] == "note_disclosure"
 candidate["extensions"]["semantic_source"] in {"deterministic", "llm_fallback"}
 ```
 
-- [ ] **Step 4: Run focused 09987 regression**
+- [ ] **Step 6: Run focused 09987 regression**
 
 Run:
 
@@ -492,7 +548,7 @@ uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_0
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add financial-report-analysis/src/financial_report_analysis/ingestion/pdf_ingestion.py financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py

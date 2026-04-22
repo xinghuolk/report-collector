@@ -17,7 +17,7 @@
 
 ## 2. 目标
 
-本轮目标是为 Turtle 投资框架建立稳定、可追溯、可验证的有息负债输入层，优先支持：
+本轮目标是为 Turtle 投资框架建立稳定、可追溯、可验证的有息负债输入层，通过输入数据支撑以下下游用途，而不在本轮内实现这些派生计算：
 
 - 净负债口径
 - EV / WACC 的基础负债输入
@@ -89,6 +89,7 @@
 
 - `statement-row path` 是默认主路径
 - `deterministic note/disclosure supplement` 只补缺，不覆盖主表已稳定产出的事实
+- `deterministic note/disclosure supplement` 只能扫描受限 debt-related disclosure blocks / known note families，不允许退化成全文泛扫
 - Ollama semantic locator 只做语义定位，不直接生成数值事实或 canonical facts
 
 ## 6. 4 个字段的最小语义定义
@@ -103,7 +104,12 @@
 
 ### 6.3 `bond_payable`
 
-明确指应付债券 / bonds payable / corporate bonds / debt-financing notes。
+明确指应付债券 / bonds payable / corporate bonds，以及明确具有债务融资语义的 financing notes。
+
+这里的 financing-note 语义必须与 trade / commercial `notes payable` 明确区分：
+
+- 可以纳入：债务融资票据、债券融资工具、公司债等独立披露的有息融资工具
+- 不可纳入：贸易应付票据、商业票据、经营性应付款项中的 note-like liabilities
 
 ### 6.4 `non_cur_liab_due_1y`
 
@@ -197,6 +203,7 @@ P2B 视为完成，仅当以下条件同时满足：
 - `601919 2025` 能从 CN 资产负债表 deterministic 产出核心 debt candidate facts
 - `02498 2022` 能从 HK statement-row path deterministic 产出核心 debt candidate facts
 - `09987 2025` 在主表不充分时，可通过受限 note/disclosure supplement 补出真实存在的 debt facts
+- `09987 2025` 的 note/disclosure supplement 只能补缺，不能替换已存在的 `statement_row` debt fact
 - `non_cur_liab_due_1y` 只有在独立披露时才产出
 - negative controls 不被误吸成 4 个核心 debt metrics
 - Ollama locator 仍是 bounded / gated / provenance-carrying 的补充能力
