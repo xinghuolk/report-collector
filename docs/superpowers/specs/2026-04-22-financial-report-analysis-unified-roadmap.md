@@ -4,6 +4,30 @@
 > **日期:** 2026-04-22
 > **范围:** 协调 `financial-report-analysis` 的长期演进路线，包括抽取底座、Turtle 输入覆盖、fallback 控制、metric 治理、API surface、storage、lineage 与 recompute。
 
+## 0. 当前状态快照
+
+本文最初写于 2026-04-22，当天的“当前优先级”描述带有明显的阶段时序假设。随着后续实现推进，需要把真实状态单独钉住，避免执行者继续按旧节点判断下一步。
+
+截至当前分支状态：
+
+- `Turtle P2B Debt Inputs` 已完成并收口。
+- `Turtle P3 Asset Quality` 已完成并收口。
+- `Turtle P4A Parent Scope / Notes Conflict Governance` 已完成并收口。
+- `new-report-sample-onboarding-and-field-variance-process.md` 不再只是补充说明，而应视为后续字段 phase 的正式前置方法约束。
+- `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 明确显示：对 Turtle v0.15 来说，下一批最有价值、且尚未被正式承接的财报字段，不是再扩主表骨架，而是现金健康度相关的高价值附注桥接字段。
+
+因此，当前推荐的下一步不是直接进入“广义 Phase 4 全量字段扩展”，而是先收窄为：
+
+`P4B Cash-Health Notes Bridge`
+
+第一批候选字段应优先限定为：
+
+- `restricted_cash`
+- `interest_paid_cash`
+- `time_deposits_or_wealth_products`
+
+在启动 P4B spec / plan 前，应先补一个独立的 sample onboarding artifact，记录该 phase 的 anchors、expected missing status 与 failure classification。
+
 ## 1. 目的
 
 本文定义 `financial-report-analysis` 的顶层路线图。
@@ -238,34 +262,36 @@ pdf
 
 ## 5. 当前优先级
 
-截至 2026-04-22，推荐顺序如下：
+截至当前，推荐顺序如下：
 
-1. **先收口当前 Turtle P2B debt-input phase。**
-   - P2B 已经有窄范围 spec 与 plan。
-   - 在启动另一个大型字段族之前，应完成 P2B，或明确暂停 P2B。
-   - P2B 必须保留 statement-row precedence，note / disclosure candidates 只能补齐缺失的 debt metric IDs。
+1. **先确认当前 active phase 已收口，再启动新的字段 phase。**
+   - 当前分支里，P2B、P3、P4A 都已经进入已完成状态。
+   - 新 phase 不应建立在“旧 phase 还没验证完”的误判上。
 
-2. **在 Turtle Phase 3 之前先做 Extension Metric Governance Phase 1。**
-   - 澄清 registry roles。
-   - 传播 custom / provisional metric metadata。
-   - 防止 provisional metrics 进入 key facts 与自动分析。
-   - 增加一个小型 review surface，用于暴露 provisional metric candidates。
+2. **在 P4B 开始前，先补 phase-specific onboarding artifact。**
+   - 记录 anchors、report family、target metrics、expected missing status、expected failure classification。
+   - 这一步是 `new-report-sample-onboarding-and-field-variance-process.md` 在字段 phase 层面的落地，不应跳过。
 
-3. **只有 governance 有最小护栏后，再进入 Turtle Phase 3。**
-   - Phase 3 会增加 asset-quality 与 capital-allocation 字段。
-   - 这些字段很可能增加 label variance 与 custom/provisional 压力。
-   - 如果没有 governance，直接进入 Phase 3 会增加下游污染风险。
+3. **P4B 应优先做 Cash-Health Notes Bridge，而不是广义 parent-scope 全量扩展。**
+   - `v0.15` gap analysis 已经说明，现金健康度相关字段是当前最有价值的财报内缺口之一。
+   - 这批字段比 broad parent-scope statement coverage 更贴近当前下游价值，也更适合受限 note/disclosure bridge 路径。
+   - P4B 第一批应优先限定为 `restricted_cash`、`interest_paid_cash`、`time_deposits_or_wealth_products`。
 
-4. **Turtle Phase 4 之前，先设计 parent-scope 与 note/disclosure conflict governance。**
-   - Phase 4 开始进入母公司口径与高价值附注。
-   - 必须防止 parent 与 consolidated facts 混淆。
-   - 必须定义 note/disclosure facts 是否、何时、如何可以覆盖 statement-row facts。
+4. **P4B 继续遵守 P4A 治理 contract。**
+   - statement-row 仍然优先。
+   - note/disclosure 只补缺，不得静默覆盖已存在的 statement-row facts。
+   - 若某字段需要真正的 override 行为，必须在后续 spec 中显式声明，而不是顺手放宽。
+   - parent / consolidated scope 不得混淆。
 
-5. **Turtle Phase 5 之前，先定义 multi-year dataset schema 与最小 persistence。**
+5. **P4C 或更后续 phase 才考虑 broad parent-scope / notes bridge 扩张。**
+   - 母公司单体报表整套字段、分红/回购文本桥接、广义高价值附注深挖，仍应保持为后续 phase。
+   - P4B 不应一次性吃掉整个 `v0.15` gap list。
+
+6. **Turtle Phase 5 之前，先定义 multi-year dataset schema 与最小 persistence。**
    - Phase 5 依赖稳定字段身份、期间语义、fact-set version、quality marker 与 export shape。
    - 不应把 Phase 5 做成对当前 extract outputs 的临时聚合。
 
-6. **更大范围的 Ollama fallback coverage closure 应在 Turtle 主字段集合稳定后统一做。**
+7. **更大范围的 Ollama fallback coverage closure 应在 Turtle 主字段集合稳定后统一做。**
    - 除非某个 phase 需要窄范围 gated locator，否则不要为每个字段阶段零散扩 prompt。
    - 应安排专门 closure，统一决定哪些 Turtle 字段需要进入 fallback supported outputs 与 promoted probes。
 
@@ -385,6 +411,15 @@ pdf
 - parent vs consolidated scope 有明确 contract。
 - broad note/disclosure bridge 实现前，先有 conflict governance。
 - source precedence 与 missing states 可测试。
+
+### Milestone D1: Cash-Health Notes Bridge
+
+预期结果：
+
+- 在 P4A 治理 contract 之上，先引入受限的现金健康度附注桥接字段。
+- 第一批字段限定为 `restricted_cash`、`interest_paid_cash`、`time_deposits_or_wealth_products`。
+- 每个字段都必须带有 sample onboarding expectation、source policy、missing/conflict expectation 与 negative controls。
+- 不在这一里程碑里顺手扩张成 broad parent-scope statement coverage 或 narrative policy parsing。
 
 ### Milestone E: Multi-Year Dataset Readiness
 
