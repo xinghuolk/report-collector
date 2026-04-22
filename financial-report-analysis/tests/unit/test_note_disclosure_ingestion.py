@@ -781,6 +781,28 @@ def test_build_cash_health_note_candidate_facts_extracts_wrapped_restricted_cash
     assert missing_status == {"restricted_cash": "present"}
 
 
+def test_build_cash_health_note_candidate_facts_does_not_bind_neighboring_row_amount() -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                14,
+                """
+                Restricted cash and cash equivalents
+                Other receivables 123 million as of December 31, 2022.
+                """,
+            )
+        ],
+        document_id="doc:neighboring-row",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}
+
+
 def test_build_cash_health_note_candidate_facts_ignores_plain_cash_and_collateral_narrative() -> None:
     candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
         pages=[

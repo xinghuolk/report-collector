@@ -576,11 +576,20 @@ def _match_restricted_cash_line(
         match = pattern.search(line)
         if match is not None:
             return match
-        if next_line is not None:
+        if next_line is not None and _looks_like_restricted_cash_continuation_line(
+            next_line
+        ):
             match = pattern.search(f"{line} {next_line}")
             if match is not None:
                 return match
     return None
+
+
+def _looks_like_restricted_cash_continuation_line(line: str) -> bool:
+    return re.match(
+        r"(?i)^\s*(?:HK\$|US\$|RMB|CNY|￥|\$|人民币|\d)",
+        line,
+    ) is not None
 
 
 def _iter_candidate_lines(text: str) -> Iterable[str]:
