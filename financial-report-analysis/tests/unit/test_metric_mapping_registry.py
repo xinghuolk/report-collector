@@ -240,3 +240,102 @@ def test_metric_mapping_registry_keeps_notes_payable_distinct_from_bond_payable(
     assert definition is not None
     assert definition.metric_id == "notes_payable"
     assert definition.metric_id != "bond_payable"
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "label"),
+    [
+        ("money_cap", "CN", "货币资金"),
+        ("trad_asset", "CN", "交易性金融资产"),
+        ("inventories", "CN", "存货"),
+        ("goodwill", "CN", "商誉"),
+        ("intang_assets", "CN", "无形资产"),
+        ("money_cap", "HK", "cash and cash equivalents"),
+        ("trad_asset", "HK", "trading assets"),
+        ("inventories", "HK", "inventories"),
+        ("goodwill", "HK", "goodwill"),
+        ("intang_assets", "HK", "intangible assets"),
+    ],
+)
+def test_metric_mapping_registry_matches_p3_asset_quality_fields(
+    metric_id: str,
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+    assert definition.statement_type == "balance_sheet"
+    assert definition.period_scope == "point_in_time"
+
+
+@pytest.mark.parametrize(
+    ("market", "label"),
+    [
+        ("CN", "合同资产"),
+        ("CN", "其他非流动资产"),
+        ("HK", "contract assets"),
+        ("HK", "other non-current assets"),
+    ],
+)
+def test_metric_mapping_registry_does_not_promote_p3_note_only_asset_fields_into_primary_path(
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is None
+
+
+@pytest.mark.parametrize(
+    ("market", "label"),
+    [
+        ("HK", "restricted cash"),
+        ("HK", "assets held for sale"),
+        ("HK", "investment properties"),
+        ("HK", "prepayments"),
+        ("HK", "right-of-use assets"),
+        ("HK", "deferred tax assets"),
+        ("HK", "capitalized development costs"),
+        ("HK", "total non-current assets"),
+        ("CN", "受限资金"),
+        ("CN", "持有待售资产"),
+        ("CN", "投资性房地产"),
+        ("CN", "预付款项"),
+        ("CN", "使用权资产"),
+        ("CN", "递延所得税资产"),
+        ("CN", "开发支出"),
+    ],
+)
+def test_metric_mapping_registry_rejects_p3_asset_negative_controls(
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is None

@@ -10,6 +10,7 @@ import httpx
 from pypdf import PdfReader
 
 from financial_report_analysis.ingestion.note_disclosure import (
+    build_asset_note_candidate_facts,
     build_debt_note_candidate_facts,
     build_working_capital_note_candidate_facts,
 )
@@ -231,6 +232,20 @@ class PdfIngestionAdapter:
             existing_metric_ids=existing_metric_ids,
         )
         candidate_facts.extend(debt_note_candidates)
+        existing_metric_ids.update(
+            str(candidate.get("metric_id"))
+            for candidate in debt_note_candidates
+            if candidate.get("metric_id") is not None
+        )
+        asset_note_candidates, asset_missing_status = build_asset_note_candidate_facts(
+            pages=text_pages,
+            document_id=document_id,
+            period_id=period_id,
+            market=market or "CN",
+            existing_metric_ids=existing_metric_ids,
+            semantic_fallback_service=self._semantic_fallback_service,
+        )
+        candidate_facts.extend(asset_note_candidates)
         if not candidate_facts:
             revenue_fact = self._extract_revenue_fact_from_text(
                 document_id=document_id,
@@ -264,6 +279,7 @@ class PdfIngestionAdapter:
                 ),
                 "working_capital_missing_status": working_capital_missing_status,
                 "debt_missing_status": debt_missing_status,
+                "asset_missing_status": asset_missing_status,
             },
         }
 

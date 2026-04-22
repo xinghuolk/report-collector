@@ -366,6 +366,94 @@ def test_table_fact_builder_emits_p2b_debt_candidate_facts() -> None:
         assert all(candidate["extraction_method"] == "table_semantics" for candidate in candidates)
 
 
+def test_table_fact_builder_emits_p3_statement_row_asset_candidates() -> None:
+    cases = [
+        (
+            "CN",
+            "doc:p3-cn",
+            "CNY",
+            [
+                ("货币资金", "cash and cash equivalents", 11.0),
+                ("交易性金融资产", "trading assets", 12.0),
+                ("存货", "inventories", 13.0),
+                ("商誉", "goodwill", 14.0),
+                ("无形资产", "intangible assets", 15.0),
+            ],
+        ),
+        (
+            "HK",
+            "doc:p3-hk",
+            "HKD",
+            [
+                ("Cash and cash equivalents", "cash and cash equivalents", 21.0),
+                ("Trading assets", "trading assets", 22.0),
+                ("Inventories", "inventories", 23.0),
+                ("Goodwill", "goodwill", 24.0),
+                ("Intangible assets", "intangible assets", 25.0),
+            ],
+        ),
+    ]
+
+    for market, document_id, table_currency, rows in cases:
+        semantics = _normalized_table_semantics(
+            table_id=f"table-{market.lower()}-p3",
+            document_id=document_id,
+            table_kind="balance_sheet",
+            period_id="2025FY",
+            rows=rows,
+            table_currency=table_currency,
+        )
+
+        candidates = build_table_candidate_facts(
+            [semantics],
+            registry=load_metric_registry(),
+            document_id=document_id,
+            market=market,
+        )
+
+        assert {candidate["metric_id"] for candidate in candidates} == {
+            "money_cap",
+            "trad_asset",
+            "inventories",
+            "goodwill",
+            "intang_assets",
+        }
+        assert all(candidate["statement_type"] == "balance_sheet" for candidate in candidates)
+        assert all(candidate["extraction_method"] == "table_semantics" for candidate in candidates)
+
+
+def test_table_fact_builder_rejects_p3_asset_negative_control_rows() -> None:
+    semantics = _normalized_table_semantics(
+        table_id="table-p3-negative",
+        document_id="doc:p3-negative",
+        table_kind="balance_sheet",
+        period_id="2025FY",
+        rows=[
+            ("restricted cash", None, 1.0),
+            ("assets held for sale", None, 2.0),
+            ("investment properties", None, 3.0),
+            ("prepayments", None, 4.0),
+            ("right-of-use assets", None, 5.0),
+            ("deferred tax assets", None, 6.0),
+            ("capitalized development costs", None, 7.0),
+            ("total non-current assets", None, 8.0),
+            ("contract assets", None, 9.0),
+            ("other non-current assets", None, 10.0),
+        ],
+        table_currency="HKD",
+    )
+
+    assert (
+        build_table_candidate_facts(
+            [semantics],
+            registry=load_metric_registry(),
+            document_id="doc:p3-negative",
+            market="HK",
+        )
+        == []
+    )
+
+
 def test_fact_pipeline_normalizes_basic_eps_as_per_share_metric() -> None:
     normalizer = FactNormalizer()
 

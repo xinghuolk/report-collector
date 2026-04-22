@@ -1199,6 +1199,84 @@ def test_hk_02498_2022_does_not_promote_p2a_negative_control_rows() -> None:
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
+def test_cn_601919_2025_surfaces_p3_asset_quality_candidates() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="CN")
+
+    for metric_id, label_prefix in (
+        ("money_cap", "货币资金"),
+        ("trad_asset", "交易性金融资产"),
+        ("inventories", "存货"),
+        ("goodwill", "商誉"),
+        ("intang_assets", "无形资产"),
+    ):
+        _assert_deterministic_balance_sheet_candidates(
+            payload,
+            metric_id=metric_id,
+            label_prefix=label_prefix,
+            period_ids={"2024FY", "2025FY"},
+            statement_scope_guess="consolidated",
+        )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_surfaces_p3_statement_row_asset_candidates() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+
+    for metric_id, label_prefix, period_ids in (
+        ("inventories", "inventories", {"2021FY", "2022FY"}),
+        ("goodwill", "goodwill", {"2022FY"}),
+        ("intang_assets", "intangible assets", {"2021FY", "2022FY"}),
+    ):
+        _assert_deterministic_balance_sheet_candidates(
+            payload,
+            metric_id=metric_id,
+            label_prefix=label_prefix,
+            period_ids=period_ids,
+            statement_scope_guess="consolidated",
+        )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_does_not_promote_p3_asset_negative_control_rows() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    all_candidate_labels = {
+        str(candidate.get("metric_label_raw", "")).casefold()
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict)
+    }
+
+    for metric_id in ("inventories", "goodwill", "intang_assets"):
+        assert _candidate_labels_for_metric(payload, metric_id), metric_id
+
+    assert all_candidate_labels.isdisjoint(
+        {
+            "restricted cash",
+            "assets held for sale",
+            "investment properties",
+            "prepayments",
+            "right-of-use assets",
+            "deferred tax assets",
+            "capitalized development costs",
+            "total non-current assets",
+            "contract assets",
+            "other non-current assets",
+        }
+    )
+
+    assert not _candidate_labels_for_metric(payload, "money_cap")
+    assert not _candidate_labels_for_metric(payload, "trad_asset")
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_09987_2025_surfaces_p2a_note_disclosure_candidates_without_hallucination() -> (
     None
 ):
@@ -1281,6 +1359,27 @@ def test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates() ->
         "lt_borr": "absent",
         "bond_payable": "absent",
         "non_cur_liab_due_1y": "absent",
+    }
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    asset_metric_ids = {"contract_assets", "other_non_current_assets"}
+    asset_candidates = [
+        candidate
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict)
+        and candidate.get("metric_id") in asset_metric_ids
+    ]
+
+    assert asset_candidates == []
+    assert payload.get("document_metadata", {}).get("asset_missing_status") == {
+        "contract_assets": "absent",
+        "other_non_current_assets": "absent",
     }
 
 
