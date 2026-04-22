@@ -86,7 +86,8 @@ P4A 已经把本阶段最重要的治理前提钉住：
   - 当前仍视为 `CN diagnostics / not_surfaced guardrail anchor`
   - 不是本轮第一版的正实现锚点
 - `02498 2022`
-  - 当前可作为 `restricted_cash` 的正锚点
+  - 当前可作为 `HK cleaner-format absent anchor`
+  - 现阶段三项 P4B 字段都未稳定 surfaced
 - `09987 2025`
   - 当前可作为 `interest_paid_cash` 和 `time_deposits_or_wealth_products` 的正锚点
   - `restricted_cash` 也已有较强正锚点证据
@@ -254,7 +255,7 @@ note/disclosure 只补缺，不覆盖 higher-priority source。
   - `interest_paid_cash = not_surfaced`
   - `time_deposits_or_wealth_products = not_surfaced`
 - `02498 2022`
-  - `restricted_cash = present`
+  - `restricted_cash = absent`
   - `interest_paid_cash = absent`
   - `time_deposits_or_wealth_products = absent`
 - `09987 2025`
@@ -313,7 +314,7 @@ P4B 允许使用 gated semantic locator，但只能用于：
 
 本轮 P4B 完成时，应满足：
 
-- `02498 2022` 能稳定给出 `restricted_cash`
+- `02498 2022` 至少被稳定记录为三项 `absent`，不误报为 `present`
 - `09987 2025` 能稳定给出 `interest_paid_cash`
 - `09987 2025` 能稳定给出 `time_deposits_or_wealth_products`
 - `09987 2025` 中 `restricted_cash` 至少能以 bounded bridge 或补充披露方式稳定 surfaced

@@ -2763,3 +2763,57 @@ def test_pdf_ingestion_adapter_handles_spaced_cn_quarterly_title_and_local_conte
     assert candidate["currency"] == "CNY"
     assert candidate["raw_unit"] == "\u5143"
     assert candidate["metric_label_raw"] == "\u8425\u4e1a\u6536\u5165"
+
+
+def test_pdf_ingestion_adapter_wires_cash_health_note_candidates_and_missing_status(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    adapter = PdfIngestionAdapter()
+    pdf_path = tmp_path / "mock-hk-cash-health.pdf"
+    pdf_path.touch()
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text_pages",
+        lambda self, *, pdf_path, pdf_url: [
+                (
+                    12,
+                    "\n".join(
+                        [
+                            "2025 Annual Report",
+                            "Restricted cash and cash equivalents",
+                            "RMB 150 million as of December 31, 2025.",
+                            "Cash paid for interest 25",
+                            "Time deposits 80",
+                        ]
+                    ),
+                )
+        ],
+    )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_parsed_tables",
+        lambda self, *, pdf_path, pdf_url, market: [],
+    )
+
+    payload = adapter.extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    metric_ids = {
+        candidate["metric_id"] for candidate in payload["candidate_facts"]
+    }
+    assert {
+        "restricted_cash",
+        "interest_paid_cash",
+        "time_deposits_or_wealth_products",
+    }.issubset(metric_ids)
+    assert payload["document_metadata"]["cash_health_missing_status"] == {
+        "restricted_cash": "present",
+        "interest_paid_cash": "present",
+        "time_deposits_or_wealth_products": "present",
+    }

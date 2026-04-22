@@ -757,7 +757,11 @@ def test_build_cash_health_note_candidate_facts_extracts_restricted_cash_only() 
         "deterministic_note_disclosure"
     )
     assert candidates[0]["extensions"]["source_policy"] == "supplement_only"
-    assert missing_status == {"restricted_cash": "present"}
+    assert missing_status == {
+        "restricted_cash": "present",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_extracts_wrapped_restricted_cash_amount() -> None:
@@ -780,7 +784,11 @@ def test_build_cash_health_note_candidate_facts_extracts_wrapped_restricted_cash
 
     assert {candidate["metric_id"] for candidate in candidates} == {"restricted_cash"}
     assert candidates[0]["numeric_value"] == 123.0
-    assert missing_status == {"restricted_cash": "present"}
+    assert missing_status == {
+        "restricted_cash": "present",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_does_not_bind_neighboring_row_amount() -> None:
@@ -802,7 +810,11 @@ def test_build_cash_health_note_candidate_facts_does_not_bind_neighboring_row_am
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_ignores_plain_cash_and_collateral_narrative() -> None:
@@ -824,7 +836,11 @@ def test_build_cash_health_note_candidate_facts_ignores_plain_cash_and_collatera
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_extracts_explicit_chinese_restricted_cash() -> None:
@@ -846,7 +862,11 @@ def test_build_cash_health_note_candidate_facts_extracts_explicit_chinese_restri
 
     assert {candidate["metric_id"] for candidate in candidates} == {"restricted_cash"}
     assert candidates[0]["numeric_value"] == 88.0
-    assert missing_status == {"restricted_cash": "present"}
+    assert missing_status == {
+        "restricted_cash": "present",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_extracts_interest_paid_cash_from_cash_flow_supplement() -> None:
@@ -874,7 +894,11 @@ def test_build_cash_health_note_candidate_facts_extracts_interest_paid_cash_from
     assert candidates[0]["numeric_value"] == 42.0
     assert candidates[0]["statement_type"] == "cash_flow_statement"
     assert candidates[0]["extensions"]["period_scope"] == "duration"
-    assert missing_status == {"interest_paid_cash": "present"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "present",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 @pytest.mark.parametrize(
@@ -919,7 +943,11 @@ def test_build_cash_health_note_candidate_facts_extracts_time_deposits_or_wealth
     }
     assert candidates[0]["metric_label_raw"] == expected_label
     assert candidates[0]["numeric_value"] > 0
-    assert missing_status == {"time_deposits_or_wealth_products": "present"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "present",
+    }
 
 
 @pytest.mark.parametrize(
@@ -951,7 +979,11 @@ def test_build_cash_health_note_candidate_facts_ignores_non_local_or_narrative_t
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_does_not_parse_narrative_date_as_time_deposit_value() -> (
@@ -975,7 +1007,11 @@ def test_build_cash_health_note_candidate_facts_does_not_parse_narrative_date_as
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_does_not_parse_prose_date_as_time_deposit_value() -> (
@@ -998,7 +1034,11 @@ def test_build_cash_health_note_candidate_facts_does_not_parse_prose_date_as_tim
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_does_not_parse_date_after_time_deposit_label() -> (
@@ -1021,7 +1061,11 @@ def test_build_cash_health_note_candidate_facts_does_not_parse_date_after_time_d
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
 
 
 def test_build_cash_health_note_candidate_facts_does_not_parse_year_only_continuation_as_time_deposit_value() -> (
@@ -1045,4 +1089,8 @@ def test_build_cash_health_note_candidate_facts_does_not_parse_year_only_continu
     )
 
     assert candidates == []
-    assert missing_status == {"restricted_cash": "not_surfaced"}
+    assert missing_status == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }

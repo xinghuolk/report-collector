@@ -50,7 +50,7 @@ Every new regression must reflect the current anchor contract:
   - `interest_paid_cash = not_surfaced`
   - `time_deposits_or_wealth_products = not_surfaced`
 - `02498 2022`
-  - `restricted_cash = present`
+  - `restricted_cash = absent`
   - `interest_paid_cash = absent`
   - `time_deposits_or_wealth_products = absent`
 - `09987 2025`
@@ -115,7 +115,7 @@ Open:
 Confirm that the anchor contract still matches the current plan header:
 
 - `601919 2025` -> all three metrics `not_surfaced`
-- `02498 2022` -> only `restricted_cash = present`
+- `02498 2022` -> all three metrics `absent`
 - `09987 2025` -> all three metrics `present`
 
 - [ ] **Step 2: Update the onboarding artifact only if diagnostics changed**
@@ -678,21 +678,21 @@ git commit -m "feat: wire turtle p4b cash health candidates"
 
 - Modify: `financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py`
 
-- [ ] **Step 1: Add a failing HK `02498` regression for `restricted_cash`**
+- [ ] **Step 1: Add a failing HK `02498` regression for the current absent baseline**
 
 Append this test to `financial-report-analysis/tests/integration/test_semantic_recovery_regressions.py`:
 
 ```python
-def test_hk_02498_2022_surfaces_p4b_restricted_cash_candidate() -> None:
+def test_hk_02498_2022_keeps_p4b_cash_health_absent() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
 
-    metric_ids = {fact["metric_id"] for fact in payload["candidate_facts"]}
-
-    assert "restricted_cash" in metric_ids
+    assert not _candidate_facts_for_metric(payload, "restricted_cash")
+    assert not _candidate_facts_for_metric(payload, "interest_paid_cash")
+    assert not _candidate_facts_for_metric(payload, "time_deposits_or_wealth_products")
     assert payload.get("document_metadata", {}).get("cash_health_missing_status") == {
-        "restricted_cash": "present",
+        "restricted_cash": "absent",
         "interest_paid_cash": "absent",
         "time_deposits_or_wealth_products": "absent",
     }
@@ -740,7 +740,7 @@ def test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced_guardrail() -> Non
 Run:
 
 ```bash
-uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_surfaces_p4b_restricted_cash_candidate tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_p4b_cash_health_note_candidates tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced_guardrail -q -o addopts=
+uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_keeps_p4b_cash_health_absent tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_p4b_cash_health_note_candidates tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced_guardrail -q -o addopts=
 ```
 
 Expected: FAIL because the P4B candidate family and its missing-status metadata are not fully wired yet.
@@ -749,7 +749,7 @@ Expected: FAIL because the P4B candidate family and its missing-status metadata 
 
 Adjust `financial-report-analysis/src/financial_report_analysis/ingestion/note_disclosure.py` and `financial-report-analysis/src/financial_report_analysis/ingestion/pdf_ingestion.py` only as needed so that:
 
-- `02498 2022` surfaces `restricted_cash`
+- `02498 2022` remains correctly classified as all three metrics `absent`
 - `09987 2025` surfaces all three P4B metric candidates
 - `601919 2025` remains `not_surfaced`, not `absent`
 
@@ -764,7 +764,7 @@ Do not introduce:
 Run:
 
 ```bash
-uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_surfaces_p4b_restricted_cash_candidate tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_p4b_cash_health_note_candidates tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced_guardrail -q -o addopts=
+uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_keeps_p4b_cash_health_absent tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_p4b_cash_health_note_candidates tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced_guardrail -q -o addopts=
 ```
 
 Expected: PASS.
@@ -790,6 +790,14 @@ git commit -m "feat: add turtle p4b cash health anchor regressions"
 - [ ] **Step 1: Decide whether this task is needed**
 
 Before editing code, run the Task 5 integration regressions again. If all three anchors are stable with deterministic parsing, mark Task 6 `not needed` and skip to Task 7.
+
+Current note: if the three-anchor deterministic regression passes with:
+
+- `02498 2022` classified as all three metrics `absent`
+- `09987 2025` classified as all three metrics `present`
+- `601919 2025` classified as all three metrics `not_surfaced`
+
+then Task 6 remains `not needed`.
 
 - [ ] **Step 2: If needed, add failing locator-output tests**
 
@@ -896,7 +904,7 @@ Expected: PASS.
 Run:
 
 ```bash
-uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_surfaces_p4b_restricted_cash_candidate tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_p4b_cash_health_note_candidates tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced_guardrail -q -o addopts=
+uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_keeps_p4b_cash_health_absent tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_p4b_cash_health_candidates tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced -q -o addopts=
 ```
 
 Expected: PASS.

@@ -90,8 +90,8 @@ Failure classification vocabulary used in this artifact:
 
 ### Current Expected Onboarding Classification
 
-- `present`: `restricted_cash`
-- `absent`: `interest_paid_cash`, `time_deposits_or_wealth_products`
+- `present`: none currently locked at plan level
+- `absent`: `restricted_cash`, `interest_paid_cash`, `time_deposits_or_wealth_products`
 - `not_surfaced`: none currently expected at plan level
 - `out_of_scope`: none currently expected at anchor scope
 
@@ -106,8 +106,8 @@ Failure classification vocabulary used in this artifact:
 
 - This anchor is the HK cleaner-format planning anchor for P4B.
 - It should prove the reusable HK note/disclosure bridge contract before mixed-structure handling is treated as stable.
-- Current diagnostics found a clear restricted-cash style disclosure in the annual report, with wording equivalent to restricted cash / restricted monetary funds under restricted ownership or use.
-- Current diagnostics did not find stable text-level hits for `interest_paid_cash` or `time_deposits_or_wealth_products`, so they are treated as `absent` for the current planning baseline unless later probing proves otherwise.
+- Earlier planning notes treated this anchor as a likely positive `restricted_cash` case, but current focused extraction diagnostics do not surface a stable bounded-note candidate for that metric.
+- Current diagnostics therefore treat all three P4B metrics as `absent` for the current implementation baseline unless later probing proves otherwise.
 
 ## Anchor 3: HK 09987 2025
 

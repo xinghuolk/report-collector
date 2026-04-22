@@ -1383,6 +1383,59 @@ def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> 
     }
 
 
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_keeps_p4b_cash_health_absent() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    assert not _candidate_facts_for_metric(payload, "restricted_cash")
+    assert not _candidate_facts_for_metric(payload, "interest_paid_cash")
+    assert not _candidate_facts_for_metric(payload, "time_deposits_or_wealth_products")
+    assert payload.get("document_metadata", {}).get("cash_health_missing_status") == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_surfaces_p4b_cash_health_candidates() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    metric_ids = _metric_ids_from_candidates(payload)
+
+    assert {
+        "restricted_cash",
+        "interest_paid_cash",
+        "time_deposits_or_wealth_products",
+    }.issubset(metric_ids)
+    assert payload.get("document_metadata", {}).get("cash_health_missing_status") == {
+        "restricted_cash": "present",
+        "interest_paid_cash": "present",
+        "time_deposits_or_wealth_products": "present",
+    }
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_cn_601919_2025_keeps_p4b_cash_health_as_not_surfaced() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="CN")
+
+    assert not _candidate_facts_for_metric(payload, "restricted_cash")
+    assert not _candidate_facts_for_metric(payload, "interest_paid_cash")
+    assert not _candidate_facts_for_metric(payload, "time_deposits_or_wealth_products")
+    assert payload.get("document_metadata", {}).get("cash_health_missing_status") == {
+        "restricted_cash": "not_surfaced",
+        "interest_paid_cash": "not_surfaced",
+        "time_deposits_or_wealth_products": "not_surfaced",
+    }
+
+
 def test_hk_09987_debt_note_disclosure_supplement_preserves_statement_row_precedence(
     monkeypatch,
     tmp_path,

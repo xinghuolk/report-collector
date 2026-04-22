@@ -203,6 +203,11 @@ _CASH_HEALTH_TIME_DEPOSITS_LABEL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(结构性存款)"),
     re.compile(r"(理财产品)"),
 )
+_CASH_HEALTH_METRIC_IDS: tuple[str, ...] = (
+    "restricted_cash",
+    "interest_paid_cash",
+    "time_deposits_or_wealth_products",
+)
 
 _CASH_HEALTH_ROW_VALUE_PATTERN = re.compile(r"(?<!\d)(\d[\d,]*(?:\.\d+)?)(?!\d)")
 _CASH_HEALTH_DATE_CONTEXT_PATTERN = re.compile(
@@ -372,12 +377,19 @@ def build_cash_health_note_candidate_facts(
     semantic_fallback_service: SemanticFallbackService | None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     del semantic_fallback_service
-    if market.upper() != "HK" or period_id is None:
+    if period_id is None:
         return ([], {})
+    if market.upper() != "HK":
+        return (
+            [],
+            {metric_id: "not_surfaced" for metric_id in _CASH_HEALTH_METRIC_IDS},
+        )
 
     normalized_pages = list(pages)
     candidates: list[dict[str, Any]] = []
-    missing_status: dict[str, str] = {}
+    missing_status: dict[str, str] = {
+        metric_id: "absent" for metric_id in _CASH_HEALTH_METRIC_IDS
+    }
     candidate_index = 0
     found_metric_ids = set(existing_metric_ids)
 
@@ -469,16 +481,10 @@ def build_cash_health_note_candidate_facts(
                     )
                 )
 
-    if not candidates and "restricted_cash" not in found_metric_ids:
-        return ([], {"restricted_cash": "not_surfaced"})
-
     for metric_id in existing_metric_ids:
-        if metric_id in {
-            "restricted_cash",
-            "interest_paid_cash",
-            "time_deposits_or_wealth_products",
-        }:
+        if metric_id in _CASH_HEALTH_METRIC_IDS:
             missing_status.setdefault(metric_id, "present")
+            missing_status[metric_id] = "present"
 
     return (candidates, missing_status)
 
