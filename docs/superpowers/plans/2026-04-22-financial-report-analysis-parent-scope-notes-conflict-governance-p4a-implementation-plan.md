@@ -1,5 +1,7 @@
 # P4A Parent Scope Notes Conflict Governance Implementation Plan
 
+> **Completion Note:** Implemented in commits `55a1ded..21d6e17`. Verified with core unit regression (`126 passed`), Turtle P1-P3 focused unit regression (`245 passed`), non-real-PDF semantic recovery regression (`2 passed, 31 deselected`), focused P3 real-PDF guardrail regression (`4 passed`), and `uv run ruff check src tests`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement the P4A governance contract for parent/consolidated scope, note/disclosure source policy, conflict review packets, and quality-gate blocking before P4B field expansion.
