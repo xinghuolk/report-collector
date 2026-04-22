@@ -729,3 +729,74 @@ def test_note_disclosure_candidates_emit_p4a_source_metadata() -> None:
         "deterministic_note_disclosure"
     )
     assert candidates[0]["extensions"]["source_policy"] == "supplement_only"
+
+
+def test_build_cash_health_note_candidate_facts_extracts_restricted_cash_only() -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                12,
+                """
+                Restricted cash and restricted monetary funds were RMB 123 million
+                as of December 31, 2022.
+                """,
+            )
+        ],
+        document_id="doc:restricted-cash",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {"restricted_cash"}
+    assert candidates[0]["numeric_value"] == 123.0
+    assert candidates[0]["extensions"]["source_kind"] == (
+        "deterministic_note_disclosure"
+    )
+    assert candidates[0]["extensions"]["source_policy"] == "supplement_only"
+    assert missing_status == {"restricted_cash": "present"}
+
+
+def test_build_cash_health_note_candidate_facts_ignores_plain_cash_and_collateral_narrative() -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                18,
+                """
+                Cash and cash equivalents were RMB 500 million as of December 31, 2022.
+                已抵押存款主要用于为银行授信提供担保。
+                """,
+            )
+        ],
+        document_id="doc:plain-cash",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}
+
+
+def test_build_cash_health_note_candidate_facts_extracts_explicit_chinese_restricted_cash() -> None:
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                19,
+                """
+                受限货币资金为人民币 88 万元。
+                """,
+            )
+        ],
+        document_id="doc:restricted-cash-cn",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert {candidate["metric_id"] for candidate in candidates} == {"restricted_cash"}
+    assert candidates[0]["numeric_value"] == 88.0
+    assert missing_status == {"restricted_cash": "present"}

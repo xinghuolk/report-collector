@@ -173,8 +173,25 @@ _NOTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
 )
 
+_CASH_HEALTH_RESTRICTED_CASH_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"(?i)\brestricted\s+cash(?:\s+and\s+cash\s+equivalents)?\b[^0-9\n]{0,40}(?:HK\$|US\$|RMB|CNY|￥|\$)\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)"
+    ),
+    re.compile(
+        r"(?i)\brestricted\s+monetary\s+funds\b[^0-9\n]{0,40}(?:HK\$|US\$|RMB|CNY|￥|\$)\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)"
+    ),
+    re.compile(
+        r"受限货币资金[^0-9\n]{0,40}(?:人民币|RMB|CNY|HK\$|US\$|￥|元)\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)"
+    ),
+    re.compile(
+        r"已抵押存款[^\n]{0,40}(?:受限|restricted|受限货币资金|restricted\s+cash)[^0-9\n]{0,40}(?:HK\$|US\$|RMB|CNY|￥|\$)\s*([\(]?\d[\d,]*(?:\.\d+)?\)?)",
+        re.IGNORECASE,
+    ),
+)
+
 __all__ = [
     "build_asset_note_candidate_facts",
+    "build_cash_health_note_candidate_facts",
     "build_debt_note_candidate_facts",
     "build_working_capital_note_candidate_facts",
 ]
@@ -321,6 +338,50 @@ def build_debt_note_candidate_facts(
         note_definitions=_DEBT_NOTE_DEFINITIONS,
     )
     return (candidates, missing_status)
+
+
+def build_cash_health_note_candidate_facts(
+    *,
+    pages: Iterable[tuple[int, str]],
+    document_id: str,
+    period_id: str | None,
+    market: str,
+    existing_metric_ids: set[str],
+    semantic_fallback_service: SemanticFallbackService | None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    del semantic_fallback_service
+    if market.upper() != "HK" or period_id is None:
+        return ([], {})
+
+    if "restricted_cash" in existing_metric_ids:
+        return ([], {"restricted_cash": "present"})
+
+    for page_index, text in pages:
+        for line in _iter_candidate_lines(text):
+            match = _match_restricted_cash_line(line)
+            if match is None:
+                continue
+
+            return (
+                [
+                    _build_candidate_payload(
+                        candidate_index=1,
+                        document_id=document_id,
+                        label=_label_from_line(line),
+                        metric_id="restricted_cash",
+                        period_id=period_id,
+                        page_index=page_index,
+                        raw_value=match.group(1),
+                        market=market,
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                    )
+                ],
+                {"restricted_cash": "present"},
+            )
+
+    return ([], {"restricted_cash": "not_surfaced"})
 
 
 def _build_note_candidate_facts(
@@ -501,6 +562,14 @@ def _metric_definition(metric_id: str) -> dict[str, Any] | None:
         for metric in note_definition["metrics"]:
             if metric["metric_id"] == metric_id:
                 return metric
+    return None
+
+
+def _match_restricted_cash_line(line: str) -> re.Match[str] | None:
+    for pattern in _CASH_HEALTH_RESTRICTED_CASH_PATTERNS:
+        match = pattern.search(line)
+        if match is not None:
+            return match
     return None
 
 
