@@ -141,6 +141,15 @@ def test_statement_scope_detects_separate_statement_as_parent_company() -> None:
     assert scope == "parent_only"
 
 
+def test_statement_scope_ignores_narrative_separate_statement_mentions() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Statement of Financial Position",
+        local_context="See separate statement in the following pages.",
+    )
+
+    assert scope == "unknown"
+
+
 def test_build_parsed_table_recovers_rows_from_numeric_only_statement_page_text() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(

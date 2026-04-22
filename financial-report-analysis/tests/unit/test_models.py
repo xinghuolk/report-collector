@@ -45,7 +45,10 @@ def test_canonical_fact_business_key_is_stable_string() -> None:
     assert fact.business_key == "revenue|period-2024-fy|consolidated|current|reported|CNY"
 
 
-@pytest.mark.parametrize("entity_scope", ["parent_company", "unknown", "review_required"])
+@pytest.mark.parametrize(
+    "entity_scope",
+    ["parent_company", "unknown", "review_required", "segment", "other"],
+)
 def test_fact_accepts_p4a_entity_scope_values(entity_scope: str) -> None:
     fact = CanonicalFact(
         fact_id="fact-1",
@@ -74,6 +77,37 @@ def test_fact_accepts_p4a_entity_scope_values(entity_scope: str) -> None:
     )
 
     assert fact.entity_scope == entity_scope
+
+
+def test_canonical_fact_normalizes_legacy_parent_entity_scope() -> None:
+    fact = CanonicalFact(
+        fact_id="fact-1",
+        fact_kind="canonical",
+        metric_id="revenue",
+        metric_label_raw="Revenue",
+        statement_type="income_statement",
+        period_id="period-2024-fy",
+        entity_scope="parent",
+        comparison_axis="current",
+        adjustment_basis="reported",
+        currency="CNY",
+        raw_value="1000",
+        numeric_value=1000.0,
+        raw_unit="CNY",
+        normalized_unit="CNY",
+        precision=0,
+        confidence=0.99,
+        source_candidate_fact_ids=["cand-1"],
+        resolution_reason="single best match",
+        resolution_score=0.95,
+        validation_flags=["validated"],
+        quality_status="approved",
+        is_primary=True,
+        evidence_bundle_id="bundle-1",
+    )
+
+    assert fact.entity_scope == "parent_company"
+    assert fact.business_key == "revenue|period-2024-fy|parent_company|current|reported|CNY"
 
 
 def test_canonical_fact_business_key_distinguishes_parent_company_scope() -> None:

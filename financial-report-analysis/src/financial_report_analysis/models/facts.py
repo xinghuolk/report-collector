@@ -77,6 +77,8 @@ class BaseFact:
     extensions: Extensions = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.entity_scope == "parent":
+            self.entity_scope = "parent_company"
         if self.statement_type not in _STATEMENT_TYPES:
             raise ValueError("statement_type is not a supported fact enum value")
         if self.entity_scope not in _ENTITY_SCOPES:
