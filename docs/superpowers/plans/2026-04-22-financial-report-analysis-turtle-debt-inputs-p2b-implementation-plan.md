@@ -6,6 +6,8 @@
 
 **Architecture:** Keep the balance-sheet statement-row path as the primary path: table semantics -> metric registry -> candidate facts -> canonical resolver. Add a narrow deterministic note/disclosure supplement for HK `09987 2025`, with Ollama used only as a gated semantic locator for ambiguous debt disclosure rows and never as the direct source of canonical financial facts.
 
+For the current `09987 2025` anchor, the exact independently disclosed mixed-structure subset is `st_borr` only. Task 5 and Task 7 should therefore verify that the narrow note/disclosure supplement surfaces only that missing field for this anchor, without hallucinating the other three P2B metrics.
+
 **Tech Stack:** Python 3.12, pytest, Ruff, pypdf, existing `financial_report_analysis` registry / table semantics / semantic fallback modules, optional local Ollama through the existing semantic fallback client.
 
 ---
@@ -504,7 +506,7 @@ Expected: one exact expected set for `09987 2025`, not an open-ended “refine l
 Append this integration target:
 
 ```python
-def test_hk_09987_2025_surfaces_p2b_debt_candidates_without_summary_hallucination() -> None:
+def test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates() -> None:
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
@@ -543,7 +545,7 @@ Run:
 
 ```powershell
 cd financial-report-analysis
-uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_p2b_debt_candidates_without_summary_hallucination -q -o addopts=
+uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates -q -o addopts=
 ```
 
 Expected: pass.
@@ -639,7 +641,7 @@ Run:
 
 ```powershell
 cd financial-report-analysis
-uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_surfaces_p2b_debt_candidates tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_surfaces_p2b_statement_row_debt_candidates tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_does_not_promote_p2b_negative_control_rows tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_p2b_debt_candidates_without_summary_hallucination -q -o addopts=
+uv run pytest tests/integration/test_semantic_recovery_regressions.py::test_cn_601919_2025_surfaces_p2b_debt_candidates tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_surfaces_p2b_statement_row_debt_candidates tests/integration/test_semantic_recovery_regressions.py::test_hk_02498_2022_does_not_promote_p2b_negative_control_rows tests/integration/test_semantic_recovery_regressions.py::test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates -q -o addopts=
 ```
 
 Expected: all focused integration tests pass.
@@ -698,7 +700,7 @@ P2B is complete only when:
 - All four debt metric IDs exist in the metric registry with point-in-time balance-sheet semantics.
 - CN `601919 2025` produces deterministic debt candidate facts from balance-sheet rows.
 - HK `02498 2022` produces deterministic debt candidate facts from statement rows.
-- HK `09987 2025` produces only independently disclosed debt note/disclosure facts when statement rows are insufficient.
+- HK `09987 2025` produces only independently disclosed debt note/disclosure facts when statement rows are insufficient; for the current anchor floor, that means `st_borr` only.
 - `non_cur_liab_due_1y` is emitted only when independently disclosed.
 - Summary debt rows and non-debt liabilities do not get absorbed into the four P2B metrics.
 - Ollama locator output, if used, remains bounded, gated, provenance-carrying, and never directly becomes canonical facts.

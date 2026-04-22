@@ -72,6 +72,7 @@
 
 - 验证另一类英文年报形态
 - 当主表 debt 信息不充分时，允许走受限 note/disclosure supplement path
+- 当前阶段的 mixed-structure floor 以该锚点真实独立披露子集为准：`09987 2025` 只要求稳定补出 `st_borr`
 
 `09987` 不是公司特例样本，而是代表“主表不完整、附注补充更重要”的英文年报输入家族。
 
@@ -90,6 +91,7 @@
 - `statement-row path` 是默认主路径
 - `deterministic note/disclosure supplement` 只补缺，不覆盖主表已稳定产出的事实
 - `deterministic note/disclosure supplement` 只能扫描受限 debt-related disclosure blocks / known note families，不允许退化成全文泛扫
+- 对 `09987 2025` 这类 mixed-structure 锚点，本轮只要求在受限 borrowings note family 内稳定补出真实独立披露字段；当前 floor 不要求把 4 个 debt metrics 都从 prose/narrative disclosure 中恢复出来
 - Ollama semantic locator 只做语义定位，不直接生成数值事实或 canonical facts
 
 ## 6. 4 个字段的最小语义定义
@@ -203,6 +205,7 @@ P2B 视为完成，仅当以下条件同时满足：
 - `601919 2025` 能从 CN 资产负债表 deterministic 产出核心 debt candidate facts
 - `02498 2022` 能从 HK statement-row path deterministic 产出核心 debt candidate facts
 - `09987 2025` 在主表不充分时，可通过受限 note/disclosure supplement 补出真实存在的 debt facts
+- 对当前 `09987 2025` 锚点，这里的“真实存在的 debt facts”指真实独立披露并已被当前受限补充路径覆盖的字段；本轮收口锚点为 `st_borr`
 - `09987 2025` 的 note/disclosure supplement 只能补缺，不能替换已存在的 `statement_row` debt fact
 - `non_cur_liab_due_1y` 只有在独立披露时才产出
 - negative controls 不被误吸成 4 个核心 debt metrics
