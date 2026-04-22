@@ -302,6 +302,70 @@ def test_table_fact_builder_rejects_p2a_negative_control_rows() -> None:
     )
 
 
+def test_table_fact_builder_emits_p2b_debt_candidate_facts() -> None:
+    cases = [
+        (
+            "CN",
+            "doc:p2b-cn",
+            "CNY",
+            [
+                ("短期借款", "short-term borrowings", 11.0),
+                ("长期借款", "long-term borrowings", 12.0),
+                ("应付债券", "bonds payable", 13.0),
+                ("一年内到期的非流动负债", "current portion of long-term debt", 14.0),
+            ],
+            {
+                "st_borr",
+                "lt_borr",
+                "bond_payable",
+                "non_cur_liab_due_1y",
+            },
+        ),
+        (
+            "HK",
+            "doc:p2b-hk",
+            "HKD",
+            [
+                ("Short-term borrowings", "short-term borrowings", 21.0),
+                ("Long-term borrowings", "long-term borrowings", 22.0),
+                ("Bonds payable", "bonds payable", 23.0),
+                (
+                    "Current portion of long-term debt",
+                    "current portion of long-term debt",
+                    24.0,
+                ),
+            ],
+            {
+                "st_borr",
+                "lt_borr",
+                "bond_payable",
+                "non_cur_liab_due_1y",
+            },
+        ),
+    ]
+
+    for market, document_id, table_currency, rows, expected_metric_ids in cases:
+        semantics = _normalized_table_semantics(
+            table_id=f"table-{market.lower()}-p2b",
+            document_id=document_id,
+            table_kind="balance_sheet",
+            period_id="2025FY",
+            rows=rows,
+            table_currency=table_currency,
+        )
+
+        candidates = build_table_candidate_facts(
+            [semantics],
+            registry=load_metric_registry(),
+            document_id=document_id,
+            market=market,
+        )
+
+        assert {candidate["metric_id"] for candidate in candidates} == expected_metric_ids
+        assert all(candidate["statement_type"] == "balance_sheet" for candidate in candidates)
+        assert all(candidate["extraction_method"] == "table_semantics" for candidate in candidates)
+
+
 def test_fact_pipeline_normalizes_basic_eps_as_per_share_metric() -> None:
     normalizer = FactNormalizer()
 

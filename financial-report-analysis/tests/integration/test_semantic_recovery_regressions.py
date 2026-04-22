@@ -1117,23 +1117,79 @@ def test_hk_02498_2022_surfaces_p2a_statement_row_candidates() -> None:
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
+def test_cn_601919_2025_surfaces_p2b_debt_candidates() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="CN")
+
+    for metric_id, label_prefix, period_ids in (
+        ("st_borr", "\u77ed\u671f\u501f\u6b3e", {"2024FY", "2025FY"}),
+        ("lt_borr", "\u957f\u671f\u501f\u6b3e", {"2024FY", "2025FY"}),
+        (
+            "non_cur_liab_due_1y",
+            "\u4e00\u5e74\u5185\u5230\u671f\u7684\u975e\u6d41\u52a8\u8d1f\u503a",
+            {"2024FY", "2025FY"},
+        ),
+    ):
+        _assert_deterministic_balance_sheet_candidates(
+            payload,
+            metric_id=metric_id,
+            label_prefix=label_prefix,
+            period_ids=period_ids,
+            statement_scope_guess="consolidated",
+        )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_surfaces_p2b_statement_row_debt_candidates() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+
+    for metric_id, label_prefix, period_ids in (
+        ("st_borr", "short-term borrowings", {"2021FY", "2022FY"}),
+        ("lt_borr", "long-term borrowings", {"2021FY", "2022FY"}),
+    ):
+        _assert_deterministic_balance_sheet_candidates(
+            payload,
+            metric_id=metric_id,
+            label_prefix=label_prefix,
+            period_ids=period_ids,
+            statement_scope_guess="consolidated",
+        )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_does_not_promote_p2b_negative_control_rows() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+
+    for metric_id in ("st_borr", "lt_borr"):
+        candidate_labels = _candidate_labels_for_metric(payload, metric_id)
+        assert candidate_labels, metric_id
+        assert "lease liabilities" not in candidate_labels
+        assert "accounts payable" not in candidate_labels
+        assert "contract liabilities" not in candidate_labels
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_02498_2022_does_not_promote_p2a_negative_control_rows() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
 
-    assert "accounts receivable financing" not in _candidate_labels_for_metric(
-        payload,
-        "accounts_receiv",
-    )
-    assert "long-term receivables" not in _candidate_labels_for_metric(
-        payload,
-        "oth_receiv",
-    )
-    assert "bonds payable" not in _candidate_labels_for_metric(
-        payload,
-        "notes_payable",
-    )
+    for metric_id, forbidden_label in (
+        ("accounts_receiv", "accounts receivable financing"),
+        ("oth_receiv", "long-term receivables"),
+        ("notes_payable", "bonds payable"),
+    ):
+        candidate_labels = _candidate_labels_for_metric(payload, metric_id)
+        assert candidate_labels, metric_id
+        assert forbidden_label not in candidate_labels
 
 
 @pytest.mark.real_pdf
