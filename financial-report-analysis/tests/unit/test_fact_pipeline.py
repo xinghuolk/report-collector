@@ -836,6 +836,77 @@ def test_conflict_resolver_blocks_blocked_policy_candidate() -> None:
     assert packet.conflict_state == "blocked"
 
 
+def test_pipeline_carries_p4a_review_packets_and_sets_review_quality_gate() -> None:
+    result = analyze_report(
+        document_ref={"document_id": "doc-p4a", "market": "HK", "language": "en"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-statement",
+                    "metric_id": "cash",
+                    "metric_label_raw": "Cash",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "HKD",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": None,
+                    "normalized_unit": None,
+                    "precision": 0,
+                    "confidence": 0.9,
+                    "document_id": "doc-p4a",
+                    "block_id": "statement:block",
+                    "page_index": 1,
+                    "evidence_bundle_id": "bundle-statement",
+                    "extraction_method": "table_semantics",
+                    "source_rank_hint": 30,
+                    "extensions": {
+                        "table_kind": "balance_sheet",
+                        "source_kind": "statement_row",
+                        "source_policy": "supplement_only",
+                    },
+                },
+                {
+                    "fact_id": "candidate-note",
+                    "metric_id": "cash",
+                    "metric_label_raw": "Cash note",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "HKD",
+                    "raw_value": "120",
+                    "numeric_value": 120.0,
+                    "raw_unit": None,
+                    "normalized_unit": None,
+                    "precision": 0,
+                    "confidence": 0.9,
+                    "document_id": "doc-p4a",
+                    "block_id": "note:block",
+                    "page_index": 20,
+                    "evidence_bundle_id": "bundle-note",
+                    "extraction_method": "note_disclosure",
+                    "source_rank_hint": 18,
+                    "extensions": {
+                        "table_kind": "note_disclosure",
+                        "source_kind": "deterministic_note_disclosure",
+                        "source_policy": "review_required",
+                    },
+                },
+            ]
+        },
+    )
+
+    assert result.quality_gate == "review"
+    assert result.validation_report.issues == ("source_conflict",)
+    assert len(result.review_packets) == 1
+    assert result.review_packets[0].to_dict()["metric_id"] == "cash"
+
+
 def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provenance() -> (
     None
 ):

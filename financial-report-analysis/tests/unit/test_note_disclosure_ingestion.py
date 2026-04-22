@@ -706,3 +706,26 @@ def test_build_working_capital_note_candidate_facts_does_not_scan_pages_after_no
     assert {candidate["metric_id"] for candidate in candidates} == {"acct_payable"}
     assert {candidate["page_index"] for candidate in candidates} == {179}
     assert missing_status["contract_liab"] == "absent"
+
+
+def test_note_disclosure_candidates_emit_p4a_source_metadata() -> None:
+    candidates, _ = build_debt_note_candidate_facts(
+        pages=[
+            (
+                40,
+                """
+                Borrowings 2025 2024
+                Short-term borrowings 100 90
+                """,
+            )
+        ],
+        document_id="doc-note",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+    )
+
+    assert candidates[0]["extensions"]["source_kind"] == (
+        "deterministic_note_disclosure"
+    )
+    assert candidates[0]["extensions"]["source_policy"] == "supplement_only"

@@ -538,6 +538,11 @@ def _build_candidate_payload(
     semantic_confidence: float | None,
     fallback_reason: str | None,
 ) -> dict[str, Any]:
+    source_kind = (
+        "llm_locator_assisted_note_disclosure"
+        if semantic_source == "llm_fallback"
+        else "deterministic_note_disclosure"
+    )
     return {
         "fact_id": f"{document_id}:note-disclosure:candidate:{candidate_index}",
         "fact_kind": "candidate",
@@ -559,6 +564,8 @@ def _build_candidate_payload(
             "market": market,
             "accounting_standard": "OTHER",
             "table_kind": "note_disclosure",
+            "source_kind": source_kind,
+            "source_policy": "supplement_only",
             "statement_scope_guess": "consolidated",
             "period_scope": "point_in_time",
             "value_type": "amount",

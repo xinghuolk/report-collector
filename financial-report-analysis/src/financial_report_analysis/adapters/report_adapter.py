@@ -56,6 +56,10 @@ class ReportAdapter:
             self._sanitize_fact(self._coerce_fact(fact), allowed_fields=_TTM_FACT_FIELDS)
             for fact in pipeline_data.get("derived_facts", [])
         ]
+        review_packets = [
+            self._coerce_review_packet(packet)
+            for packet in pipeline_data.get("review_packets", [])
+        ]
         blocked_items = self._build_blocked_items(pipeline_data.get("validation_report"))
 
         quality_gate = self._resolve_quality_gate(
@@ -76,6 +80,7 @@ class ReportAdapter:
             "analysis_snapshot": {
                 "summary": "",
                 "blocked_items": blocked_items,
+                "review_packets": review_packets,
             },
             "blocked_items": blocked_items,
         }
@@ -99,6 +104,23 @@ class ReportAdapter:
         if hasattr(value, "__dict__"):
             return dict(value.__dict__)
         raise TypeError("fact values must be mappings or dataclass-like objects")
+
+    @staticmethod
+    def _coerce_review_packet(value: Any) -> dict[str, Any]:
+        if isinstance(value, Mapping):
+            return dict(value)
+        if is_dataclass(value):
+            data = asdict(value)
+            if isinstance(data.get("competing_candidate_values"), tuple):
+                data["competing_candidate_values"] = list(
+                    data["competing_candidate_values"]
+                )
+            return data
+        if hasattr(value, "to_dict"):
+            return dict(value.to_dict())
+        if hasattr(value, "__dict__"):
+            return dict(value.__dict__)
+        raise TypeError("review packet values must be mappings or dataclass-like objects")
 
     @staticmethod
     def _build_blocked_items(validation_report: Any) -> list[dict[str, Any]]:
@@ -135,11 +157,18 @@ class ReportAdapter:
 
     @staticmethod
     def _select_key_facts(canonical_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        consumable = [
+            fact
+            for fact in canonical_facts
+            if fact.get("quality_status") in {None, "ok"}
+            and not fact.get("validation_flags")
+            and fact.get("entity_scope") not in {"unknown", "review_required"}
+        ]
         prioritized = [
-            fact for fact in canonical_facts if fact.get("metric_id") in _API_VISIBLE_METRICS
+            fact for fact in consumable if fact.get("metric_id") in _API_VISIBLE_METRICS
         ]
         remainder = [
-            fact for fact in canonical_facts if fact.get("metric_id") not in _API_VISIBLE_METRICS
+            fact for fact in consumable if fact.get("metric_id") not in _API_VISIBLE_METRICS
         ]
         return [*prioritized, *remainder][:10]
 

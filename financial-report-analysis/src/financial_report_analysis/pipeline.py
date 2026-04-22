@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact, DerivedFact
+from financial_report_analysis.models.governance import ReviewPacket
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
@@ -26,6 +27,7 @@ class PipelineResult:
     canonical_facts: list[CanonicalFact]
     derived_facts: list[DerivedFact]
     validation_report: ValidationReport
+    review_packets: list[ReviewPacket]
 
 
 def analyze_report(document_ref: dict[str, Any], extracted_payload: dict[str, Any]) -> PipelineResult:
@@ -39,9 +41,15 @@ def analyze_report(document_ref: dict[str, Any], extracted_payload: dict[str, An
         for payload in extracted_payload.get("candidate_facts", [])
     ]
     normalized_candidates = FactNormalizer().normalize_candidates(candidates)
-    canonical_facts = ConflictResolver().resolve(normalized_candidates)
+    conflict_result = ConflictResolver().resolve_with_review(normalized_candidates)
+    canonical_facts = conflict_result.canonical_facts
+    review_packets = conflict_result.review_packets
     derived_facts = DerivationService().derive_ttm(canonical_facts)
-    validation_report = ValidationService().validate(canonical_facts, derived_facts)
+    validation_report = ValidationService().validate(
+        canonical_facts,
+        derived_facts,
+        review_packets,
+    )
 
     return PipelineResult(
         canonical_fact_set_id=build_fact_set_id(document_id, "canonical"),
@@ -51,6 +59,7 @@ def analyze_report(document_ref: dict[str, Any], extracted_payload: dict[str, An
         canonical_facts=canonical_facts,
         derived_facts=derived_facts,
         validation_report=validation_report,
+        review_packets=review_packets,
     )
 
 
@@ -113,4 +122,5 @@ def _unsupported_language_result(
         canonical_facts=[],
         derived_facts=[],
         validation_report=validation_report,
+        review_packets=[],
     )

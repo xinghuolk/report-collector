@@ -77,6 +77,8 @@ def _build_candidate_payload(
             "market": market,
             "accounting_standard": "OTHER",
             "table_kind": table.table_kind,
+            "source_kind": "statement_row",
+            "source_policy": "supplement_only",
             "statement_scope_guess": table.statement_scope_guess,
             "period_scope": definition.period_scope,
             "value_type": definition.value_type,

@@ -131,3 +131,61 @@ def test_table_fact_builder_maps_parent_only_scope_to_parent_company() -> None:
     assert len(candidates) == 1
     assert candidates[0]["entity_scope"] == "parent_company"
     assert candidates[0]["extensions"]["statement_scope_guess"] == "parent_only"
+
+
+def test_table_fact_builder_emits_p4a_source_metadata_for_statement_rows() -> None:
+    candidates = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-1",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="balance_sheet",
+                title_text="Consolidated Statement of Financial Position",
+                statement_scope_guess="consolidated",
+                table_unit="ones",
+                table_currency="HKD",
+                semantic_source="deterministic",
+                semantic_confidence=None,
+                semantic_ambiguity_reason=None,
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="point",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-1",
+                        label_raw="Cash",
+                        normalized_row_label="cash",
+                        semantic_source="deterministic",
+                        semantic_confidence=None,
+                        fallback_reason=None,
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="100",
+                                numeric_value=100.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="point",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert candidates[0]["extensions"]["source_kind"] == "statement_row"
+    assert candidates[0]["extensions"]["source_policy"] == "supplement_only"

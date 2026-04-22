@@ -211,3 +211,64 @@ def test_report_adapter_treats_scalar_issue_payload_as_single_blocker() -> None:
     assert result["blocked_items"] == [
         {"code": "missing_lineage", "status": "review_required"}
     ]
+
+
+def test_report_adapter_exposes_p4a_review_packets_and_excludes_review_facts_from_key_facts() -> (
+    None
+):
+    adapter = ReportAdapter()
+    result = adapter.build_analysis_result(
+        document={"document_id": "doc-p4a", "market": "HK"},
+        pipeline_result={
+            "canonical_fact_set_id": "doc-p4a:canonical:v1",
+            "derived_fact_set_id": "doc-p4a:derived:v1",
+            "validation_report_id": "doc-p4a:validation:v1",
+            "quality_gate": "review",
+            "canonical_facts": [
+                {
+                    "metric_id": "cash",
+                    "numeric_value": 100.0,
+                    "quality_status": "review",
+                    "validation_flags": ["source_conflict_review_required"],
+                },
+                {
+                    "metric_id": "revenue",
+                    "numeric_value": 200.0,
+                    "quality_status": "ok",
+                    "validation_flags": [],
+                },
+            ],
+            "derived_facts": [],
+            "validation_report": {
+                "overall_status": "review_required",
+                "issues": ["source_conflict"],
+            },
+            "review_packets": [
+                {
+                    "document_id": "doc-p4a",
+                    "period_id": "2025FY",
+                    "metric_id": "cash",
+                    "entity_scope": "consolidated",
+                    "source_kind": "deterministic_note_disclosure",
+                    "source_policy": "review_required",
+                    "conflict_state": "source_conflict",
+                    "candidate_value": 120.0,
+                    "competing_candidate_values": [100.0],
+                    "evidence_bundle_id": "bundle-note",
+                    "resolution_reason": "source_policy_review_required",
+                    "review_reason": "source_conflict",
+                }
+            ],
+        },
+    )
+
+    assert result["quality_gate"] == "review"
+    assert result["key_facts"] == [
+        {
+            "metric_id": "revenue",
+            "numeric_value": 200.0,
+            "quality_status": "ok",
+            "validation_flags": [],
+        }
+    ]
+    assert result["analysis_snapshot"]["review_packets"][0]["metric_id"] == "cash"

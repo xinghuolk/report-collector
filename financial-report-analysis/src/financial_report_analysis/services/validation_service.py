@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from financial_report_analysis.models.facts import CanonicalFact, DerivedFact
+from financial_report_analysis.models.governance import ReviewPacket
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,9 +20,11 @@ class ValidationService:
         self,
         canonical_facts: Iterable[CanonicalFact],
         derived_facts: Iterable[DerivedFact],
+        review_packets: Iterable[ReviewPacket] = (),
     ) -> ValidationReport:
         canonical_list = list(canonical_facts)
         derived_list = list(derived_facts)
+        review_packet_list = list(review_packets)
         canonical_fact_ids = {fact.fact_id for fact in canonical_list}
         issues: list[str] = []
 
@@ -39,6 +42,9 @@ class ValidationService:
             for source_id in fact.source_canonical_fact_ids
         ):
             issues.append("derived_fact_references_missing_canonical_fact")
+        for packet in review_packet_list:
+            if packet.conflict_state not in issues:
+                issues.append(packet.conflict_state)
 
         if issues:
             overall_status = "review_required"
