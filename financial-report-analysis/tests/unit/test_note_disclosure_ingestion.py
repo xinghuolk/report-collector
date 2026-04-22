@@ -999,3 +999,50 @@ def test_build_cash_health_note_candidate_facts_does_not_parse_prose_date_as_tim
 
     assert candidates == []
     assert missing_status == {"restricted_cash": "not_surfaced"}
+
+
+def test_build_cash_health_note_candidate_facts_does_not_parse_date_after_time_deposit_label() -> (
+    None
+):
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                26,
+                """
+                Time deposits on 31 December 2022
+                """,
+            )
+        ],
+        document_id="doc:date-after-label",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}
+
+
+def test_build_cash_health_note_candidate_facts_does_not_parse_year_only_continuation_as_time_deposit_value() -> (
+    None
+):
+    candidates, missing_status = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=[
+            (
+                27,
+                """
+                Time deposits
+                2024 2023
+                """,
+            )
+        ],
+        document_id="doc:year-only-continuation",
+        period_id="2022FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    assert candidates == []
+    assert missing_status == {"restricted_cash": "not_surfaced"}

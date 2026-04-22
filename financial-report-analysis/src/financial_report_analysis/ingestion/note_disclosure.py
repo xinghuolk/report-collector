@@ -205,6 +205,11 @@ _CASH_HEALTH_TIME_DEPOSITS_LABEL_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _CASH_HEALTH_ROW_VALUE_PATTERN = re.compile(r"(?<!\d)(\d[\d,]*(?:\.\d+)?)(?!\d)")
+_CASH_HEALTH_DATE_CONTEXT_PATTERN = re.compile(
+    r"(?i)\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\b"
+)
 
 __all__ = [
     "build_asset_note_candidate_facts",
@@ -701,19 +706,58 @@ def _match_cash_health_label_line(
         if require_line_start and line[: match.start()].strip():
             continue
 
-        value_match = _CASH_HEALTH_ROW_VALUE_PATTERN.search(line[match.end() :])
-        if value_match is None and next_line is not None:
-            value_match = _match_cash_health_continuation_value(
-                line=line,
-                next_line=next_line,
-                pattern=pattern,
-            )
-        if value_match is None:
+        value = _extract_cash_health_amount(
+            tail=line[match.end() :],
+            next_line=next_line,
+        )
+        if value is None:
             continue
 
-        return (match.group(1), value_match.group(1))
+        return (match.group(1), value)
 
     return None
+
+
+def _extract_cash_health_amount(
+    *,
+    tail: str,
+    next_line: str | None,
+) -> str | None:
+    if _looks_like_cash_health_date_context(tail):
+        return None
+
+    for value_match in _CASH_HEALTH_ROW_VALUE_PATTERN.finditer(tail):
+        value = value_match.group(1)
+        if _is_year_like_cash_health_value(value):
+            continue
+        return value
+
+    if next_line is None:
+        return None
+    if _is_year_header_line(next_line):
+        return None
+    if not _looks_like_cash_health_continuation_line(next_line):
+        return None
+
+    combined = f"{tail} {next_line}"
+    if _looks_like_cash_health_date_context(combined):
+        return None
+
+    for value_match in _CASH_HEALTH_ROW_VALUE_PATTERN.finditer(combined):
+        value = value_match.group(1)
+        if _is_year_like_cash_health_value(value):
+            continue
+        return value
+
+    return None
+
+
+def _looks_like_cash_health_date_context(text: str) -> bool:
+    return _CASH_HEALTH_DATE_CONTEXT_PATTERN.search(text) is not None
+
+
+def _is_year_like_cash_health_value(value: str) -> bool:
+    return re.fullmatch(r"(?:19|20)\d{2}", value) is not None
 
 
 def _match_cash_health_continuation_value(
