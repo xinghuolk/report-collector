@@ -40,15 +40,14 @@ def assemble_dataset(
         for artifact in artifacts
         for fact in artifact.canonical_facts
     ]
-    deduped_present_rows = _dedupe_present_rows(present_rows)
     missing_rows = _missing_rows(
         artifacts=artifacts,
-        present_rows=deduped_present_rows,
+        present_rows=present_rows,
         required_metric_ids=required_metric_ids,
     )
     rows = tuple(
         sorted(
-            [*deduped_present_rows, *missing_rows],
+            [*present_rows, *missing_rows],
             key=_row_sort_key,
         )
     )
@@ -101,20 +100,6 @@ def _present_row_from_fact(
         source_artifact_id=artifact.artifact_id,
         evidence_bundle_id=_optional_text_value(fact.get("evidence_bundle_id")),
     )
-
-
-def _dedupe_present_rows(rows: list[P5DatasetRow]) -> list[P5DatasetRow]:
-    grouped: dict[
-        tuple[str, int, str, str, str, str, str],
-        list[P5DatasetRow],
-    ] = defaultdict(list)
-    for row in rows:
-        grouped[_row_key(row)].append(row)
-
-    deduped_rows: list[P5DatasetRow] = []
-    for key in sorted(grouped):
-        deduped_rows.append(grouped[key][0])
-    return deduped_rows
 
 
 def _missing_rows(
