@@ -59,6 +59,7 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
 
 def test_run_p5_dataset_build_reuses_existing_extracted_artifact_and_persists_outputs(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     manifest_path = tmp_path / "manifest.json"
     entry = _entry(tmp_path)
@@ -87,12 +88,22 @@ def test_run_p5_dataset_build_reuses_existing_extracted_artifact_and_persists_ou
     repository = P5JsonArtifactRepository(tmp_path / "data" / "p5")
     repository.save_extracted_artifact(_artifact(entry))
 
-    calls = {"build": 0}
+    calls = {"build": 0, "write_json": []}
+    original_write_json = P5JsonArtifactRepository._write_json
+
+    def tracked_write_json(path: Path, payload: dict[str, object]) -> Path:
+        calls["write_json"].append(path)
+        return original_write_json(path, payload)
 
     def build_artifact_func(entry_arg: P5ManifestEntry) -> P5ExtractedArtifact:
         calls["build"] += 1
         return _artifact(entry_arg)
 
+    monkeypatch.setattr(
+        P5JsonArtifactRepository,
+        "_write_json",
+        staticmethod(tracked_write_json),
+    )
     result = run_p5_dataset_build(
         manifest_path=manifest_path,
         artifact_root=tmp_path / "data" / "p5",
@@ -102,6 +113,10 @@ def test_run_p5_dataset_build_reuses_existing_extracted_artifact_and_persists_ou
     )
 
     assert calls["build"] == 0
+    assert [path.name for path in calls["write_json"]] == [
+        "p5_seed.json",
+        "p5_seed_turtle_export.json",
+    ]
     assert result.manifest_id == "p5_seed"
     assert result.extracted_artifact_ids == (entry.artifact_id,)
     assert result.dataset_path.exists()

@@ -138,9 +138,7 @@ def _save_turtle_export(
     turtle_export: P5TurtleExport,
 ) -> Path:
     path = repository.datasets_dir / f"{turtle_export.dataset_id}_turtle_export.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(asdict(turtle_export), ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
+    return repository._write_json(  # noqa: SLF001 - reuse repository atomic JSON write path
+        path,
+        asdict(turtle_export),
     )
-    return path
