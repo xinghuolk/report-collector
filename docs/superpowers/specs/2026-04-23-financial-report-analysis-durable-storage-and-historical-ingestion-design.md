@@ -5,6 +5,29 @@
 > **阶段:** Post-P5 Durable Storage Foundation
 > **范围类型:** 持久化与系统能力升级
 
+## 0. 当前实现状态
+
+截至当前分支状态，这条 durable storage 大线已经不再处于纯 brainstorming 阶段。
+
+已经完成并有代码/测试支撑的 baseline 包括：
+
+- storage-bound contract freeze
+- SQLite-first durable core models
+- JSON / DB repository parity for extracted / dataset / turtle export
+- historical ingestion 最小 registry
+- review / lineage / recompute 的最小 durable persistence
+- focused parity integration
+
+因此，这份文档现在更适合作为 **umbrella spec**，而不是继续直接承载下一轮实现细节。
+
+更准确的状态判断应为：
+
+- `Storage Contract Freeze`: completed baseline
+- `Durable Storage Foundation`: completed baseline
+- `Historical Ingestion Registry`: completed minimal baseline
+- `Storage-backed Query / Audit`: next
+- `Document Ledger / Extraction-Run Deep Persistence`: next
+
 ## 1. 目标
 
 本阶段不是单纯把 JSON repository 替换成数据库。
@@ -232,6 +255,26 @@
 - 把历年 annual report 组织进 durable registry
 - 提供基础 query / audit / recompute lookup 能力
 
+### 7.4 建议拆成子 Spec
+
+从当前实现状态继续往前推进时，不建议再直接从这份 umbrella spec 写一个新的“大一统 implementation plan”。
+
+更稳的拆法是：
+
+1. `Storage Core And Repository Parity`
+   - 角色：已实现 baseline
+   - 范围：durable core models、JSON / DB repository parity、最小 review / lineage / recompute persistence
+
+2. `Storage-Backed Query And Audit`
+   - 角色：下一阶段执行 spec
+   - 范围：按 issuer / fiscal year / artifact / run id 的查询面、review / audit lookup、query-oriented repository surface
+
+3. `Document Ledger And Extraction-Run Persistence`
+   - 角色：下一阶段执行 spec
+   - 范围：`report_files`、`documents`、`document_versions`、`extraction_runs`、statement-table / fact-ledger 深层对象如何从“建表存在”推进到“真实接线”
+
+现有 [2026-04-23-financial-report-analysis-core-database-architecture-planning.md](/Users/keli/source/report-collector/docs/superpowers/specs/2026-04-23-financial-report-analysis-core-database-architecture-planning.md) 更适合作为第 3 类工作的分析底稿，而不是下一轮直接执行的总 spec。
+
 ## 8. 与 LLM 的关系
 
 whole-document LLM assessment 仍然后置。
@@ -247,7 +290,7 @@ whole-document LLM assessment 仍然后置。
 
 ## 9. Definition Of Done
 
-本阶段完成时，应满足：
+作为 umbrella spec，本阶段的总体完成应满足：
 
 - review / lineage / recompute contract 已能被 durable storage 直接承接
 - issuer / report / fiscal year / artifact 已有稳定 durable model

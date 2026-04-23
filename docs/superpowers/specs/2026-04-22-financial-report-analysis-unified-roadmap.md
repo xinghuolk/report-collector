@@ -44,6 +44,18 @@
 - 数据库阶段应建立在已经稳定的 artifact / review / lineage / recompute contract 之上，而不是反过来驱动这些 contract 频繁变化
 - 数据库阶段的默认起步选型应是 `SQLAlchemy + SQLite-first`，同时保持 schema 与 repository boundary 可迁移到 `Postgres`
 
+截至当前分支，这条数据库线的 `core baseline` 已经不再是待规划项，而是已实现基线：
+
+- durable core models
+- JSON / DB repository parity
+- minimal historical ingestion registry
+- minimal review / lineage / recompute persistence
+
+因此，下一步不宜再从数据库 umbrella spec 直接写一个新的总 implementation plan，而应继续拆成两个后继子阶段：
+
+- `Storage-Backed Query And Audit`
+- `Document Ledger And Extraction-Run Persistence`
+
 ## 1. 目的
 
 本文定义 `financial-report-analysis` 的顶层路线图。
