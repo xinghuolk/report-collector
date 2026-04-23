@@ -13,20 +13,24 @@
 - `Turtle P2B Debt Inputs` 已完成并收口。
 - `Turtle P3 Asset Quality` 已完成并收口。
 - `Turtle P4A Parent Scope / Notes Conflict Governance` 已完成并收口。
+- `Turtle P4B Cash-Health Notes Bridge` 已完成并收口。
+- `Turtle P4C Investor Core Statement Gaps` 已完成并收口。
+- `Turtle P4D Parent Scope And Notes Follow-up` 已完成并收口。
+- `Turtle P4E Investor Earnings Quality And Capex Follow-up` 已完成并收口。
+- `Turtle P5 Multi-Year Investor Dataset And Minimal Persistence` 已完成并收口。
 - `new-report-sample-onboarding-and-field-variance-process.md` 不再只是补充说明，而应视为后续字段 phase 的正式前置方法约束。
-- `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 明确显示：对 Turtle v0.15 来说，下一批最有价值、且尚未被正式承接的财报字段，不是再扩主表骨架，而是现金健康度相关的高价值附注桥接字段。
+- `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 仍然是后续 coverage 需求的重要来源，但当前分支已经不再处于 pre-P5 的字段扩张阶段。
 
-因此，当前推荐的下一步不是直接进入“广义 Phase 4 全量字段扩展”，而是先收窄为：
+因此，当前推荐的下一步不再是继续新开 `P4x` 或 `P5` coverage phase，而是进入：
 
-`P4B Cash-Health Notes Bridge`
+`Post-P5 Review / Storage / Lineage / Recompute Foundation`
 
-第一批候选字段应优先限定为：
+这条线的默认边界应为：
 
-- `restricted_cash`
-- `interest_paid_cash`
-- `time_deposits_or_wealth_products`
-
-在启动 P4B spec / plan 前，应先补一个独立的 sample onboarding artifact，记录该 phase 的 anchors、expected missing status 与 failure classification。
+- 先做 `review surface`
+- 再做 `artifact lineage contract`
+- 再做 `deterministic recompute contract`
+- 如需 LLM，最多预留为后续 whole-document assessment / diff review extension，不进入当前主逻辑
 
 ## 1. 目的
 
@@ -264,36 +268,29 @@ pdf
 
 截至当前，推荐顺序如下：
 
-1. **先确认当前 active phase 已收口，再启动新的字段 phase。**
-   - 当前分支里，P2B、P3、P4A 都已经进入已完成状态。
-   - 新 phase 不应建立在“旧 phase 还没验证完”的误判上。
+1. **先承认 pre-P5 coverage 已经完成，再切换 active phase。**
+   - 当前分支里，P2B、P3、P4A、P4B、P4C、P4D、P4E、P5 都已经进入已完成状态。
+   - 下一步不应继续按“还有哪个字段 phase 没开”来判断，而应转入 post-P5 基础设施阶段。
 
-2. **在 P4B 开始前，先补 phase-specific onboarding artifact。**
-   - 记录 anchors、report family、target metrics、expected missing status、expected failure classification。
-   - 这一步是 `new-report-sample-onboarding-and-field-variance-process.md` 在字段 phase 层面的落地，不应跳过。
+2. **优先建设 post-P5 的 review / lineage / recompute 地基。**
+   - 现在最缺的不是再多几个字段，而是让现有 artifact 可审、可追、可重算。
+   - review surface、artifact lineage、dataset lineage、recompute input/output contract 应优先于新的 broad storage abstraction。
 
-3. **P4B 应优先做 Cash-Health Notes Bridge，而不是广义 parent-scope 全量扩展。**
-   - `v0.15` gap analysis 已经说明，现金健康度相关字段是当前最有价值的财报内缺口之一。
-   - 这批字段比 broad parent-scope statement coverage 更贴近当前下游价值，也更适合受限 note/disclosure bridge 路径。
-   - P4B 第一批应优先限定为 `restricted_cash`、`interest_paid_cash`、`time_deposits_or_wealth_products`。
+3. **保持 recompute core 为 deterministic。**
+   - recompute 的主逻辑应只依赖 manifest、persisted extracted artifacts、dataset assembly rules 和版本化 contract。
+   - LLM 不应参与 recompute 裁决，也不应直接改写 canonical facts。
 
-4. **P4B 继续遵守 P4A 治理 contract。**
-   - statement-row 仍然优先。
-   - note/disclosure 只补缺，不得静默覆盖已存在的 statement-row facts。
-   - 若某字段需要真正的 override 行为，必须在后续 spec 中显式声明，而不是顺手放宽。
-   - parent / consolidated scope 不得混淆。
+4. **把 LLM whole-document assessment 作为后续扩展，而不是当前阻塞项。**
+   - 如果未来需要整份 PDF 对照评估，应作为 review / diff artifact 的可插拔扩展。
+   - 它可以帮助发现系统漏抽、误抽和 scope 冲突，但不应成为主事实来源。
 
-5. **P4C 或更后续 phase 才考虑 broad parent-scope / notes bridge 扩张。**
-   - 母公司单体报表整套字段、分红/回购文本桥接、广义高价值附注深挖，仍应保持为后续 phase。
-   - P4B 不应一次性吃掉整个 `v0.15` gap list。
+5. **storage abstraction 可以后置，但 lineage contract 不能后置。**
+   - 当前 JSON artifact repository 足以支撑第一版 post-P5 基础设施。
+   - 只有当 review / recompute / query 需求已经稳定时，才值得推进数据库或更重的 storage layer。
 
-6. **Turtle Phase 5 之前，先定义 multi-year dataset schema 与最小 persistence。**
-   - Phase 5 依赖稳定字段身份、期间语义、fact-set version、quality marker 与 export shape。
-   - 不应把 Phase 5 做成对当前 extract outputs 的临时聚合。
-
-7. **更大范围的 Ollama fallback coverage closure 应在 Turtle 主字段集合稳定后统一做。**
-   - 除非某个 phase 需要窄范围 gated locator，否则不要为每个字段阶段零散扩 prompt。
-   - 应安排专门 closure，统一决定哪些 Turtle 字段需要进入 fallback supported outputs 与 promoted probes。
+6. **后续新增字段 phase 必须建立在 post-P5 基础设施之上。**
+   - 如果后面还要继续承接 `v0.15` gap list、parent scope 深挖或 broad notes bridge，应先有 review / lineage guardrails。
+   - 否则新字段只会继续增加不可审计、不可重算的状态债务。
 
 ## 6. 暂停门槛
 
@@ -426,6 +423,16 @@ pdf
 预期结果：
 
 - 在实现 multi-year extraction 前，先定义 export schema、period semantics、fact-set versioning、quality markers 与最小 persistence。
+
+### Milestone F: Post-P5 Review / Lineage / Recompute Foundation
+
+预期结果：
+
+- extracted artifact、dataset artifact 与 Turtle export 都有可审阅的 review surface。
+- artifact 之间存在清晰的 lineage contract，可回答“这条 dataset row 来自哪些 extracted artifacts / source PDFs / pipeline versions”。
+- recompute 使用 deterministic contract，可在 manifest、artifact version 或 pipeline version 变化时稳定重建目标 artifact。
+- 当前 JSON repository 之上已有足够的 review / lineage / recompute 结构，不必先引入数据库。
+- 若未来引入 whole-document LLM assessment，它只能作为 review / diff 扩展，不进入 recompute 主裁决链路。
 
 ## 10. 非目标
 
