@@ -2183,6 +2183,144 @@ def test_table_candidate_facts_emit_p4c_balance_sheet_totals_with_deterministic_
     )
 
 
+def test_table_candidate_facts_emit_p4d_parent_statement_candidates() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4d-parent-balance",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="balance_sheet",
+                    title_text="母公司资产负债表",
+                    statement_scope_guess="parent_only",
+                    table_unit="元",
+                    table_currency="CNY",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025年12月31日",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="point",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-cash",
+                            row_index=1,
+                            label_raw="货币资金",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="800",
+                                    numeric_value=800.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-lt-eqt-invest",
+                            row_index=2,
+                            label_raw="长期股权投资",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="2,500",
+                                    numeric_value=2500.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-equity",
+                            row_index=3,
+                            label_raw="所有者权益合计",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="3,200",
+                                    numeric_value=3200.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="CN",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "cash",
+        "lt_eqt_invest",
+        "equity",
+    }
+    assert all(fact["entity_scope"] == "parent_company" for fact in candidate_facts)
+    assert all(
+        fact["extensions"]["statement_scope_guess"] == "parent_only"
+        for fact in candidate_facts
+    )
+
+
+def test_analyze_report_keeps_parent_and_consolidated_facts_on_separate_tracks() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            _normalized_table_semantics(
+                table_id="table-consolidated-cash",
+                document_id="doc-1",
+                table_kind="balance_sheet",
+                period_id="2025FY",
+                rows=[("货币资金", "cash and cash equivalents", 1000.0)],
+                statement_scope_guess="consolidated",
+            ),
+            _normalized_table_semantics(
+                table_id="table-parent-cash",
+                document_id="doc-1",
+                table_kind="balance_sheet",
+                period_id="2025FY",
+                rows=[
+                    ("货币资金", "cash and cash equivalents", 800.0),
+                    ("长期股权投资", "long-term equity investments", 2500.0),
+                ],
+                statement_scope_guess="parent_only",
+            ),
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="CN",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "CN", "language": "zh"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    cash_facts = [fact for fact in result.canonical_facts if fact.metric_id == "cash"]
+    assert len(cash_facts) == 2
+    assert {fact.entity_scope for fact in cash_facts} == {
+        "consolidated",
+        "parent_company",
+    }
+
+    parent_lte = [
+        fact for fact in result.canonical_facts if fact.metric_id == "lt_eqt_invest"
+    ]
+    assert len(parent_lte) == 1
+    assert parent_lte[0].entity_scope == "parent_company"
+
+
 def test_table_candidate_facts_emit_p4c_cash_flow_detail_candidates_with_deterministic_provenance() -> (
     None
 ):

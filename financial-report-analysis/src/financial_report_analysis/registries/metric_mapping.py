@@ -570,6 +570,33 @@ _DEFAULT_DEFINITIONS = (
         },
     ),
     MetricMappingDefinition(
+        metric_id="lt_eqt_invest",
+        statement_type="balance_sheet",
+        allowed_table_kinds=("balance_sheet",),
+        normalized_row_labels=(
+            "long-term equity investments",
+            "investment in subsidiaries",
+            "investments in subsidiaries",
+            "investment in associates",
+            "investments in associates",
+            "lt_eqt_invest",
+        ),
+        period_scope="point_in_time",
+        value_type="amount",
+        unit_expectation="currency_amount",
+        sign_rule="allow_negative",
+        aliases_by_market={
+            "CN": ("长期股权投资",),
+            "HK": (
+                "long-term equity investments",
+                "investment in subsidiaries",
+                "investments in subsidiaries",
+                "investment in associates",
+                "investments in associates",
+            ),
+        },
+    ),
+    MetricMappingDefinition(
         metric_id="goodwill",
         statement_type="balance_sheet",
         allowed_table_kinds=("balance_sheet",),

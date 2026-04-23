@@ -17,6 +17,19 @@ _P4C_METRIC_IDS = {
     "c_paid_for_taxes",
 }
 
+_P4D_METRIC_IDS = {
+    "cash",
+    "lt_eqt_invest",
+    "st_borr",
+    "lt_borr",
+    "bond_payable",
+    "non_cur_liab_due_1y",
+    "total_assets",
+    "total_liabilities",
+    "equity",
+    "equity_attributable_to_owners",
+}
+
 
 def test_metric_mapping_registry_matches_revenue_from_income_statement_semantics() -> None:
     registry = load_metric_registry()
@@ -223,6 +236,71 @@ def test_metric_mapping_registry_rejects_p4c_negative_controls(
     )
 
     assert definition is None or definition.metric_id not in _P4C_METRIC_IDS
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "label"),
+    [
+        ("cash", "CN", "货币资金"),
+        ("lt_eqt_invest", "CN", "长期股权投资"),
+        ("st_borr", "CN", "短期借款"),
+        ("lt_borr", "CN", "长期借款"),
+        ("bond_payable", "CN", "应付债券"),
+        ("non_cur_liab_due_1y", "CN", "一年内到期的非流动负债"),
+        ("total_assets", "CN", "资产总计"),
+        ("total_liabilities", "CN", "负债合计"),
+        ("equity", "CN", "所有者权益合计"),
+        ("equity_attributable_to_owners", "CN", "归属于母公司股东权益"),
+        ("lt_eqt_invest", "HK", "investments in subsidiaries"),
+    ],
+)
+def test_metric_mapping_registry_matches_p4d_parent_statement_rows(
+    metric_id: str,
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="parent_only",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+    assert definition.statement_type == "balance_sheet"
+    assert definition.period_scope == "point_in_time"
+
+
+@pytest.mark.parametrize(
+    ("market", "label"),
+    [
+        ("CN", "受限货币资金"),
+        ("CN", "租赁负债"),
+        ("CN", "商誉"),
+        ("HK", "investment properties"),
+        ("HK", "restricted cash"),
+        ("HK", "trading assets"),
+    ],
+)
+def test_metric_mapping_registry_rejects_p4d_negative_controls(
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label=label,
+        value_time_shape="point_in_time",
+        statement_scope_guess="parent_only",
+        market=market,
+    )
+
+    assert definition is None or definition.metric_id not in _P4D_METRIC_IDS
 
 
 @pytest.mark.parametrize(

@@ -44,6 +44,19 @@ _P4C_METRIC_IDS = {
     "c_paid_for_taxes",
 }
 
+_P4D_PARENT_METRIC_IDS = {
+    "cash",
+    "lt_eqt_invest",
+    "st_borr",
+    "lt_borr",
+    "bond_payable",
+    "non_cur_liab_due_1y",
+    "total_assets",
+    "total_liabilities",
+    "equity",
+    "equity_attributable_to_owners",
+}
+
 
 def _resolve_sample(*relative_parts: str) -> Path:
     for root in (REPO_ROOT, MAIN_REPO_ROOT):
@@ -1579,6 +1592,87 @@ def test_hk_09987_2025_keeps_p4c_statement_metrics_not_surfaced() -> None:
     }
 
     assert not surfaced_metric_ids.intersection(_P4C_METRIC_IDS)
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_cn_601919_2025_surfaces_p4d_parent_statement_subset() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="CN")
+    parent_metric_ids = {
+        str(candidate.get("metric_id"))
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict) and candidate.get("entity_scope") == "parent_company"
+    }
+
+    assert {"cash", "lt_eqt_invest", "total_assets"}.issubset(parent_metric_ids)
+    assert parent_metric_ids.intersection(_P4D_PARENT_METRIC_IDS) == {
+        "cash",
+        "lt_eqt_invest",
+        "total_assets",
+    }
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="cash",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+        entity_scope="parent_company",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="lt_eqt_invest",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+        entity_scope="parent_company",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="total_assets",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+        entity_scope="parent_company",
+    )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_keeps_p4d_parent_metrics_out_of_scope() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    parent_metric_ids = {
+        str(candidate.get("metric_id"))
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict) and candidate.get("entity_scope") == "parent_company"
+    }
+
+    assert not parent_metric_ids.intersection(_P4D_PARENT_METRIC_IDS)
+    assert payload.get("document_metadata", {}).get("cash_health_missing_status") == {
+        "restricted_cash": "absent",
+        "interest_paid_cash": "absent",
+        "time_deposits_or_wealth_products": "absent",
+    }
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_keeps_p4d_parent_metrics_not_surfaced() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    parent_metric_ids = {
+        str(candidate.get("metric_id"))
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict) and candidate.get("entity_scope") == "parent_company"
+    }
+
+    assert not parent_metric_ids.intersection(_P4D_PARENT_METRIC_IDS)
+    assert {
+        "restricted_cash",
+        "interest_paid_cash",
+        "time_deposits_or_wealth_products",
+    }.issubset(_metric_ids_from_candidates(payload))
 
 
 def test_hk_09987_debt_note_disclosure_supplement_preserves_statement_row_precedence(

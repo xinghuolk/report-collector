@@ -512,6 +512,98 @@ def test_balance_sheet_p4c_total_rows_keep_owner_scope_distinct() -> None:
     ]
 
 
+def test_balance_sheet_p4d_parent_rows_normalize_target_family() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:p4d-parent-balance-sheet",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="balance_sheet",
+            title_text="母公司资产负债表",
+            statement_scope_guess="parent_only",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-cash",
+                    row_index=1,
+                    label_raw="货币资金",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-lt-eqt-invest",
+                    row_index=2,
+                    label_raw="长期股权投资",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-bond-payable",
+                    row_index=3,
+                    label_raw="应付债券",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-total-liabilities",
+                    row_index=4,
+                    label_raw="负债合计",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-equity",
+                    row_index=5,
+                    label_raw="所有者权益合计",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "cash and cash equivalents",
+        "long-term equity investments",
+        "bonds payable",
+        "total liabilities",
+        "equity",
+    ]
+
+
+def test_balance_sheet_p4d_english_long_term_equity_variants_normalize() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:p4d-lt-eqt-invest-en",
+            document_id="doc",
+            page_range=(17, 17),
+            table_kind="balance_sheet",
+            title_text="Company Statement of Financial Position",
+            statement_scope_guess="parent_only",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-subsidiaries",
+                    row_index=1,
+                    label_raw="Investments in subsidiaries",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-associates",
+                    row_index=2,
+                    label_raw="Investments in associates",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "long-term equity investments",
+        "long-term equity investments",
+    ]
+
+
 def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(

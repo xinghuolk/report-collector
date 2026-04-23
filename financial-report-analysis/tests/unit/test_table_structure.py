@@ -141,6 +141,27 @@ def test_statement_scope_detects_separate_statement_as_parent_company() -> None:
     assert scope == "parent_only"
 
 
+def test_statement_scope_prefers_parent_title_over_consolidated_local_context() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Company Statement of Financial Position",
+        local_context=(
+            "Notes to the consolidated financial statements\n"
+            "Consolidated Statement of Financial Position"
+        ),
+    )
+
+    assert scope == "parent_only"
+
+
+def test_statement_scope_detects_parent_scope_from_explicit_local_context() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Statement of Financial Position",
+        local_context="Company Statement of Financial Position\nItem 2024",
+    )
+
+    assert scope == "parent_only"
+
+
 def test_statement_scope_ignores_narrative_separate_statement_mentions() -> None:
     scope = PdfTableStructureAdapter._guess_statement_scope(
         title_text="Statement of Financial Position",
@@ -148,6 +169,93 @@ def test_statement_scope_ignores_narrative_separate_statement_mentions() -> None
     )
 
     assert scope == "unknown"
+
+
+def test_statement_scope_ignores_narrative_consolidated_mentions() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Statement of Financial Position",
+        local_context="Notes to the consolidated financial statements.",
+    )
+
+    assert scope == "unknown"
+
+
+def test_statement_scope_does_not_treat_attributable_owner_label_as_parent_company() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Statement of Financial Position",
+        local_context="Equity attributable to owners of the parent 100 90",
+    )
+
+    assert scope == "unknown"
+
+
+def test_statement_scope_detects_explicit_consolidated_local_context() -> None:
+    scope = PdfTableStructureAdapter._guess_statement_scope(
+        title_text="Statement of Financial Position",
+        local_context="Consolidated Statement of Financial Position\nItem 2024",
+    )
+
+    assert scope == "consolidated"
+
+
+def test_build_parsed_table_preserves_consolidated_and_parent_scopes_in_mixed_document() -> (
+    None
+):
+    adapter = PdfTableStructureAdapter()
+    consolidated_block = RawTableBlock(
+        block_id="doc:page:10:table:1",
+        page_index=10,
+        page_range=(10, 10),
+        rows=[
+            ["Consolidated Statement of Financial Position"],
+            ["Item", "2024"],
+            ["Cash and cash equivalents", "1,000"],
+        ],
+        page_text=(
+            "Consolidated Statement of Financial Position\n"
+            "Item 2024\n"
+            "Cash and cash equivalents 1,000"
+        ),
+    )
+    parent_block = RawTableBlock(
+        block_id="doc:page:10:table:2",
+        page_index=10,
+        page_range=(10, 10),
+        rows=[
+            ["Company Statement of Financial Position"],
+            ["Item", "2024"],
+            ["Cash and cash equivalents", "800"],
+        ],
+        page_text=(
+            "Consolidated Statement of Financial Position\n"
+            "Company Statement of Financial Position\n"
+            "Item 2024\n"
+            "Cash and cash equivalents 800"
+        ),
+        local_context=(
+            "Company Statement of Financial Position\n"
+            "Item 2024\n"
+            "Cash and cash equivalents 800"
+        ),
+    )
+
+    consolidated_table = adapter._build_parsed_table(
+        block=consolidated_block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+    parent_table = adapter._build_parsed_table(
+        block=parent_block,
+        market="HK",
+        document_id="doc",
+        table_index=2,
+    )
+
+    assert consolidated_table is not None
+    assert consolidated_table.statement_scope_guess == "consolidated"
+    assert parent_table is not None
+    assert parent_table.statement_scope_guess == "parent_only"
 
 
 def test_build_parsed_table_recovers_rows_from_numeric_only_statement_page_text() -> None:

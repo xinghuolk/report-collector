@@ -279,9 +279,6 @@ class PdfTableStructureAdapter:
 
     @staticmethod
     def _guess_statement_scope(*, title_text: str, local_context: str) -> str:
-        haystack = f"{title_text}\n{local_context}".casefold()
-        if "consolidated" in haystack or "合并" in haystack:
-            return "consolidated"
         title_haystack = title_text.casefold()
         parent_patterns = (
             r"company statement of financial position",
@@ -294,6 +291,23 @@ class PdfTableStructureAdapter:
             re.search(pattern, title_haystack) for pattern in parent_patterns
         ):
             return "parent_only"
+        if "consolidated" in title_haystack or "合并" in title_text:
+            return "consolidated"
+
+        local_haystack = local_context.casefold()
+        if "母公司" in local_context or re.search(
+            r"(^|\n)\s*(company|separate) statement of\b",
+            local_haystack,
+        ) or re.search(
+            r"(^|\n)\s*statement of .* of the company\b",
+            local_haystack,
+        ):
+            return "parent_only"
+        if re.search(
+            r"(^|\n)\s*(?:condensed\s+)?consolidated statement of\b",
+            local_haystack,
+        ) or re.search(r"(^|\n)\s*合并", local_context):
+            return "consolidated"
         return "unknown"
 
     @staticmethod
