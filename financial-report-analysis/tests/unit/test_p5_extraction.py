@@ -5,8 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from financial_report_analysis.models.governance import ReviewPacket
-from financial_report_analysis.p5.extraction import build_extracted_artifact
+from financial_report_analysis.p5.extraction import (
+    P5ExtractionError,
+    build_extracted_artifact,
+)
 from financial_report_analysis.p5.models import P5ManifestEntry
 from financial_report_analysis.services.validation_service import ValidationReport
 
@@ -65,6 +70,7 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
     entry = _entry(tmp_path)
     candidate_fact = {
         "fact_id": "candidate-1",
+        "document_id": str(entry.pdf_path),
         "metric_id": "raw_revenue",
         "table_coord": (1, 2),
     }
@@ -86,6 +92,7 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
         document_ref: dict[str, Any],
         extracted_payload: dict[str, Any],
     ) -> SimpleNamespace:
+        assert document_ref["document_id"] == str(entry.pdf_path)
         calls.append((document_ref, extracted_payload))
         return SimpleNamespace(
             quality_gate="review",
@@ -138,7 +145,7 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
         }
     ]
     assert calls[0][0] == {
-        "document_id": "HK_02498_2022",
+        "document_id": str(entry.pdf_path),
         "pdf_path": str(entry.pdf_path),
         "market": "HK",
         "stock_code": "02498",
@@ -162,7 +169,12 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
     assert artifact.document == calls[0][0]
     assert artifact.document_metadata == ingestion.payload["document_metadata"]
     assert artifact.candidate_facts == (
-        {"fact_id": "candidate-1", "metric_id": "raw_revenue", "table_coord": [1, 2]},
+        {
+            "fact_id": "candidate-1",
+            "document_id": str(entry.pdf_path),
+            "metric_id": "raw_revenue",
+            "table_coord": [1, 2],
+        },
     )
     assert artifact.canonical_facts == (
         {
@@ -238,3 +250,71 @@ def test_build_extracted_artifact_defaults_missing_status_groups(
         "asset_missing_status": {},
         "cash_health_missing_status": {},
     }
+
+
+def test_build_extracted_artifact_rejects_malformed_missing_status_group(
+    tmp_path: Path,
+) -> None:
+    entry = _entry(tmp_path)
+    ingestion = FakeIngestionAdapter(
+        {
+            "candidate_facts": [],
+            "document_metadata": {
+                "working_capital_missing_status": ["notes_receiv", "absent"],
+            },
+        }
+    )
+
+    def fake_analyze_report(
+        document_ref: dict[str, Any],
+        extracted_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "quality_gate": "review",
+            "canonical_facts": [],
+            "derived_facts": [],
+            "validation_report": {"overall_status": "review_required"},
+            "review_packets": [],
+        }
+
+    with pytest.raises(P5ExtractionError, match="working_capital_missing_status"):
+        build_extracted_artifact(
+            entry,
+            ingestion_adapter=ingestion,
+            analyze_report_func=fake_analyze_report,
+            now_func=lambda: "2026-04-23T12:00:00",
+        )
+
+
+def test_build_extracted_artifact_rejects_unsupported_missing_status(
+    tmp_path: Path,
+) -> None:
+    entry = _entry(tmp_path)
+    ingestion = FakeIngestionAdapter(
+        {
+            "candidate_facts": [],
+            "document_metadata": {
+                "debt_missing_status": {"short_term_borrowings": "deferred"},
+            },
+        }
+    )
+
+    def fake_analyze_report(
+        document_ref: dict[str, Any],
+        extracted_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "quality_gate": "review",
+            "canonical_facts": [],
+            "derived_facts": [],
+            "validation_report": {"overall_status": "review_required"},
+            "review_packets": [],
+        }
+
+    with pytest.raises(P5ExtractionError, match="deferred"):
+        build_extracted_artifact(
+            entry,
+            ingestion_adapter=ingestion,
+            analyze_report_func=fake_analyze_report,
+            now_func=lambda: "2026-04-23T12:00:00",
+        )

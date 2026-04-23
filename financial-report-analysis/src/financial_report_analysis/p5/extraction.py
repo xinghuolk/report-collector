@@ -18,6 +18,13 @@ _MISSING_STATUS_KEYS = (
     "asset_missing_status",
     "cash_health_missing_status",
 )
+_SUPPORTED_MISSING_STATUS_VALUES = frozenset(
+    {"present", "absent", "not_surfaced", "out_of_scope", "unknown"}
+)
+
+
+class P5ExtractionError(ValueError):
+    """Raised when P5 extraction payload validation fails."""
 
 
 def build_extracted_artifact(
@@ -37,6 +44,7 @@ def build_extracted_artifact(
         extracted_payload.get("document_metadata", {}),
         field_name="document_metadata",
     )
+    missing_status = _missing_status_from_metadata(document_metadata)
     document_ref = _build_document_ref(entry, document_metadata=document_metadata)
     pipeline_result = analyze_report_func(document_ref, extracted_payload)
 
@@ -59,7 +67,7 @@ def build_extracted_artifact(
             _result_value(pipeline_result, "review_packets", []),
         ),
         quality_gate=str(_result_value(pipeline_result, "quality_gate", "review")),
-        missing_status=_missing_status_from_metadata(document_metadata),
+        missing_status=missing_status,
         created_at=now_func() if now_func is not None else _utc_now_iso(),
     )
 
@@ -71,7 +79,7 @@ def _build_document_ref(
 ) -> dict[str, Any]:
     language = document_metadata.get("language") or entry.report_language
     return {
-        "document_id": entry.artifact_id,
+        "document_id": str(entry.pdf_path),
         "pdf_path": str(entry.pdf_path),
         "market": entry.market,
         "stock_code": entry.stock_code,
@@ -114,16 +122,31 @@ def _missing_status_from_metadata(
     document_metadata: dict[str, Any],
 ) -> dict[str, dict[str, str]]:
     return {
-        key: _string_mapping(document_metadata.get(key, {}))
+        key: _missing_status_group(document_metadata, key)
         for key in _MISSING_STATUS_KEYS
     }
 
 
-def _string_mapping(value: Any) -> dict[str, str]:
-    json_value = _to_json_like(value)
-    if not isinstance(json_value, dict):
+def _missing_status_group(
+    document_metadata: dict[str, Any],
+    key: str,
+) -> dict[str, str]:
+    if key not in document_metadata:
         return {}
-    return {str(key): str(inner_value) for key, inner_value in json_value.items()}
+    json_value = _to_json_like(document_metadata[key])
+    if not isinstance(json_value, dict):
+        raise P5ExtractionError(f"{key} must be an object of metric status values")
+
+    result: dict[str, str] = {}
+    for metric_key, status_value in json_value.items():
+        if not isinstance(metric_key, str) or not metric_key:
+            raise P5ExtractionError(f"{key} metric keys must be non-empty strings")
+        if status_value not in _SUPPORTED_MISSING_STATUS_VALUES:
+            raise P5ExtractionError(
+                f"{key}.{metric_key} has unsupported missing status: {status_value!r}"
+            )
+        result[metric_key] = status_value
+    return result
 
 
 def _to_json_like(value: Any) -> Any:
