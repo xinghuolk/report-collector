@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from financial_report_analysis.p5.lineage import build_dataset_lineage
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
@@ -20,7 +24,9 @@ from financial_report_analysis.p5.review import (
 )
 from financial_report_analysis.storage.database import create_sqlite_engine, initialize_database
 from financial_report_analysis.storage.historical_ingestion import HistoricalIngestionService
+from financial_report_analysis.storage.models import ReportRecord
 from financial_report_analysis.storage.repositories import SqlAlchemyP5ArtifactRepository
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 
 
 def _entry(
@@ -291,3 +297,47 @@ def test_existing_persisted_surface_queries_remain_available(tmp_path: Path) -> 
     assert repository.load_turtle_export_review_surface(dataset.dataset_id) == turtle_surface
     assert repository.list_lineage_records(dataset_id=dataset.dataset_id) == lineage
     assert repository.load_recompute_result("run-1") == recompute_result
+
+
+def test_load_dataset_audit_view_fails_fast_when_source_artifact_is_missing(
+    tmp_path: Path,
+) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+    repository = SqlAlchemyP5ArtifactRepository(engine)
+
+    dataset = _dataset("CN_601919_2025")
+    repository.save_dataset_artifact(dataset)
+
+    with pytest.raises(P5ArtifactRepositoryError, match="missing source artifact"):
+        repository.load_dataset_audit_view(dataset.dataset_id)
+
+
+def test_load_dataset_audit_view_uses_immutable_artifact_pdf_path(
+    tmp_path: Path,
+) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+    service = HistoricalIngestionService(engine)
+    repository = SqlAlchemyP5ArtifactRepository(engine)
+    entry = _entry(tmp_path, fiscal_year=2025)
+    service.register_report(entry)
+
+    artifact = _artifact(entry)
+    dataset = _dataset(artifact.artifact_id)
+    repository.save_extracted_artifact(artifact)
+    repository.save_dataset_artifact(dataset)
+
+    rewritten_path = tmp_path / "rewritten_CN_601919_2025.pdf"
+    rewritten_path.write_bytes(b"%PDF-1.4\n")
+    with Session(engine) as session:
+        report = session.scalar(
+            select(ReportRecord).where(ReportRecord.issuer_id == entry.issuer_id)
+        )
+        assert report is not None
+        report.pdf_path = str(rewritten_path)
+        session.commit()
+
+    audit_view = repository.load_dataset_audit_view(dataset.dataset_id)
+
+    assert audit_view.source_artifacts[0].source_pdf_path == str(entry.pdf_path)

@@ -610,10 +610,14 @@ class SqlAlchemyP5ArtifactRepository:
             source_artifacts: list[SourceArtifactAuditRecord] = []
             for artifact_id in dataset.source_artifacts:
                 artifact_record = session.get(ExtractedArtifactRecord, artifact_id)
-                report = (
-                    session.get(ReportRecord, artifact_record.report_id)
-                    if artifact_record is not None
-                    else None
+                if artifact_record is None:
+                    raise P5ArtifactRepositoryError(
+                        "dataset audit view references missing source artifact in DB "
+                        f"repository: {artifact_id}"
+                    )
+                report = session.get(ReportRecord, artifact_record.report_id)
+                extracted_artifact = extracted_artifact_from_payload(
+                    json.loads(artifact_record.payload_json)
                 )
                 extracted_review_record = session.get(
                     ExtractedReviewSurfaceRecord,
@@ -630,7 +634,7 @@ class SqlAlchemyP5ArtifactRepository:
                     SourceArtifactAuditRecord(
                         source_artifact_id=artifact_id,
                         report_id=report.report_id if report is not None else None,
-                        source_pdf_path=report.pdf_path if report is not None else None,
+                        source_pdf_path=str(extracted_artifact.source_pdf_path),
                         manifest_entry_key=(
                             extracted_review_surface.manifest_entry_key
                             if extracted_review_surface is not None
