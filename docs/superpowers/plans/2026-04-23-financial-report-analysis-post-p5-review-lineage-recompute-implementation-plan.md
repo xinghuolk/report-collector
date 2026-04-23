@@ -822,10 +822,10 @@ Expected: all tests pass.
 Run:
 
 ```bash
-uv run pytest tests/integration/test_p5_seed_dataset.py tests/integration/test_p5_recompute_review_flow.py -q -o addopts=
+uv run pytest tests/integration/test_p5_persisted_seed_dataset.py tests/integration/test_p5_recompute_review_flow.py -q -o addopts=
 ```
 
-Expected: all tests pass, or `test_p5_seed_dataset.py` explicitly skips only when local seed PDFs are not available.
+Expected: all tests pass without running the full real-PDF seed E2E. `test_p5_seed_dataset.py` remains available as a slow smoke test, but it is not the default post-P5 closeout gate.
 
 - [ ] **Step 3: Run Ruff**
 

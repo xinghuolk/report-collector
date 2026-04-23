@@ -52,14 +52,14 @@ def _entry(tmp_path: Path) -> P5ManifestEntry:
     pdf_path = tmp_path / "report.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n")
     return P5ManifestEntry(
-        issuer_id="HK_02498",
+        issuer_id="HK_01810",
         market="HK",
-        stock_code="02498",
-        fiscal_year=2022,
+        stock_code="01810",
+        fiscal_year=2024,
         report_type="annual",
         pdf_path=pdf_path,
         source="report",
-        company_name="速腾聚创",
+        company_name="Xiaomi",
         report_language="en",
     )
 
@@ -113,8 +113,8 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
             ),
             review_packets=[
                 ReviewPacket(
-                    document_id="HK_02498_2022",
-                    period_id="2022FY",
+                    document_id="HK_01810_2024",
+                    period_id="2024FY",
                     metric_id="raw_revenue",
                     entity_scope="consolidated",
                     source_kind="statement_row",
@@ -148,20 +148,20 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
         "document_id": str(entry.pdf_path),
         "pdf_path": str(entry.pdf_path),
         "market": "HK",
-        "stock_code": "02498",
-        "issuer_id": "HK_02498",
-        "fiscal_year": 2022,
+        "stock_code": "01810",
+        "issuer_id": "HK_01810",
+        "fiscal_year": 2024,
         "report_type": "annual",
-        "company_name": "速腾聚创",
+        "company_name": "Xiaomi",
         "language": "en",
         "metadata": {
             "source": "report",
-            "artifact_id": "HK_02498_2022",
+            "artifact_id": "HK_01810_2024",
             "report_language": "en",
         },
     }
     assert calls[0][1] is ingestion.payload
-    assert artifact.artifact_id == "HK_02498_2022"
+    assert artifact.artifact_id == "HK_01810_2024"
     assert artifact.artifact_version == "1.0"
     assert artifact.pipeline_version == "p5-v1"
     assert artifact.manifest_entry == entry
@@ -195,8 +195,8 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
     }
     assert artifact.review_packets == (
         {
-            "document_id": "HK_02498_2022",
-            "period_id": "2022FY",
+            "document_id": "HK_01810_2024",
+            "period_id": "2024FY",
             "metric_id": "raw_revenue",
             "entity_scope": "consolidated",
             "source_kind": "statement_row",

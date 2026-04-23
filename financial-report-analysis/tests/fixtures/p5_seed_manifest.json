@@ -1,6 +1,6 @@
 {
-  "manifest_id": "p5_seed_3_issuers_3_years",
-  "dataset_id": "p5_seed_3_issuers_3_years",
+  "manifest_id": "p5_seed_3_issuers_available_years",
+  "dataset_id": "p5_seed_3_issuers_available_years",
   "manifest_version": "1.0",
   "entries": [
     {
@@ -37,70 +37,114 @@
       "report_language": "zh"
     },
     {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2021,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2021_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2022,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2022_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
       "fiscal_year": 2023,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2023_年度报告.pdf",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2023_annual_en.pdf",
       "source": "report",
-      "report_language": "zh"
+      "report_language": "en"
     },
     {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
       "fiscal_year": 2024,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2024_年度报告.pdf",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2024_annual_en.pdf",
       "source": "report",
-      "report_language": "zh"
+      "report_language": "en"
     },
     {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
       "fiscal_year": 2025,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2025_年度报告.pdf",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf",
       "source": "report",
-      "report_language": "zh"
+      "report_language": "en"
     },
     {
-      "issuer_id": "CN_300750",
-      "market": "CN",
-      "stock_code": "300750",
-      "company_name": "宁德时代",
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2020,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2020_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2021,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2021_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2022,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2022_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
       "fiscal_year": 2023,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/300750/annual/2023_年度报告.pdf",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2023_annual_en.pdf",
       "source": "report",
-      "report_language": "zh"
+      "report_language": "en"
     },
     {
-      "issuer_id": "CN_300750",
-      "market": "CN",
-      "stock_code": "300750",
-      "company_name": "宁德时代",
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
       "fiscal_year": 2024,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/300750/annual/2024_年度报告.pdf",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2024_annual_en.pdf",
       "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_300750",
-      "market": "CN",
-      "stock_code": "300750",
-      "company_name": "宁德时代",
-      "fiscal_year": 2025,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/300750/annual/2025_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
+      "report_language": "en"
     }
   ]
 }

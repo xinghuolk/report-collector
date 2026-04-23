@@ -164,7 +164,7 @@
 - [ ] 先写 focused integration，验证：
   - 同一组 seed artifacts 进入 JSON repository 与 DB repository 后，load 出来的 artifact contract 一致
   - review / lineage / recompute 的关键 fields 一致
-  - historical ingestion 能把 3 issuers x 2 years seed manifest 组织进 durable registry
+  - historical ingestion 能把 `CN_601919`、`HK_09987`、`HK_01810` available-year seed manifest 组织进 durable registry
 - [ ] 不跑 broad matrix；只跑当前 seed dataset
 
 ## Task 7: Closeout

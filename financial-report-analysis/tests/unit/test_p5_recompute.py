@@ -82,6 +82,42 @@ def test_execute_recompute_plan_reuses_runner_entry_point(tmp_path: Path) -> Non
     assert result.diff_summary.rebuilt_dataset is True
 
 
+def test_execute_recompute_plan_reuses_persisted_artifacts_for_review_recompute(
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run_p5_dataset_build(**kwargs):
+        calls.update(kwargs)
+        return type(
+            "Result",
+            (),
+            {
+                "manifest_id": "p5_seed",
+                "extracted_artifact_ids": ("CN_601919_2025",),
+                "dataset_path": tmp_path / "p5_seed.json",
+                "turtle_export_path": tmp_path / "p5_seed_turtle_export.json",
+            },
+        )()
+
+    plan = build_recompute_plan(
+        manifest_id="p5_seed",
+        dataset_id="p5_seed",
+        extracted_artifact_ids=("CN_601919_2025",),
+        reason="manual_review_check",
+    )
+
+    execute_recompute_plan(
+        plan=plan,
+        manifest_path=tmp_path / "manifest.json",
+        artifact_root=tmp_path / "data" / "p5",
+        pdf_root=tmp_path,
+        run_p5_dataset_build_func=fake_run_p5_dataset_build,
+    )
+
+    assert calls["force_rebuild_artifact_ids"] == ()
+
+
 def test_execute_recompute_plan_can_rebuild_only_turtle_export(tmp_path: Path) -> None:
     from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
     from financial_report_analysis.p5.models import P5DatasetArtifact, P5TurtleExport

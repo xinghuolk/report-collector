@@ -108,6 +108,10 @@ def _missing_rows(
     present_rows: list[P5DatasetRow],
     required_metric_ids: tuple[str, ...],
 ) -> list[P5DatasetRow]:
+    present_artifact_metrics = {
+        (row.source_artifact_id, row.metric_id)
+        for row in present_rows
+    }
     present_row_keys = {
         _missing_row_key(row)
         for row in present_rows
@@ -120,6 +124,14 @@ def _missing_rows(
             | set(artifact_missing_status.keys())
         )
         for metric_id in metric_ids:
+            missing_status = artifact_missing_status.get(metric_id, "unknown")
+            if (
+                missing_status == "present"
+                and (artifact.artifact_id, metric_id) in present_artifact_metrics
+            ):
+                continue
+            if missing_status == "present":
+                missing_status = "not_surfaced"
             missing_row = P5DatasetRow(
                 issuer_id=artifact.manifest_entry.issuer_id,
                 market=artifact.manifest_entry.market,
@@ -133,7 +145,7 @@ def _missing_rows(
                 currency=None,
                 unit=None,
                 quality_status=None,
-                missing_status=artifact_missing_status.get(metric_id, "unknown"),
+                missing_status=missing_status,
                 source_fact_id=None,
                 source_artifact_id=artifact.artifact_id,
                 evidence_bundle_id=None,

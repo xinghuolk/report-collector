@@ -55,7 +55,7 @@ def execute_recompute_plan(
             artifact_root=artifact_root,
             dataset_id=plan.dataset_id,
             pdf_root=pdf_root,
-            force_rebuild_artifact_ids=plan.target_artifact_ids,
+            force_rebuild_artifact_ids=_force_rebuild_artifact_ids_for_reason(plan),
             write_turtle_export=plan.rebuild_turtle_export,
         )
         after_dataset = _safe_read_json_payload(run_result.dataset_path)
@@ -113,6 +113,17 @@ def _rebuild_flags_for_reason(reason: str) -> tuple[bool, bool]:
         "export_shape_changed": (False, True),
     }
     return reason_map.get(normalized, (True, True))
+
+
+def _force_rebuild_artifact_ids_for_reason(plan: P5RecomputePlan) -> tuple[str, ...]:
+    normalized = plan.reason.strip().lower()
+    if normalized in {
+        "source_pdf_changed",
+        "extracted_artifact_contract_changed",
+        "pipeline_version_changed",
+    }:
+        return plan.target_artifact_ids
+    return ()
 
 
 def _safe_read_json_payload(path: Path) -> object | None:

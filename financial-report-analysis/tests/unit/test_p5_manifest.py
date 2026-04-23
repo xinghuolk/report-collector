@@ -11,7 +11,7 @@ from financial_report_analysis.p5.models import P5ManifestValidationError
 
 def test_load_manifest_accepts_three_issuer_seed(tmp_path: Path) -> None:
     pdf_a = tmp_path / "601919_2025.pdf"
-    pdf_b = tmp_path / "02498_2022.pdf"
+    pdf_b = tmp_path / "01810_2024.pdf"
     pdf_c = tmp_path / "09987_2025.pdf"
     for path in (pdf_a, pdf_b, pdf_c):
         path.write_bytes(b"%PDF-1.4\n")
@@ -34,10 +34,10 @@ def test_load_manifest_accepts_three_issuer_seed(tmp_path: Path) -> None:
                         "report_language": "zh",
                     },
                     {
-                        "issuer_id": "HK_02498",
+                        "issuer_id": "HK_01810",
                         "market": "HK",
-                        "stock_code": "02498",
-                        "fiscal_year": 2022,
+                        "stock_code": "01810",
+                        "fiscal_year": 2024,
                         "report_type": "annual",
                         "pdf_path": str(pdf_b),
                         "source": "report",

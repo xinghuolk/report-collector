@@ -118,6 +118,32 @@ def test_assemble_dataset_emits_present_rows_and_missing_status_rows(
     assert dataset.quality_summary["duplicate_fact_conflicts"] == []
 
 
+def test_assemble_dataset_does_not_emit_present_missing_status_without_fact(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(),
+        missing_status={
+            "cash_health_missing_status": {"restricted_cash": "present"},
+        },
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert len(dataset.rows) == 1
+    row = dataset.rows[0]
+    assert row.metric_id == "restricted_cash"
+    assert row.missing_status == "not_surfaced"
+    assert row.source_fact_id is None
+    assert dataset.quality_summary["present_row_count"] == 0
+
+
 def test_assemble_dataset_dedupes_duplicate_canonical_facts_with_conflict_summary(
     tmp_path: Path,
 ) -> None:

@@ -101,7 +101,7 @@ from financial_report_analysis.p5.models import P5ManifestValidationError
 
 def test_load_manifest_accepts_three_issuer_seed(tmp_path: Path) -> None:
     pdf_a = tmp_path / "601919_2025.pdf"
-    pdf_b = tmp_path / "02498_2022.pdf"
+    pdf_b = tmp_path / "01810_2024.pdf"
     pdf_c = tmp_path / "09987_2025.pdf"
     for path in (pdf_a, pdf_b, pdf_c):
         path.write_bytes(b"%PDF-1.4\n")
@@ -124,10 +124,10 @@ def test_load_manifest_accepts_three_issuer_seed(tmp_path: Path) -> None:
                         "report_language": "zh",
                     },
                     {
-                        "issuer_id": "HK_02498",
+                        "issuer_id": "HK_01810",
                         "market": "HK",
-                        "stock_code": "02498",
-                        "fiscal_year": 2022,
+                        "stock_code": "01810",
+                        "fiscal_year": 2024,
                         "report_type": "annual",
                         "pdf_path": str(pdf_b),
                         "source": "report",
@@ -2046,121 +2046,24 @@ git commit -m "feat: add p5 dataset build runner"
 **Files:**
 
 - Create: `financial-report-analysis/tests/fixtures/p5_seed_manifest.json`
+- Create: `financial-report-analysis/tests/integration/test_p5_persisted_seed_dataset.py`
 - Create: `financial-report-analysis/tests/integration/test_p5_seed_dataset.py`
 
 - [ ] **Step 1: Create seed manifest fixture using existing local samples**
 
 Add `financial-report-analysis/tests/fixtures/p5_seed_manifest.json`.
 
-Use paths relative to the repo root. The fixture represents the P5 seed contract: 3 issuers with 3 annual reports each. It may include paths that must be populated by the `report/` downloader before the real-PDF integration can run:
+Use paths relative to the repo root. The fixture represents the P5 seed contract: one CN issuer and two HK issuers, using every annual report currently available through the `report/` downloader for those issuers. This replaces the earlier 3-A-share seed because multiple large CN annual PDFs made closeout verification too slow.
 
-```json
-{
-  "manifest_id": "p5_seed_3_issuers_3_years",
-  "manifest_version": "1.0",
-  "entries": [
-    {
-      "issuer_id": "CN_601919",
-      "market": "CN",
-      "stock_code": "601919",
-      "company_name": "中远海控",
-      "fiscal_year": 2023,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/601919/annual/2023_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_601919",
-      "market": "CN",
-      "stock_code": "601919",
-      "company_name": "中远海控",
-      "fiscal_year": 2024,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/601919/annual/2024_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_601919",
-      "market": "CN",
-      "stock_code": "601919",
-      "company_name": "中远海控",
-      "fiscal_year": 2025,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/601919/annual/2025_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
-      "fiscal_year": 2023,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2023_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
-      "fiscal_year": 2024,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2024_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
-      "fiscal_year": 2025,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2025_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_300750",
-      "market": "CN",
-      "stock_code": "300750",
-      "company_name": "宁德时代",
-      "fiscal_year": 2023,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/300750/annual/2023_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_300750",
-      "market": "CN",
-      "stock_code": "300750",
-      "company_name": "宁德时代",
-      "fiscal_year": 2024,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/300750/annual/2024_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_300750",
-      "market": "CN",
-      "stock_code": "300750",
-      "company_name": "宁德时代",
-      "fiscal_year": 2025,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/300750/annual/2025_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    }
-  ]
-}
-```
+The concrete fixture must use this exact issuer/year matrix:
+
+| issuer_id | market | stock_code | fiscal years | language | path pattern |
+| --- | --- | --- | --- | --- | --- |
+| `CN_601919` | `CN` | `601919` | `2023`, `2024`, `2025` | `zh` | `report/downloads/cn_stocks/601919/annual/<year>_年度报告.pdf` |
+| `HK_09987` | `HK` | `09987` | `2021`, `2022`, `2023`, `2024`, `2025` | `en` | `report/downloads/hk_stocks/09987/annual/<year>_annual_en.pdf` |
+| `HK_01810` | `HK` | `01810` | `2020`, `2021`, `2022`, `2023`, `2024` | `en` | `report/downloads/hk_stocks/01810/annual/<year>_annual_en.pdf` |
+
+The manifest and dataset ids are both `p5_seed_3_issuers_available_years`.
 
 The fixture intentionally uses paths relative to the main `report-collector` repo root. The runner must pass `pdf_root` when loading this fixture. If the seed PDFs have not been downloaded yet, the integration test skips and reports every missing file.
 
@@ -2204,15 +2107,13 @@ def _pdf_root_for_all(relative_paths: list[str]) -> Path | None:
 def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(tmp_path: Path) -> None:
     manifest_path = ANALYSIS_ROOT / "tests" / "fixtures" / "p5_seed_manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert len(payload["entries"]) == 9
+    assert payload["manifest_id"] == "p5_seed_3_issuers_available_years"
+    assert payload["dataset_id"] == "p5_seed_3_issuers_available_years"
+    assert len(payload["entries"]) == 13
     assert {
         entry["issuer_id"]
         for entry in payload["entries"]
-    } == {"CN_300750", "CN_600519", "CN_601919"}
-    assert {
-        entry["fiscal_year"]
-        for entry in payload["entries"]
-    } == {2023, 2024, 2025}
+    } == {"CN_601919", "HK_09987", "HK_01810"}
     relative_paths = [entry["pdf_path"] for entry in payload["entries"]]
     missing = [
         relative_path
@@ -2227,7 +2128,7 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(tmp_path: Path) -
     result = run_p5_dataset_build(
         manifest_path=manifest_path,
         artifact_root=tmp_path / "p5",
-        dataset_id="p5_seed_3_issuers_3_years",
+        dataset_id="p5_seed_3_issuers_available_years",
         pdf_root=pdf_root,
         required_metric_ids=("revenue", "cash", "operating_cash_flow"),
         now_func=lambda: "2026-04-23T00:00:00",
@@ -2236,9 +2137,9 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(tmp_path: Path) -
     assert result.dataset_path.exists()
     assert result.turtle_export_path.exists()
     dataset_payload = json.loads(result.dataset_path.read_text(encoding="utf-8"))
-    assert dataset_payload["dataset_id"] == "p5_seed_3_issuers_3_years"
+    assert dataset_payload["dataset_id"] == "p5_seed_3_issuers_available_years"
     assert dataset_payload["issuer_count"] == 3
-    assert dataset_payload["periods"] == [2023, 2024, 2025]
+    assert dataset_payload["periods"] == [2020, 2021, 2022, 2023, 2024, 2025]
     assert dataset_payload["rows"]
     assert "quality_summary" in dataset_payload
 ```
@@ -2258,17 +2159,17 @@ Expected: all P5 unit tests pass.
 Run:
 
 ```bash
-uv run pytest tests/integration/test_p5_seed_dataset.py -q -o addopts=
+uv run pytest tests/integration/test_p5_persisted_seed_dataset.py -q -o addopts=
 ```
 
-Expected: pass if local seed PDFs exist; otherwise skip with explicit missing sample list.
+Expected: pass without parsing real PDFs. This test pre-materializes persisted extracted artifacts and fails if P5 attempts to call the PDF extraction path.
 
 - [ ] **Step 5: Commit Task 7**
 
 Run:
 
 ```bash
-git add financial-report-analysis/tests/fixtures/p5_seed_manifest.json financial-report-analysis/tests/integration/test_p5_seed_dataset.py
+git add financial-report-analysis/tests/fixtures/p5_seed_manifest.json financial-report-analysis/tests/integration/test_p5_persisted_seed_dataset.py financial-report-analysis/tests/integration/test_p5_seed_dataset.py
 git commit -m "test: add p5 seed dataset integration"
 ```
 
@@ -2327,10 +2228,10 @@ Expected: all tests pass.
 Run:
 
 ```bash
-uv run pytest tests/integration/test_p5_seed_dataset.py -q -o addopts=
+uv run pytest tests/integration/test_p5_persisted_seed_dataset.py -q -o addopts=
 ```
 
-Expected: pass or explicit skip if seed PDFs are not present.
+Expected: pass without real-PDF extraction.
 
 - [ ] **Step 5: Run Ruff**
 
@@ -2357,11 +2258,22 @@ Before declaring P5 V1 implementation complete, run:
 
 ```bash
 uv run pytest tests/unit/test_p5_manifest.py tests/unit/test_p5_artifact_repository.py tests/unit/test_p5_extraction.py tests/unit/test_p5_dataset.py tests/unit/test_p5_turtle_export.py tests/unit/test_p5_runner.py tests/unit/test_public_exports.py::test_p5_public_exports_are_available -q -o addopts=
-uv run pytest tests/integration/test_p5_seed_dataset.py -q -o addopts=
+uv run pytest tests/integration/test_p5_persisted_seed_dataset.py -q -o addopts=
 uv run ruff check src tests
 ```
 
-Do not run full `test_semantic_recovery_regressions.py` or live Ollama tests as part of default P5 closeout unless a later task explicitly changes semantic fallback behavior.
+Do not run full `test_semantic_recovery_regressions.py`, live Ollama tests, or full real-PDF seed E2E as part of default P5 closeout unless a later task explicitly changes semantic fallback behavior.
+
+## Current Seed Closeout Note
+
+- P5 seed data is `CN_601919`, `HK_09987`, and `HK_01810`.
+- `CN_601919` currently contributes 2023-2025 annual reports because the current CNINFO/report search returns those three years.
+- `HK_09987` contributes 2021-2025 English annual reports.
+- `HK_01810` contributes 2020-2024 English annual reports.
+- `test_p5_persisted_seed_dataset.py` is the default P5 closeout integration. It validates P5 assembly from persisted extracted artifacts and fails if PDF extraction is invoked.
+- `test_p5_seed_dataset.py` remains a slow E2E smoke that validates all 13 downloaded PDFs and may take several minutes.
+- The post-P5 recompute/review integration should stay focused by selecting the latest available report per issuer; it verifies recompute/review contracts without reprocessing all 13 PDFs twice.
+- HK annual rows may remain `not_surfaced` / `unknown` when the current canonical extraction path does not produce stable facts. This is valid P5 seed behavior as long as missing/quality summary preserves the state explicitly.
 
 ## Definition Of Done
 
@@ -2374,5 +2286,6 @@ P5 V1 is complete when:
 - Turtle export maps aliases without changing canonical metric IDs.
 - Generated extracted/dataset artifacts are ignored by git.
 - Focused P5 unit tests pass.
-- Focused seed integration passes or skips only because local seed PDFs are missing.
+- Focused persisted-artifact seed integration passes.
+- Slow real-PDF seed E2E remains available for manual or nightly validation, but is not the default closeout gate.
 - Ruff passes.

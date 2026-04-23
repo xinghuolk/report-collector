@@ -35,7 +35,15 @@ P5 可以使用 `report/` 把年报下载到以下目录：
 
 P5 V1 使用显式输入，不做自动报告发现。
 
-输入是一个 manifest，列出 seed dataset 使用的年报。第一版 seed 建议包含 3 个公司，每个公司 3-5 份年度报告。
+输入是一个 manifest，列出 seed dataset 使用的年报。第一版 seed 固定使用 3 个公司：
+
+- `CN_601919`
+- `HK_09987`
+- `HK_01810`
+
+每个公司使用当前 `report/` 下载器可取得的年度报告。当前样本覆盖为：`601919` 2023-2025 三年、`09987` 2021-2025 五年、`01810` 2020-2024 五年。这个组合故意只保留一个 A 股 issuer，避免 closeout 集成测试被多个大体量 A 股 PDF 拖慢。
+
+当前 HK 年报进入 P5 seed 的主要价值是验证多市场 manifest、artifact lineage 和 missing/quality summary 能稳定承接真实样本；如果 HK 年报主链路尚未产出 canonical facts，dataset 必须显式保留 `not_surfaced` / `unknown`，不能伪造 `present` row。
 
 每条 manifest entry 记录：
 
@@ -65,7 +73,8 @@ financial-report-analysis/data/p5/
     p5_seed_3_issuers.json
   extracted/
     CN_601919_2025.json
-    HK_02498_2022.json
+    HK_09987_2025.json
+    HK_01810_2024.json
   datasets/
     p5_seed_3_issuers_dataset.json
 ```
@@ -76,7 +85,9 @@ financial-report-analysis/data/p5/
 
 ## 5. 单份报告 Extracted Artifact
 
-每条 manifest entry 对应一个 extracted artifact。生成方式是使用现有 `financial-report-analysis` pipeline 分析该 PDF，然后把结果落盘。
+每条 manifest entry 对应一个 extracted artifact。正常产品流程中，extracted artifact 由前置 extraction pipeline 从 PDF 生成并持久化到 `financial-report-analysis` 的 artifact repository；P5 dataset build 默认读取这些已持久化 artifact。
+
+如果某个 manifest entry 对应的 artifact 尚不存在，runner 可以作为 materialization helper 调用现有 pipeline 生成它，但这属于显式补料路径，不应成为 P5 closeout 的默认验证方式。
 
 每个 artifact 包含：
 
@@ -222,9 +233,10 @@ P5 V1 起步阶段不需要公开 HTTP API。
 2. JSON artifact repository round-trip unit tests
 3. dataset row assembly 和 missing-status propagation unit tests
 4. Turtle alias export unit tests
-5. 使用现有本地 PDF fixture 的 focused integration tests
+5. 使用已持久化 extracted artifacts 的 focused integration tests
+6. 使用现有本地 PDF fixture 的 slow E2E smoke tests
 
-默认不跑大范围 real-PDF matrix，也不跑 live Ollama matrix。seed issuer 的真实样本验证应使用明确 node selection。
+默认 P5 closeout 不重新解析 seed PDF，而是从 persisted artifacts 组装 dataset。默认不跑大范围 real-PDF matrix，也不跑 live Ollama matrix。seed issuer 的真实 PDF 验证保留为 slow E2E smoke，并应使用明确 node selection。
 
 ## 12. 非目标
 
@@ -242,9 +254,10 @@ P5 V1 不包含：
 
 P5 V1 完成时应满足：
 
-- seed manifest 能指向 3 个 issuer、每个 3-5 份年度 PDF
+- seed manifest 能指向 `CN_601919`、`HK_09987`、`HK_01810` 三个 issuer，并覆盖当前 downloader 可取得的年度 PDF
 - 单份报告 extracted artifacts 能持久化在 `financial-report-analysis`
 - multi-year dataset artifact 能从 persisted artifacts 组装出来
 - row 级和 summary 级都能看到 missing / quality 状态
 - Turtle alias export 能生成，且不改变 canonical metric id
-- focused unit tests 和 seed integration tests 通过
+- focused unit tests 和 persisted-artifact seed integration tests 通过
+- slow real-PDF seed E2E 可按需运行，且不作为默认 P5 closeout 的唯一证据
