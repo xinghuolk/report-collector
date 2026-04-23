@@ -61,7 +61,9 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(
     payload = _load_seed_manifest()
     entries = payload["entries"]
     assert isinstance(entries, list)
-    assert len(entries) == 6
+    assert payload["manifest_id"] == "p5_seed_3_issuers_3_years"
+    assert payload["dataset_id"] == "p5_seed_3_issuers_3_years"
+    assert len(entries) == 9
 
     issuer_counts = Counter()
     years: set[int] = set()
@@ -72,9 +74,9 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(
         years.add(int(entry["fiscal_year"]))
         relative_paths.append(str(entry["pdf_path"]))
 
-    assert set(issuer_counts) == {"CN_600519", "CN_601919", "CN_688008"}
-    assert all(count == 2 for count in issuer_counts.values())
-    assert years == {2024, 2025}
+    assert set(issuer_counts) == {"CN_300750", "CN_600519", "CN_601919"}
+    assert all(count == 3 for count in issuer_counts.values())
+    assert years == {2023, 2024, 2025}
 
     missing = _missing_samples(relative_paths)
     if missing:
@@ -91,7 +93,7 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(
     result = run_p5_dataset_build(
         manifest_path=manifest_path,
         artifact_root=tmp_path / "p5",
-        dataset_id="p5_seed_3_issuers_2_years",
+        dataset_id="p5_seed_3_issuers_3_years",
         pdf_root=pdf_root,
         required_metric_ids=("revenue", "cash", "operating_cash_flow"),
         now_func=lambda: "2026-04-23T00:00:00",
@@ -101,11 +103,11 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(
     assert result.turtle_export_path.exists()
 
     dataset_payload = json.loads(result.dataset_path.read_text(encoding="utf-8"))
-    assert dataset_payload["dataset_id"] == "p5_seed_3_issuers_2_years"
+    assert dataset_payload["dataset_id"] == "p5_seed_3_issuers_3_years"
     assert dataset_payload["dataset_version"] == "1.0"
     assert dataset_payload["issuer_count"] == 3
-    assert dataset_payload["periods"] == [2024, 2025]
-    assert len(dataset_payload["source_artifacts"]) == 6
+    assert dataset_payload["periods"] == [2023, 2024, 2025]
+    assert len(dataset_payload["source_artifacts"]) == 9
     assert dataset_payload["rows"]
     assert isinstance(dataset_payload["quality_summary"], dict)
     assert all(isinstance(row, dict) for row in dataset_payload["rows"])
@@ -115,15 +117,15 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(
     assert present_rows
     assert dataset_payload["quality_summary"]["present_row_count"] == len(present_rows)
     assert {row["issuer_id"] for row in present_rows} == {
+        "CN_300750",
         "CN_600519",
         "CN_601919",
-        "CN_688008",
     }
     assert {"cash", "revenue"} <= {row["metric_id"] for row in present_rows}
     assert all(row.get("source_fact_id") for row in present_rows)
 
     turtle_payload = json.loads(result.turtle_export_path.read_text(encoding="utf-8"))
-    assert turtle_payload["dataset_id"] == "p5_seed_3_issuers_2_years"
+    assert turtle_payload["dataset_id"] == "p5_seed_3_issuers_3_years"
     assert turtle_payload["dataset_version"] == "1.0"
     assert turtle_payload["rows"]
     assert isinstance(turtle_payload["alias_map"], dict)
@@ -135,7 +137,7 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(
     ]
     assert present_turtle_rows
     assert {row["issuer_id"] for row in present_turtle_rows} == {
+        "CN_300750",
         "CN_600519",
         "CN_601919",
-        "CN_688008",
     }

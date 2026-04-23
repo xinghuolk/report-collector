@@ -1,26 +1,16 @@
 {
-  "manifest_id": "p5_seed_3_issuers_2_years",
+  "manifest_id": "p5_seed_3_issuers_3_years",
+  "dataset_id": "p5_seed_3_issuers_3_years",
   "manifest_version": "1.0",
   "entries": [
     {
-      "issuer_id": "CN_600519",
+      "issuer_id": "CN_601919",
       "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
-      "fiscal_year": 2024,
+      "stock_code": "601919",
+      "company_name": "中远海控",
+      "fiscal_year": 2023,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2024_年度报告.pdf",
-      "source": "report",
-      "report_language": "zh"
-    },
-    {
-      "issuer_id": "CN_600519",
-      "market": "CN",
-      "stock_code": "600519",
-      "company_name": "贵州茅台",
-      "fiscal_year": 2025,
-      "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/600519/annual/2025_年度报告.pdf",
+      "pdf_path": "report/downloads/cn_stocks/601919/annual/2023_年度报告.pdf",
       "source": "report",
       "report_language": "zh"
     },
@@ -47,24 +37,68 @@
       "report_language": "zh"
     },
     {
-      "issuer_id": "CN_688008",
+      "issuer_id": "CN_600519",
       "market": "CN",
-      "stock_code": "688008",
-      "company_name": "澜起科技",
-      "fiscal_year": 2024,
+      "stock_code": "600519",
+      "company_name": "贵州茅台",
+      "fiscal_year": 2023,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/688008/annual/2024_年度报告.pdf",
+      "pdf_path": "report/downloads/cn_stocks/600519/annual/2023_年度报告.pdf",
       "source": "report",
       "report_language": "zh"
     },
     {
-      "issuer_id": "CN_688008",
+      "issuer_id": "CN_600519",
       "market": "CN",
-      "stock_code": "688008",
-      "company_name": "澜起科技",
+      "stock_code": "600519",
+      "company_name": "贵州茅台",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/600519/annual/2024_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_600519",
+      "market": "CN",
+      "stock_code": "600519",
+      "company_name": "贵州茅台",
       "fiscal_year": 2025,
       "report_type": "annual",
-      "pdf_path": "report/downloads/cn_stocks/688008/annual/2025_年度报告.pdf",
+      "pdf_path": "report/downloads/cn_stocks/600519/annual/2025_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_300750",
+      "market": "CN",
+      "stock_code": "300750",
+      "company_name": "宁德时代",
+      "fiscal_year": 2023,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/300750/annual/2023_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_300750",
+      "market": "CN",
+      "stock_code": "300750",
+      "company_name": "宁德时代",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/300750/annual/2024_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_300750",
+      "market": "CN",
+      "stock_code": "300750",
+      "company_name": "宁德时代",
+      "fiscal_year": 2025,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/300750/annual/2025_年度报告.pdf",
       "source": "report",
       "report_language": "zh"
     }
