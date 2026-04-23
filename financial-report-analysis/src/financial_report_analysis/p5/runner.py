@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from financial_report_analysis.p5.artifact_repository import (
-    P5ArtifactRepositoryError,
-    P5JsonArtifactRepository,
-)
+from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
 from financial_report_analysis.p5.dataset import assemble_dataset
 from financial_report_analysis.p5.extraction import build_extracted_artifact
 from financial_report_analysis.p5.manifest import load_manifest
@@ -67,8 +64,9 @@ def run_p5_dataset_build(
         required_metric_ids=required_metric_ids,
         now_func=now_func,
     )
-    dataset_path = repository.save_dataset_artifact(dataset)
-    turtle_export_path = repository.datasets_dir / f"{repository._dataset_path(dataset_id).stem}_turtle_export.json"  # noqa: SLF001
+    repository.save_dataset_artifact(dataset)
+    dataset_path = repository.dataset_artifact_path(dataset_id)
+    turtle_export_path = repository.turtle_export_artifact_path(dataset_id)
     if write_turtle_export:
         turtle_export = build_turtle_export_func(dataset)
         turtle_export_path = _save_turtle_export(repository, turtle_export)
@@ -179,12 +177,4 @@ def _save_turtle_export(
     repository: P5JsonArtifactRepository,
     turtle_export: P5TurtleExport,
 ) -> Path:
-    try:
-        safe_dataset_id = repository._dataset_path(turtle_export.dataset_id).stem  # noqa: SLF001
-    except P5ArtifactRepositoryError as exc:
-        raise P5ArtifactRepositoryError(str(exc)) from exc
-    path = repository.datasets_dir / f"{safe_dataset_id}_turtle_export.json"
-    return repository._write_json(  # noqa: SLF001 - reuse repository atomic JSON write path
-        path,
-        asdict(turtle_export),
-    )
+    return repository.save_turtle_export(turtle_export)

@@ -33,6 +33,10 @@ class P5ManifestEntry:
     def entry_key(self) -> tuple[str, int, str]:
         return (self.issuer_id, self.fiscal_year, self.report_type)
 
+    @property
+    def report_key(self) -> tuple[str, int, str]:
+        return self.entry_key
+
 
 @dataclass(frozen=True, slots=True)
 class P5Manifest:

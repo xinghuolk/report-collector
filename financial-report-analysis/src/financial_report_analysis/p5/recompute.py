@@ -45,10 +45,9 @@ def execute_recompute_plan(
     run_p5_dataset_build_func: Callable[..., P5RunResult] = run_p5_dataset_build,
 ) -> P5RecomputeResult:
     repository = P5JsonArtifactRepository(artifact_root)
-    before_dataset = _safe_read_json_payload(repository._dataset_path(plan.dataset_id))  # noqa: SLF001
+    before_dataset = _safe_read_json_payload(repository.dataset_artifact_path(plan.dataset_id))
     before_turtle = _safe_read_json_payload(
-        repository.datasets_dir
-        / f"{repository._dataset_path(plan.dataset_id).stem}_turtle_export.json"  # noqa: SLF001
+        repository.turtle_export_artifact_path(plan.dataset_id)
     )
     if plan.rebuild_dataset:
         run_result = run_p5_dataset_build_func(
@@ -76,8 +75,8 @@ def execute_recompute_plan(
             ),
         )
 
-    dataset_path = repository._dataset_path(plan.dataset_id)  # noqa: SLF001
-    turtle_export_path = repository.datasets_dir / f"{dataset_path.stem}_turtle_export.json"
+    dataset_path = repository.dataset_artifact_path(plan.dataset_id)
+    turtle_export_path = repository.turtle_export_artifact_path(plan.dataset_id)
     if plan.rebuild_turtle_export:
         dataset = repository.load_dataset_artifact(plan.dataset_id)
         turtle_export = build_turtle_export(dataset)
@@ -132,3 +131,53 @@ def _strip_volatile_fields(value: object) -> object:
     if isinstance(value, list):
         return [_strip_volatile_fields(item) for item in value]
     return value
+
+
+def recompute_diff_summary_to_payload(
+    diff_summary: P5RecomputeDiffSummary,
+) -> dict[str, object]:
+    return {
+        "reason": diff_summary.reason,
+        "target_artifact_ids": list(diff_summary.target_artifact_ids),
+        "dataset_changed": diff_summary.dataset_changed,
+        "turtle_export_changed": diff_summary.turtle_export_changed,
+        "rebuilt_dataset": diff_summary.rebuilt_dataset,
+        "rebuilt_turtle_export": diff_summary.rebuilt_turtle_export,
+    }
+
+
+def recompute_diff_summary_from_payload(
+    payload: dict[str, object],
+) -> P5RecomputeDiffSummary:
+    return P5RecomputeDiffSummary(
+        reason=str(payload["reason"]),
+        target_artifact_ids=tuple(payload.get("target_artifact_ids", ())),  # type: ignore[arg-type]
+        dataset_changed=bool(payload["dataset_changed"]),
+        turtle_export_changed=bool(payload["turtle_export_changed"]),
+        rebuilt_dataset=bool(payload["rebuilt_dataset"]),
+        rebuilt_turtle_export=bool(payload["rebuilt_turtle_export"]),
+    )
+
+
+def recompute_result_to_payload(
+    result: P5RecomputeResult,
+) -> dict[str, object]:
+    return {
+        "manifest_id": result.manifest_id,
+        "extracted_artifact_ids": list(result.extracted_artifact_ids),
+        "dataset_path": str(result.dataset_path),
+        "turtle_export_path": str(result.turtle_export_path),
+        "diff_summary": recompute_diff_summary_to_payload(result.diff_summary),
+    }
+
+
+def recompute_result_from_payload(
+    payload: dict[str, object],
+) -> P5RecomputeResult:
+    return P5RecomputeResult(
+        manifest_id=str(payload["manifest_id"]),
+        extracted_artifact_ids=tuple(payload.get("extracted_artifact_ids", ())),  # type: ignore[arg-type]
+        dataset_path=Path(str(payload["dataset_path"])),
+        turtle_export_path=Path(str(payload["turtle_export_path"])),
+        diff_summary=recompute_diff_summary_from_payload(payload["diff_summary"]),  # type: ignore[arg-type]
+    )

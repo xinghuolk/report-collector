@@ -38,6 +38,12 @@
 - 它可以服务 review、差异摘要与 coverage gap 识别
 - 它不能成为 canonical facts 的主来源，也不能进入 deterministic recompute 裁决链
 
+还应把“数据库重构 / durable storage abstraction”视为这条 post-P5 foundation 的**后续阶段**，而不是并行起步项：
+
+- 只有当 `review surface`、`lineage contract` 与 `deterministic recompute contract` 达到可用完成状态后，才进入数据库阶段
+- 数据库阶段应建立在已经稳定的 artifact / review / lineage / recompute contract 之上，而不是反过来驱动这些 contract 频繁变化
+- 数据库阶段的默认起步选型应是 `SQLAlchemy + SQLite-first`，同时保持 schema 与 repository boundary 可迁移到 `Postgres`
+
 ## 1. 目的
 
 本文定义 `financial-report-analysis` 的顶层路线图。
@@ -282,6 +288,11 @@ pdf
    - 现在最缺的不是再多几个字段，而是让现有 artifact 可审、可追、可重算。
    - review surface、artifact lineage、dataset lineage、recompute input/output contract 应优先于新的 broad storage abstraction。
 
+2.1 **把数据库重构明确后置为 post-P5 foundation 的后继阶段。**
+   - 当前可以为数据库重构做 brainstorming 与 contract 设计，但不应让 durable storage 反过来主导本阶段的 review / lineage / recompute 细节。
+   - 更准确的顺序应是：
+     `review surface -> lineage contract -> deterministic recompute -> durable storage`
+
 3. **保持 recompute core 为 deterministic。**
    - recompute 的主逻辑应只依赖 manifest、persisted extracted artifacts、dataset assembly rules 和版本化 contract。
    - LLM 不应参与 recompute 裁决，也不应直接改写 canonical facts。
@@ -294,6 +305,7 @@ pdf
 5. **storage abstraction 可以后置，但 lineage contract 不能后置。**
    - 当前 JSON artifact repository 足以支撑第一版 post-P5 基础设施。
    - 只有当 review / recompute / query 需求已经稳定时，才值得推进数据库或更重的 storage layer。
+   - 如果 database 阶段提前启动，目标也应是承接既有 contract，而不是重写 contract。
 
 6. **后续新增字段 phase 必须建立在 post-P5 基础设施之上。**
    - 如果后面还要继续承接 `v0.15` gap list、parent scope 深挖或 broad notes bridge，应先有 review / lineage guardrails。
@@ -440,6 +452,32 @@ pdf
 - recompute 使用 deterministic contract，可在 manifest、artifact version 或 pipeline version 变化时稳定重建目标 artifact。
 - 当前 JSON repository 之上已有足够的 review / lineage / recompute 结构，不必先引入数据库。
 - 若未来引入 whole-document LLM assessment，它只能作为 review / diff 扩展，不进入 recompute 主裁决链路。
+
+### Milestone F1: Post-P5 Foundation Closeout As Storage Prerequisite
+
+预期结果：
+
+- `review surface`、`lineage contract` 与 `recompute diff / target-selection contract` 达到数据库阶段可复用的稳定形态。
+- 当前 JSON repository 仍然是实现载体，但 contract 层已经足够稳定，可以被未来数据库 repository 直接承接。
+- phase 输出应能明确回答：
+  - 哪些 artifact / row / export objects 需要持久化
+  - 哪些 review / lineage / recompute fields 是 durable schema 的必备字段
+  - 哪些字段仍然只是可选增强，不应阻塞 storage 阶段
+
+### Milestone F2: Durable Storage And Query Foundation
+
+预期结果：
+
+- 在不改写上层 contract 的前提下，引入数据库或更重的 durable storage abstraction。
+- repository / query / audit / recompute 入口切换到底层持久化实现时，不改变 review / lineage / recompute 的业务规则。
+- storage 层开始承接关系型概念：
+  - pipeline runs
+  - extracted artifacts
+  - dataset artifacts
+  - export artifacts
+  - review surfaces
+  - lineage links
+  - recompute events / diff summaries
 
 ### Milestone G: Whole-Document LLM Assessment Extension
 

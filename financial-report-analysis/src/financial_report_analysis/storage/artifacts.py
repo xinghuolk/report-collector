@@ -14,6 +14,14 @@ def build_validation_report_id(document_id: str) -> str:
     return f"{document_id}:validation:v1"
 
 
+def build_report_id(issuer_id: str, fiscal_year: int, report_type: str) -> str:
+    return f"{issuer_id}:{fiscal_year}:{report_type}"
+
+
+def build_manifest_entry_id(manifest_id: str, issuer_id: str, fiscal_year: int, report_type: str) -> str:
+    return f"{manifest_id}:{issuer_id}:{fiscal_year}:{report_type}"
+
+
 @dataclass(frozen=True, slots=True)
 class EvidenceBundleRecord:
     evidence_bundle_id: str

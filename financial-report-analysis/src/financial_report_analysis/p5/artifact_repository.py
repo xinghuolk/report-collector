@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from financial_report_analysis.p5.models import (
     Market,
@@ -14,6 +15,7 @@ from financial_report_analysis.p5.models import (
     P5DatasetRow,
     P5ExtractedArtifact,
     P5ManifestEntry,
+    P5TurtleExport,
     ReportType,
 )
 
@@ -33,6 +35,29 @@ class P5ArtifactRepositoryError(ValueError):
     """Raised when persisted P5 artifacts cannot be safely read or written."""
 
 
+class P5ArtifactRepository(Protocol):
+    def extracted_artifact_exists(self, artifact_id: str) -> bool: ...
+
+    def save_extracted_artifact(self, artifact: P5ExtractedArtifact) -> Path | str: ...
+
+    def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact: ...
+
+    def save_dataset_artifact(self, dataset: P5DatasetArtifact) -> Path | str: ...
+
+    def load_dataset_artifact(self, dataset_id: str) -> P5DatasetArtifact: ...
+
+    def save_turtle_export(self, turtle_export: P5TurtleExport) -> Path | str: ...
+
+    def load_turtle_export(self, dataset_id: str) -> P5TurtleExport: ...
+
+    def list_extracted_artifact_ids(
+        self,
+        *,
+        issuer_id: str | None = None,
+        fiscal_year: int | None = None,
+    ) -> tuple[str, ...]: ...
+
+
 class P5JsonArtifactRepository:
     def __init__(self, root_dir: str | Path) -> None:
         self.root_dir = Path(root_dir)
@@ -45,20 +70,60 @@ class P5JsonArtifactRepository:
     def save_extracted_artifact(self, artifact: P5ExtractedArtifact) -> Path:
         return self._write_json(
             self._extracted_path(artifact.artifact_id),
-            _extracted_to_json(artifact),
+            extracted_artifact_to_payload(artifact),
         )
 
     def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact:
-        return _extracted_from_json(self._read_json(self._extracted_path(artifact_id)))
+        return extracted_artifact_from_payload(
+            self._read_json(self._extracted_path(artifact_id))
+        )
 
     def save_dataset_artifact(self, dataset: P5DatasetArtifact) -> Path:
         return self._write_json(
-            self._dataset_path(dataset.dataset_id),
-            _dataset_to_json(dataset),
+            self.dataset_artifact_path(dataset.dataset_id),
+            dataset_artifact_to_payload(dataset),
         )
 
     def load_dataset_artifact(self, dataset_id: str) -> P5DatasetArtifact:
-        return _dataset_from_json(self._read_json(self._dataset_path(dataset_id)))
+        return dataset_artifact_from_payload(
+            self._read_json(self.dataset_artifact_path(dataset_id))
+        )
+
+    def save_turtle_export(self, turtle_export: P5TurtleExport) -> Path:
+        return self._write_json(
+            self.turtle_export_artifact_path(turtle_export.dataset_id),
+            turtle_export_to_payload(turtle_export),
+        )
+
+    def load_turtle_export(self, dataset_id: str) -> P5TurtleExport:
+        return turtle_export_from_payload(
+            self._read_json(self.turtle_export_artifact_path(dataset_id))
+        )
+
+    def list_extracted_artifact_ids(
+        self,
+        *,
+        issuer_id: str | None = None,
+        fiscal_year: int | None = None,
+    ) -> tuple[str, ...]:
+        artifact_ids: list[str] = []
+        for path in sorted(self.extracted_dir.glob("*.json")):
+            artifact = self.load_extracted_artifact(path.stem)
+            if issuer_id is not None and artifact.manifest_entry.issuer_id != issuer_id:
+                continue
+            if fiscal_year is not None and artifact.manifest_entry.fiscal_year != fiscal_year:
+                continue
+            artifact_ids.append(artifact.artifact_id)
+        return tuple(artifact_ids)
+
+    def extracted_artifact_path(self, artifact_id: str) -> Path:
+        return self._extracted_path(artifact_id)
+
+    def dataset_artifact_path(self, dataset_id: str) -> Path:
+        return self._dataset_path(dataset_id)
+
+    def turtle_export_artifact_path(self, dataset_id: str) -> Path:
+        return self.datasets_dir / f"{self._dataset_path(dataset_id).stem}_turtle_export.json"
 
     def _extracted_path(self, artifact_id: str) -> Path:
         return self.extracted_dir / f"{_safe_filename(artifact_id, 'artifact_id')}.json"
@@ -127,7 +192,7 @@ def _entry_from_json(payload: dict[str, Any]) -> P5ManifestEntry:
     )
 
 
-def _extracted_to_json(artifact: P5ExtractedArtifact) -> dict[str, Any]:
+def extracted_artifact_to_payload(artifact: P5ExtractedArtifact) -> dict[str, Any]:
     return {
         "artifact_id": artifact.artifact_id,
         "artifact_version": artifact.artifact_version,
@@ -147,7 +212,7 @@ def _extracted_to_json(artifact: P5ExtractedArtifact) -> dict[str, Any]:
     }
 
 
-def _extracted_from_json(payload: dict[str, Any]) -> P5ExtractedArtifact:
+def extracted_artifact_from_payload(payload: dict[str, Any]) -> P5ExtractedArtifact:
     return P5ExtractedArtifact(
         artifact_id=_text_from_json(payload["artifact_id"], "artifact_id"),
         artifact_version=_text_from_json(payload["artifact_version"], "artifact_version"),
@@ -170,7 +235,7 @@ def _extracted_from_json(payload: dict[str, Any]) -> P5ExtractedArtifact:
     )
 
 
-def _dataset_to_json(dataset: P5DatasetArtifact) -> dict[str, Any]:
+def dataset_artifact_to_payload(dataset: P5DatasetArtifact) -> dict[str, Any]:
     return {
         "dataset_id": dataset.dataset_id,
         "dataset_version": dataset.dataset_version,
@@ -184,7 +249,7 @@ def _dataset_to_json(dataset: P5DatasetArtifact) -> dict[str, Any]:
     }
 
 
-def _dataset_from_json(payload: dict[str, Any]) -> P5DatasetArtifact:
+def dataset_artifact_from_payload(payload: dict[str, Any]) -> P5DatasetArtifact:
     return P5DatasetArtifact(
         dataset_id=_text_from_json(payload["dataset_id"], "dataset_id"),
         dataset_version=_text_from_json(payload["dataset_version"], "dataset_version"),
@@ -207,6 +272,23 @@ def _dataset_from_json(payload: dict[str, Any]) -> P5DatasetArtifact:
                 "source_artifacts",
             )
         ),
+    )
+
+
+def turtle_export_to_payload(turtle_export: P5TurtleExport) -> dict[str, Any]:
+    return asdict(turtle_export)
+
+
+def turtle_export_from_payload(payload: dict[str, Any]) -> P5TurtleExport:
+    return P5TurtleExport(
+        dataset_id=_text_from_json(payload["dataset_id"], "dataset_id"),
+        dataset_version=_text_from_json(payload["dataset_version"], "dataset_version"),
+        created_at=_text_from_json(payload["created_at"], "created_at"),
+        rows=_tuple_of_objects(payload.get("rows", [])),
+        alias_map={
+            _text_from_json(key, "alias_map key"): _text_from_json(value, "alias_map value")
+            for key, value in _object_from_json(payload.get("alias_map", {})).items()
+        },
     )
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from financial_report_analysis.p5.models import (
     P5ArtifactLineage,
     P5DatasetArtifact,
@@ -80,4 +82,22 @@ def _export_row_key(row: dict[str, object]) -> tuple[object, ...]:
         row.get("statement_type"),
         row.get("source_artifact_id"),
         row.get("source_fact_id"),
+    )
+
+
+def artifact_lineage_to_payload(lineage: P5ArtifactLineage) -> dict[str, object]:
+    return asdict(lineage)
+
+
+def artifact_lineage_from_payload(payload: dict[str, object]) -> P5ArtifactLineage:
+    return P5ArtifactLineage(
+        dataset_id=str(payload["dataset_id"]),
+        source_artifact_id=str(payload["source_artifact_id"]),
+        source_pdf_path=str(payload["source_pdf_path"]),
+        pipeline_version=str(payload["pipeline_version"]),
+        source_fact_id=str(payload["source_fact_id"]) if payload.get("source_fact_id") is not None else None,
+        evidence_bundle_id=str(payload["evidence_bundle_id"]) if payload.get("evidence_bundle_id") is not None else None,
+        manifest_entry_key=tuple(payload["manifest_entry_key"]) if payload.get("manifest_entry_key") is not None else None,  # type: ignore[arg-type]
+        export_row_index=int(payload["export_row_index"]) if payload.get("export_row_index") is not None else None,
+        turtle_field=str(payload["turtle_field"]) if payload.get("turtle_field") is not None else None,
     )
