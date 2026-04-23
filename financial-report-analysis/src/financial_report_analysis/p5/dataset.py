@@ -123,8 +123,8 @@ def _missing_rows(
     present_rows: list[P5DatasetRow],
     required_metric_ids: tuple[str, ...],
 ) -> list[P5DatasetRow]:
-    present_metric_keys = {
-        (row.source_artifact_id, row.metric_id)
+    present_row_keys = {
+        _missing_row_key(row)
         for row in present_rows
     }
     rows: list[P5DatasetRow] = []
@@ -135,28 +135,26 @@ def _missing_rows(
             | set(artifact_missing_status.keys())
         )
         for metric_id in metric_ids:
-            if (artifact.artifact_id, metric_id) in present_metric_keys:
-                continue
-            rows.append(
-                P5DatasetRow(
-                    issuer_id=artifact.manifest_entry.issuer_id,
-                    market=artifact.manifest_entry.market,
-                    stock_code=artifact.manifest_entry.stock_code,
-                    fiscal_year=artifact.manifest_entry.fiscal_year,
-                    metric_id=metric_id,
-                    entity_scope="consolidated",
-                    period_scope="unknown",
-                    statement_type="metrics",
-                    value=None,
-                    currency=None,
-                    unit=None,
-                    quality_status=None,
-                    missing_status=artifact_missing_status.get(metric_id, "unknown"),
-                    source_fact_id=None,
-                    source_artifact_id=artifact.artifact_id,
-                    evidence_bundle_id=None,
-                )
+            missing_row = P5DatasetRow(
+                issuer_id=artifact.manifest_entry.issuer_id,
+                market=artifact.manifest_entry.market,
+                stock_code=artifact.manifest_entry.stock_code,
+                fiscal_year=artifact.manifest_entry.fiscal_year,
+                metric_id=metric_id,
+                entity_scope="consolidated",
+                period_scope="unknown",
+                statement_type="metrics",
+                value=None,
+                currency=None,
+                unit=None,
+                quality_status=None,
+                missing_status=artifact_missing_status.get(metric_id, "unknown"),
+                source_fact_id=None,
+                source_artifact_id=artifact.artifact_id,
+                evidence_bundle_id=None,
             )
+            if _missing_row_key(missing_row) not in present_row_keys:
+                rows.append(missing_row)
     return rows
 
 
@@ -208,13 +206,13 @@ def _quality_summary(
 
 def _duplicate_fact_conflicts(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, Any]]:
     grouped: dict[
-        tuple[str, int, str, str, str],
+        tuple[str, int, str, str, str, str],
         list[P5DatasetRow],
     ] = defaultdict(list)
     for row in rows:
         if row.missing_status != "present":
             continue
-        grouped[_row_key(row)].append(row)
+        grouped[_duplicate_conflict_key(row)].append(row)
 
     conflicts: list[dict[str, Any]] = []
     for key in sorted(grouped):
@@ -228,7 +226,7 @@ def _duplicate_fact_conflicts(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, 
         )
         if len(unique_values) <= 1:
             continue
-        issuer_id, fiscal_year, metric_id, entity_scope, period_scope = key
+        issuer_id, fiscal_year, metric_id, entity_scope, period_scope, statement_type = key
         conflicts.append(
             {
                 "issuer_id": issuer_id,
@@ -236,7 +234,7 @@ def _duplicate_fact_conflicts(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, 
                 "metric_id": metric_id,
                 "entity_scope": entity_scope,
                 "period_scope": period_scope,
-                "statement_type": key_rows[0].statement_type,
+                "statement_type": statement_type,
                 "values": unique_values,
                 "source_fact_ids": sorted(
                     row.source_fact_id
@@ -292,6 +290,28 @@ def _row_key(row: P5DatasetRow) -> tuple[str, int, str, str, str]:
         row.metric_id,
         row.entity_scope,
         row.period_scope,
+    )
+
+
+def _duplicate_conflict_key(row: P5DatasetRow) -> tuple[str, int, str, str, str, str]:
+    return (
+        row.issuer_id,
+        row.fiscal_year,
+        row.metric_id,
+        row.entity_scope,
+        row.period_scope,
+        row.statement_type,
+    )
+
+
+def _missing_row_key(row: P5DatasetRow) -> tuple[str, int, str, str, str, str]:
+    return (
+        row.issuer_id,
+        row.fiscal_year,
+        row.metric_id,
+        row.entity_scope,
+        row.period_scope,
+        row.statement_type,
     )
 
 

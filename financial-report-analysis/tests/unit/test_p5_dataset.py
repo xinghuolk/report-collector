@@ -200,3 +200,86 @@ def test_assemble_dataset_adds_unknown_rows_for_required_metrics_without_present
     assert rows_by_metric["revenue"].missing_status == "unknown"
     assert dataset.quality_summary["unknown_count"] == 2
     assert dataset.quality_summary["review_required_artifacts"] == ["CN_601919_2025"]
+
+
+def test_assemble_dataset_keeps_missing_row_when_only_different_scope_is_present(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-cash-parent",
+                "metric_id": "cash",
+                "statement_type": "balance_sheet",
+                "entity_scope": "parent_company",
+                "period_id": "2025FY",
+                "numeric_value": 80.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-parent",
+                "extensions": {"period_scope": "point_in_time"},
+            },
+        ),
+        missing_status={
+            "asset_missing_status": {"cash": "absent"},
+        },
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    cash_rows = [row for row in dataset.rows if row.metric_id == "cash"]
+    assert {row.entity_scope for row in cash_rows} == {"parent_company", "consolidated"}
+    assert {row.missing_status for row in cash_rows} == {"present", "absent"}
+
+
+def test_assemble_dataset_separates_duplicate_conflicts_by_statement_type(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-revenue-income",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-income",
+                "extensions": {"period_scope": "duration"},
+            },
+            {
+                "fact_id": "fact-revenue-cashflow",
+                "metric_id": "revenue",
+                "statement_type": "cash_flow_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 120.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-cashflow",
+                "extensions": {"period_scope": "duration"},
+            },
+        ),
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert len(dataset.rows) == 1
+    assert dataset.quality_summary["duplicate_fact_conflicts"] == []
