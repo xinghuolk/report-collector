@@ -49,6 +49,8 @@ P5 V1 使用显式输入，不做自动报告发现。
 - 可选 `company_name`
 - 可选 `report_language`
 
+P5 V1 的 seed dataset 只覆盖年度报告，`report_type` 固定为 `annual`。季度和半年报可以在后续 phase 加入，但不能和年度报告共用同一个 artifact id 规则。
+
 自动按股票代码和年份范围搜索报告、下载编排、报告替换策略，均不属于 P5 V1。
 
 ## 4. 最小持久化模型
@@ -246,4 +248,3 @@ P5 V1 完成时应满足：
 - row 级和 summary 级都能看到 missing / quality 状态
 - Turtle alias export 能生成，且不改变 canonical metric id
 - focused unit tests 和 seed integration tests 通过
-

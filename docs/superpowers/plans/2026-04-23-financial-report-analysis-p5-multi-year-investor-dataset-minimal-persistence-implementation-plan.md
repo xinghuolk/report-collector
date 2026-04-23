@@ -10,6 +10,24 @@
 
 ---
 
+## Execution Context
+
+Use two working directories intentionally:
+
+- Run code, `uv`, pytest, and Ruff commands from the subproject directory:
+
+  ```bash
+  cd financial-report-analysis
+  ```
+
+- Run `git add`, `git commit`, and worktree status commands from the worktree root:
+
+  ```bash
+  cd /home/like/mycode/finanice/report-collector/.worktrees/financial-report-analysis
+  ```
+
+All file paths in the **File Structure** and **Files** sections are worktree-root relative. All pytest/Ruff command paths are subproject-root relative.
+
 ## Scope Check
 
 本计划只实现 P5 V1 的最小持久化和 dataset assembly。
@@ -226,6 +244,35 @@ def test_load_manifest_resolves_relative_pdf_path_from_pdf_root(tmp_path: Path) 
     manifest = load_manifest(manifest_path, pdf_root=pdf_root)
 
     assert manifest.entries[0].pdf_path == pdf_path
+
+
+def test_load_manifest_rejects_non_annual_report_type(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "601919_2025_q3.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_id": "bad",
+                "manifest_version": "1.0",
+                "entries": [
+                    {
+                        "issuer_id": "CN_601919",
+                        "market": "CN",
+                        "stock_code": "601919",
+                        "fiscal_year": 2025,
+                        "report_type": "quarterly",
+                        "pdf_path": str(pdf_path),
+                        "source": "report",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(P5ManifestValidationError, match="unsupported report_type"):
+        load_manifest(manifest_path)
 ```
 
 - [ ] **Step 2: Run tests and confirm failure**
@@ -250,7 +297,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 Market = Literal["CN", "HK", "US"]
-ReportType = Literal["annual", "semi_annual", "quarterly"]
+ReportType = Literal["annual"]
 MissingStatus = Literal["present", "absent", "not_surfaced", "out_of_scope", "unknown"]
 
 
@@ -391,7 +438,7 @@ from financial_report_analysis.p5.models import (
 )
 
 _SUPPORTED_MARKETS = {"CN", "HK", "US"}
-_SUPPORTED_REPORT_TYPES = {"annual", "semi_annual", "quarterly"}
+_SUPPORTED_REPORT_TYPES = {"annual"}
 
 
 def load_manifest(path: str | Path, *, pdf_root: str | Path | None = None) -> P5Manifest:
@@ -1172,6 +1219,110 @@ def test_assemble_dataset_surfaces_unknown_missing_summary(tmp_path: Path) -> No
     }
     assert dataset.quality_summary["unknown_count"] == 1
     assert dataset.quality_summary["review_required_artifacts"] == ["CN_601919_2025"]
+
+
+def test_assemble_dataset_reports_duplicate_fact_conflicts(tmp_path: Path) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-revenue-a",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-a",
+                "extensions": {"period_scope": "duration"},
+            },
+            {
+                "fact_id": "fact-revenue-b",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 120.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-b",
+                "extensions": {"period_scope": "duration"},
+            },
+        ),
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert dataset.quality_summary["duplicate_fact_conflicts"] == [
+        {
+            "issuer_id": "CN_601919",
+            "fiscal_year": 2025,
+            "metric_id": "revenue",
+            "entity_scope": "consolidated",
+            "period_scope": "duration",
+            "statement_type": "income_statement",
+            "values": [100.0, 120.0],
+            "source_fact_ids": ["fact-revenue-a", "fact-revenue-b"],
+        }
+    ]
+
+
+def test_assemble_dataset_reports_scope_mismatch_warnings(tmp_path: Path) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-cash-consolidated",
+                "metric_id": "cash",
+                "statement_type": "balance_sheet",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-consolidated",
+                "extensions": {"period_scope": "point_in_time"},
+            },
+            {
+                "fact_id": "fact-cash-parent",
+                "metric_id": "cash",
+                "statement_type": "balance_sheet",
+                "entity_scope": "parent_company",
+                "period_id": "2025FY",
+                "numeric_value": 80.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-parent",
+                "extensions": {"period_scope": "point_in_time"},
+            },
+        ),
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert dataset.quality_summary["scope_mismatch_warnings"] == [
+        {
+            "issuer_id": "CN_601919",
+            "fiscal_year": 2025,
+            "metric_id": "cash",
+            "scopes": ["consolidated", "parent_company"],
+        }
+    ]
 ```
 
 - [ ] **Step 2: Run tests and confirm failure**
@@ -1341,9 +1492,97 @@ def _quality_summary(
             for artifact in artifacts
             if artifact.quality_gate != "pass"
         ),
-        "duplicate_fact_conflicts": [],
-        "scope_mismatch_warnings": [],
+        "duplicate_fact_conflicts": _duplicate_fact_conflicts(rows),
+        "scope_mismatch_warnings": _scope_mismatch_warnings(rows),
     }
+
+
+def _duplicate_fact_conflicts(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[object, ...], list[P5DatasetRow]] = {}
+    for row in rows:
+        if row.missing_status != "present":
+            continue
+        key = (
+            row.issuer_id,
+            row.fiscal_year,
+            row.metric_id,
+            row.entity_scope,
+            row.period_scope,
+            row.statement_type,
+        )
+        grouped.setdefault(key, []).append(row)
+
+    conflicts: list[dict[str, Any]] = []
+    for key, key_rows in grouped.items():
+        values = sorted({row.value for row in key_rows if row.value is not None})
+        if len(values) <= 1:
+            continue
+        (
+            issuer_id,
+            fiscal_year,
+            metric_id,
+            entity_scope,
+            period_scope,
+            statement_type,
+        ) = key
+        source_fact_ids = sorted(
+            row.source_fact_id for row in key_rows if row.source_fact_id is not None
+        )
+        conflicts.append(
+            {
+                "issuer_id": issuer_id,
+                "fiscal_year": fiscal_year,
+                "metric_id": metric_id,
+                "entity_scope": entity_scope,
+                "period_scope": period_scope,
+                "statement_type": statement_type,
+                "values": values,
+                "source_fact_ids": source_fact_ids,
+            }
+        )
+    return sorted(
+        conflicts,
+        key=lambda item: (
+            str(item["issuer_id"]),
+            int(item["fiscal_year"]),
+            str(item["metric_id"]),
+            str(item["entity_scope"]),
+            str(item["period_scope"]),
+            str(item["statement_type"]),
+        ),
+    )
+
+
+def _scope_mismatch_warnings(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, int, str], set[str]] = {}
+    for row in rows:
+        if row.missing_status != "present":
+            continue
+        key = (row.issuer_id, row.fiscal_year, row.metric_id)
+        grouped.setdefault(key, set()).add(row.entity_scope)
+
+    warnings: list[dict[str, Any]] = []
+    for (issuer_id, fiscal_year, metric_id), scopes in grouped.items():
+        if len(scopes) <= 1:
+            continue
+        if not ({"consolidated", "parent_company"} <= scopes or "unknown" in scopes):
+            continue
+        warnings.append(
+            {
+                "issuer_id": issuer_id,
+                "fiscal_year": fiscal_year,
+                "metric_id": metric_id,
+                "scopes": sorted(scopes),
+            }
+        )
+    return sorted(
+        warnings,
+        key=lambda item: (
+            str(item["issuer_id"]),
+            int(item["fiscal_year"]),
+            str(item["metric_id"]),
+        ),
+    )
 
 
 def _row_sort_key(row: P5DatasetRow) -> tuple[object, ...]:
@@ -1813,13 +2052,35 @@ git commit -m "feat: add p5 dataset build runner"
 
 Add `financial-report-analysis/tests/fixtures/p5_seed_manifest.json`.
 
-Use paths relative to the repo root. Start with samples already used by the current regression suite:
+Use paths relative to the repo root. The fixture represents the P5 seed contract: 3 issuers with 3 annual reports each. It may include paths that must be populated by the `report/` downloader before the real-PDF integration can run:
 
 ```json
 {
-  "manifest_id": "p5_seed_existing_samples",
+  "manifest_id": "p5_seed_3_issuers_3_years",
   "manifest_version": "1.0",
   "entries": [
+    {
+      "issuer_id": "CN_601919",
+      "market": "CN",
+      "stock_code": "601919",
+      "company_name": "中远海控",
+      "fiscal_year": 2023,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/601919/annual/2023_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_601919",
+      "market": "CN",
+      "stock_code": "601919",
+      "company_name": "中远海控",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/601919/annual/2024_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
     {
       "issuer_id": "CN_601919",
       "market": "CN",
@@ -1832,30 +2093,76 @@ Use paths relative to the repo root. Start with samples already used by the curr
       "report_language": "zh"
     },
     {
-      "issuer_id": "HK_02498",
-      "market": "HK",
-      "stock_code": "02498",
-      "fiscal_year": 2022,
+      "issuer_id": "CN_600519",
+      "market": "CN",
+      "stock_code": "600519",
+      "company_name": "贵州茅台",
+      "fiscal_year": 2023,
       "report_type": "annual",
-      "pdf_path": "report/downloads/hk_stocks/02498/annual/2022_annual_en.pdf",
+      "pdf_path": "report/downloads/cn_stocks/600519/annual/2023_年度报告.pdf",
       "source": "report",
-      "report_language": "en"
+      "report_language": "zh"
     },
     {
-      "issuer_id": "HK_09987",
-      "market": "HK",
-      "stock_code": "09987",
+      "issuer_id": "CN_600519",
+      "market": "CN",
+      "stock_code": "600519",
+      "company_name": "贵州茅台",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/600519/annual/2024_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_600519",
+      "market": "CN",
+      "stock_code": "600519",
+      "company_name": "贵州茅台",
       "fiscal_year": 2025,
       "report_type": "annual",
-      "pdf_path": "report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf",
+      "pdf_path": "report/downloads/cn_stocks/600519/annual/2025_年度报告.pdf",
       "source": "report",
-      "report_language": "en"
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_300750",
+      "market": "CN",
+      "stock_code": "300750",
+      "company_name": "宁德时代",
+      "fiscal_year": 2023,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/300750/annual/2023_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_300750",
+      "market": "CN",
+      "stock_code": "300750",
+      "company_name": "宁德时代",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/300750/annual/2024_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_300750",
+      "market": "CN",
+      "stock_code": "300750",
+      "company_name": "宁德时代",
+      "fiscal_year": 2025,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/300750/annual/2025_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
     }
   ]
 }
 ```
 
-The fixture intentionally uses paths relative to the main `report-collector` repo root. The runner must pass `pdf_root` when loading this fixture.
+The fixture intentionally uses paths relative to the main `report-collector` repo root. The runner must pass `pdf_root` when loading this fixture. If the seed PDFs have not been downloaded yet, the integration test skips and reports every missing file.
 
 - [ ] **Step 2: Write focused integration test**
 
@@ -1897,6 +2204,15 @@ def _pdf_root_for_all(relative_paths: list[str]) -> Path | None:
 def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(tmp_path: Path) -> None:
     manifest_path = ANALYSIS_ROOT / "tests" / "fixtures" / "p5_seed_manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(payload["entries"]) == 9
+    assert {
+        entry["issuer_id"]
+        for entry in payload["entries"]
+    } == {"CN_300750", "CN_600519", "CN_601919"}
+    assert {
+        entry["fiscal_year"]
+        for entry in payload["entries"]
+    } == {2023, 2024, 2025}
     relative_paths = [entry["pdf_path"] for entry in payload["entries"]]
     missing = [
         relative_path
@@ -1911,7 +2227,7 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(tmp_path: Path) -
     result = run_p5_dataset_build(
         manifest_path=manifest_path,
         artifact_root=tmp_path / "p5",
-        dataset_id="p5_seed_existing_samples",
+        dataset_id="p5_seed_3_issuers_3_years",
         pdf_root=pdf_root,
         required_metric_ids=("revenue", "cash", "operating_cash_flow"),
         now_func=lambda: "2026-04-23T00:00:00",
@@ -1920,8 +2236,9 @@ def test_p5_seed_dataset_builds_from_existing_real_pdf_samples(tmp_path: Path) -
     assert result.dataset_path.exists()
     assert result.turtle_export_path.exists()
     dataset_payload = json.loads(result.dataset_path.read_text(encoding="utf-8"))
-    assert dataset_payload["dataset_id"] == "p5_seed_existing_samples"
+    assert dataset_payload["dataset_id"] == "p5_seed_3_issuers_3_years"
     assert dataset_payload["issuer_count"] == 3
+    assert dataset_payload["periods"] == [2023, 2024, 2025]
     assert dataset_payload["rows"]
     assert "quality_summary" in dataset_payload
 ```
