@@ -150,6 +150,57 @@ def test_storage_core_models_create_minimum_tables(tmp_path: Path) -> None:
     }
 
 
+def test_db_p1_core_tables_create_expected_storage_shape(tmp_path: Path) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+
+    inspector = inspect(engine)
+
+    assert set(inspector.get_table_names()) >= {
+        "report_files",
+        "documents",
+        "document_versions",
+        "extraction_runs",
+        "statement_tables",
+        "statement_table_rows",
+        "statement_table_columns",
+        "statement_table_payloads",
+        "fact_sets",
+        "candidate_facts",
+        "canonical_facts",
+        "derived_facts",
+        "fact_lineage_records",
+        "evidence_bundles",
+        "evidence_items",
+        "evidence_bundle_item_links",
+        "validation_reports",
+        "validation_issues",
+        "quality_gate_results",
+        "metric_registry_entries",
+    }
+
+
+def test_db_p1_core_tables_expose_expected_foreign_keys(tmp_path: Path) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+
+    inspector = inspect(engine)
+
+    def fk_targets(table_name: str) -> set[tuple[str, str]]:
+        return {
+            (fk["constrained_columns"][0], fk["referred_table"])
+            for fk in inspector.get_foreign_keys(table_name)
+        }
+
+    assert ("report_id", "reports") in fk_targets("report_files")
+    assert ("report_file_id", "report_files") in fk_targets("documents")
+    assert ("document_id", "documents") in fk_targets("document_versions")
+    assert ("document_version_id", "document_versions") in fk_targets("extraction_runs")
+    assert ("primary_evidence_item_id", "evidence_items") in fk_targets(
+        "evidence_bundles"
+    )
+
+
 def test_storage_core_models_persist_minimum_registry_and_artifact_rows(
     tmp_path: Path,
 ) -> None:
