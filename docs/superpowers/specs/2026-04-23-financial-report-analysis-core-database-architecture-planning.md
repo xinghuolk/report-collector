@@ -60,7 +60,7 @@
 - `statement_tables`
 - `statement_table_rows`
 - `statement_table_columns`
-- `statement_table_cells`
+- `statement_table_cell` 级轻量坐标索引或 payload 管理对象
 - `fact_sets`
 - `candidate_facts`
 - `canonical_facts`
@@ -157,6 +157,13 @@ P5 dataset 是事实账本的消费结果，不应反过来成为基础事实的
 - prompt / completion dumps
 - large evidence snapshots
 
+第一阶段应进一步收紧为：
+
+- 关系型索引先到 block / table / row / column 级。
+- 完整 cell matrix 先放 payload 或 object storage。
+- 如确实需要 cell 级追溯，只保留少量 `cell_pointer`、`page_index`、`bbox`、`row_index`、`column_index` 之类的轻量坐标索引。
+- 只有当 cell-level lineage 成为高频查询需求时，才把完整 `statement_table_cells` 升成一等关系对象。
+
 ### 3.4 灵活字段必须受治理
 
 `extensions` 字段只能作为兼容扩展，不应承担 custom metric 生命周期。
@@ -178,6 +185,14 @@ P5 dataset 是事实账本的消费结果，不应反过来成为基础事实的
 - 不依赖 SQLite-only 业务语义
 - 保留 migration discipline
 - 避免上层代码绑定本地文件数据库行为
+
+另外需要加三个硬约束：
+
+- 不依赖复杂 JSON 查询能力作为主路径。
+- 不依赖多写者并发场景。
+- repository interface 必须先抽稳，再讨论默认执行环境从 SQLite 切到 Postgres。
+
+因此，SQLite-first 更适合作为当前开发期实现策略，而不是最终数据库语义。
 
 ## 4. 推荐数据库分层
 
@@ -244,13 +259,14 @@ P5 dataset 是事实账本的消费结果，不应反过来成为基础事实的
 - `statement_tables`
 - `statement_table_rows`
 - `statement_table_columns`
-- `statement_table_cells`
+- `statement_table_cell_payloads` 或 table-level payload artifact
 
 `statement_tables` 关键字段：
 
 - `statement_table_id`
 - `extraction_run_id`
 - `document_id`
+- `table_family`
 - `statement_type`
 - `entity_scope`
 - `table_title_raw`
@@ -261,20 +277,29 @@ P5 dataset 是事实账本的消费结果，不应反过来成为基础事实的
 - `confidence`
 - `semantic_source`
 
+`table_family` 起步枚举：
+
+- `statement`
+- `disclosure`
+- `metrics`
+- `unknown`
+
 `statement_type` 起步枚举：
 
 - `income_statement`
 - `balance_sheet`
 - `cash_flow_statement`
 - `metrics`
-- `note`
 - `unknown`
 
 设计重点：
 
 - 三大表应是一等 DB 对象。
 - fact 可以通过 evidence 或 table coordinate 回链到 table row/cell。
-- `note` 不应和三大主表混用，避免 disclosure supplement 污染主表事实。
+- `disclosure` / `note` 不应和三大主表放在同一个类型维度。
+- `table_family` 解决“主表、披露表、指标表”的分类。
+- `statement_type` 只解决主表指标语义，不承担 disclosure 分类职责。
+- 第一版不完整关系化 `statement_table_cells`；完整 cell matrix 默认放 payload/object storage。
 
 ### 4.4 Fact Ledger Layer
 
@@ -293,13 +318,15 @@ P5 dataset 是事实账本的消费结果，不应反过来成为基础事实的
 - `fact_set_id`
 - `fact_set_kind`: `candidate | canonical | derived`
 - `extraction_run_id`
-- `issuer_id`
-- `report_id`
-- `fiscal_year`
-- `pipeline_version`
-- `registry_version`
 - `created_at`
 - `status`
+
+第一版默认遵循：
+
+- `fact_set -> extraction_run` 是规范来源引用。
+- `issuer_id`、`report_id`、`fiscal_year`、`pipeline_version`、`registry_version` 等身份信息优先从 `extraction_run` 或上游对象推导。
+- 只有存在明确高频查询压力时，才增加受控冗余字段或索引。
+- 不把 `fact_sets` 做成半快照表。
 
 fact 共享字段：
 
@@ -344,6 +371,8 @@ fact 共享字段：
 
 - 每个 candidate fact 必须能引用证据。
 - validation issue 应能定位到 fact、metric、statement table 或 extraction run。
+- `quality_gate_results` 第一版保持轻量，主要承接 gate summary。
+- 详细原因优先复用 `validation_issues`，避免过早做一套与 validation 平行的重逻辑体系。
 - quality gate 应能说明 `pass/review/fail` 的原因，而不是只存状态。
 
 ### 4.6 Metric Governance Layer
@@ -538,13 +567,14 @@ fact 共享字段：
 目标：
 
 - 建立 source registry、documents、extraction_runs。
-- 建立 statement_tables。
+- 建立 `statement_tables + rows + columns`。
 - 建立 fact_sets、candidate_facts、canonical_facts、derived_facts。
 - 建立 evidence 和 validation 的最小 durable model。
 
 完成标准：
 
 - 单份报告 pipeline 运行后，三大表和事实层可入库。
+- 第一版不要求完整关系化 `statement_table_cells`，但应能通过 payload 与轻量坐标索引完成必要追溯。
 - P5 不需要重新从 PDF 抽取即可找到每年 canonical / derived facts。
 
 ### 8.2 DB-P2: P5 On Fact Ledger
@@ -625,7 +655,7 @@ fact 共享字段：
 后续进入正式 implementation plan 前，需要确认：
 
 1. 第一版 DB 是否仍坚持 SQLite-first，Postgres-compatible。
-2. `statement_table_cells` 第一版是否完整关系化，还是先 payload 化。
+2. `statement_table_cells` 第一版是否只保留轻量坐标索引，并把完整 cell matrix 保留在 payload/object storage。
 3. P5 DB 测试是否从 `extracted_artifacts` 快照迁移到 `fact_sets`。
 4. provisional custom metric 是否绝对禁止进入 P5 主输出，还是允许显式 flag 放行。
 5. review decision 是否第一版只做 repository/API，还是需要人工交互界面。
@@ -644,3 +674,19 @@ fact 共享字段：
 - 为灵活字段和 custom metric 生命周期预留治理空间。
 - 让后续 P5、Turtle、API、review、recompute 都建立在同一套事实账本之上。
 
+第一阶段的执行口径进一步收紧为：
+
+- 必须落地：
+  - `issuers / reports / report_files / documents`
+  - `extraction_runs`
+  - `statement_tables + rows + columns`
+  - `fact_sets / candidate_facts / canonical_facts / derived_facts`
+  - `evidence_bundles / evidence_items`
+  - `validation_reports / validation_issues`
+  - `metric registry` 及 custom metric lifecycle
+  - P5 artifacts 作为上层快照
+- 第一阶段不要做太重：
+  - 不完整关系化 `statement_table_cells`
+  - 不把 artifact JSON 再扩成事实主存储
+  - 不把 `note` / `statement` 混成同一个类型维度
+  - 不让 `fact_sets` 变成大冗余快照
