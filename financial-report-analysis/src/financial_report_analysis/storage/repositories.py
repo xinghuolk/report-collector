@@ -67,6 +67,38 @@ class EvidenceBundleItemLink:
     sort_order: int
 
 
+@dataclass(frozen=True, slots=True)
+class ReportCoverage:
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    report_registered: bool
+    report_id: int | None = None
+    pdf_path: str | None = None
+    extracted_artifact_ids: tuple[str, ...] = ()
+    extracted_artifact_available: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SourceArtifactAuditRecord:
+    source_artifact_id: str
+    report_id: int | None
+    source_pdf_path: str | None
+    manifest_entry_key: tuple[str, int, str] | None
+    extracted_review_surface: P5ExtractedReviewSurface | None
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetAuditView:
+    dataset_id: str
+    source_artifact_ids: tuple[str, ...]
+    source_artifacts: tuple[SourceArtifactAuditRecord, ...]
+    dataset_review_surface: P5DatasetReviewSurface | None
+    turtle_export_review_surface: P5TurtleExportReviewSurface | None
+    latest_recompute_run_id: str | None
+    latest_recompute_reason: str | None
+
+
 @dataclass(slots=True)
 class InMemoryEvidenceRepository:
     _bundle_records: dict[str, EvidenceBundleRecord] = field(default_factory=dict)
@@ -172,6 +204,56 @@ class InMemoryEvidenceRepository:
 @dataclass(slots=True)
 class SqlAlchemyP5ArtifactRepository:
     engine: Engine
+
+    def list_available_fiscal_years(self, issuer_id: str) -> tuple[int, ...]:
+        statement = (
+            select(ReportRecord.fiscal_year)
+            .where(ReportRecord.issuer_id == issuer_id)
+            .distinct()
+            .order_by(ReportRecord.fiscal_year)
+        )
+        with Session(self.engine) as session:
+            fiscal_years = session.scalars(statement).all()
+        return tuple(fiscal_years)
+
+    def get_report_coverage(
+        self,
+        issuer_id: str,
+        fiscal_year: int,
+        report_type: str,
+    ) -> ReportCoverage:
+        report_statement = select(ReportRecord).where(
+            ReportRecord.issuer_id == issuer_id,
+            ReportRecord.fiscal_year == fiscal_year,
+            ReportRecord.report_type == report_type,
+        )
+        with Session(self.engine) as session:
+            report = session.scalar(report_statement)
+            if report is None:
+                return ReportCoverage(
+                    issuer_id=issuer_id,
+                    fiscal_year=fiscal_year,
+                    report_type=report_type,
+                    report_registered=False,
+                )
+
+            artifact_ids = tuple(
+                session.scalars(
+                    select(ExtractedArtifactRecord.artifact_id)
+                    .where(ExtractedArtifactRecord.report_id == report.report_id)
+                    .order_by(ExtractedArtifactRecord.artifact_id)
+                ).all()
+            )
+        return ReportCoverage(
+            issuer_id=issuer_id,
+            fiscal_year=fiscal_year,
+            report_type=report_type,
+            report_registered=True,
+            report_id=report.report_id,
+            pdf_path=report.pdf_path,
+            extracted_artifact_ids=artifact_ids,
+            extracted_artifact_available=bool(artifact_ids),
+        )
 
     def extracted_artifact_exists(self, artifact_id: str) -> bool:
         with Session(self.engine) as session:
@@ -512,6 +594,77 @@ class SqlAlchemyP5ArtifactRepository:
                 )
             payload = json.loads(record.result_json)
         return recompute_result_from_payload(payload)
+
+    def load_dataset_audit_view(self, dataset_id: str) -> DatasetAuditView:
+        dataset = self.load_dataset_artifact(dataset_id)
+        with Session(self.engine) as session:
+            dataset_review_record = session.get(DatasetReviewSurfaceRecord, dataset_id)
+            turtle_review_record = session.get(TurtleExportReviewSurfaceRecord, dataset_id)
+            recompute_record = session.scalar(
+                select(RecomputeRunRecord)
+                .where(RecomputeRunRecord.dataset_id == dataset_id)
+                .order_by(RecomputeRunRecord.created_at.desc(), RecomputeRunRecord.run_id.desc())
+                .limit(1)
+            )
+
+            source_artifacts: list[SourceArtifactAuditRecord] = []
+            for artifact_id in dataset.source_artifacts:
+                artifact_record = session.get(ExtractedArtifactRecord, artifact_id)
+                report = (
+                    session.get(ReportRecord, artifact_record.report_id)
+                    if artifact_record is not None
+                    else None
+                )
+                extracted_review_record = session.get(
+                    ExtractedReviewSurfaceRecord,
+                    artifact_id,
+                )
+                extracted_review_surface = (
+                    extracted_review_surface_from_payload(
+                        json.loads(extracted_review_record.payload_json)
+                    )
+                    if extracted_review_record is not None
+                    else None
+                )
+                source_artifacts.append(
+                    SourceArtifactAuditRecord(
+                        source_artifact_id=artifact_id,
+                        report_id=report.report_id if report is not None else None,
+                        source_pdf_path=report.pdf_path if report is not None else None,
+                        manifest_entry_key=(
+                            extracted_review_surface.manifest_entry_key
+                            if extracted_review_surface is not None
+                            else None
+                        ),
+                        extracted_review_surface=extracted_review_surface,
+                    )
+                )
+
+        return DatasetAuditView(
+            dataset_id=dataset_id,
+            source_artifact_ids=dataset.source_artifacts,
+            source_artifacts=tuple(source_artifacts),
+            dataset_review_surface=(
+                dataset_review_surface_from_payload(
+                    json.loads(dataset_review_record.payload_json)
+                )
+                if dataset_review_record is not None
+                else None
+            ),
+            turtle_export_review_surface=(
+                turtle_export_review_surface_from_payload(
+                    json.loads(turtle_review_record.payload_json)
+                )
+                if turtle_review_record is not None
+                else None
+            ),
+            latest_recompute_run_id=(
+                recompute_record.run_id if recompute_record is not None else None
+            ),
+            latest_recompute_reason=(
+                recompute_record.reason if recompute_record is not None else None
+            ),
+        )
 
     @staticmethod
     def _upsert_issuer(session: Session, artifact: P5ExtractedArtifact) -> None:
