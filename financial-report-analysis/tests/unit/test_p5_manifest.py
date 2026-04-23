@@ -92,8 +92,58 @@ def test_load_manifest_rejects_missing_pdf_path(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(P5ManifestValidationError, match="pdf_path does not exist"):
+    with pytest.raises(
+        P5ManifestValidationError,
+        match="pdf_path must be an existing file",
+    ):
         load_manifest(manifest_path)
+
+
+def test_load_manifest_rejects_directory_pdf_path(tmp_path: Path) -> None:
+    pdf_dir = tmp_path / "pdf_dir"
+    pdf_dir.mkdir()
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_id": "bad",
+                "manifest_version": "1.0",
+                "entries": [
+                    {
+                        "issuer_id": "CN_601919",
+                        "market": "CN",
+                        "stock_code": "601919",
+                        "fiscal_year": 2025,
+                        "report_type": "annual",
+                        "pdf_path": str(pdf_dir),
+                        "source": "report",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        P5ManifestValidationError,
+        match="pdf_path must be an existing file",
+    ):
+        load_manifest(manifest_path)
+
+
+def test_load_manifest_wraps_invalid_json(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        '{"manifest_id": "bad", "entries": [}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(P5ManifestValidationError) as exc_info:
+        load_manifest(manifest_path)
+
+    message = str(exc_info.value)
+    assert f"invalid manifest JSON: {manifest_path}" in message
+    assert "line 1 column" in message
 
 
 def test_load_manifest_rejects_duplicate_entry_key(tmp_path: Path) -> None:

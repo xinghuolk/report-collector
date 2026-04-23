@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from financial_report_analysis.p5.models import (
+    Market,
     P5Manifest,
     P5ManifestEntry,
     P5ManifestValidationError,
+    ReportType,
 )
 
 _SUPPORTED_MARKETS = {"CN", "HK", "US"}
@@ -17,7 +19,13 @@ _SUPPORTED_REPORT_TYPES = {"annual"}
 def load_manifest(path: str | Path, *, pdf_root: str | Path | None = None) -> P5Manifest:
     manifest_path = Path(path)
     base_dir = Path(pdf_root) if pdf_root is not None else manifest_path.parent
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise P5ManifestValidationError(
+            f"invalid manifest JSON: {manifest_path} "
+            f"(line {exc.lineno} column {exc.colno})"
+        ) from exc
     if not isinstance(payload, dict):
         raise P5ManifestValidationError("manifest root must be an object")
 
@@ -62,16 +70,18 @@ def _parse_entry(payload: Any, *, base_dir: Path) -> P5ManifestEntry:
     pdf_path = Path(_required_text(payload, "pdf_path")).expanduser()
     if not pdf_path.is_absolute():
         pdf_path = base_dir / pdf_path
-    if not pdf_path.exists():
-        raise P5ManifestValidationError(f"pdf_path does not exist: {pdf_path}")
+    if not pdf_path.is_file():
+        raise P5ManifestValidationError(
+            f"pdf_path must be an existing file: {pdf_path}"
+        )
     pdf_path = pdf_path.resolve()
 
     return P5ManifestEntry(
         issuer_id=_required_text(payload, "issuer_id"),
-        market=market,  # type: ignore[arg-type]
+        market=cast(Market, market),
         stock_code=_required_text(payload, "stock_code"),
         fiscal_year=fiscal_year,
-        report_type=report_type,  # type: ignore[arg-type]
+        report_type=cast(ReportType, report_type),
         pdf_path=pdf_path,
         source=_required_text(payload, "source"),
         company_name=_optional_text(payload, "company_name"),
