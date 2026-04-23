@@ -43,6 +43,16 @@ _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
         "Net cash used in financing activities",
         "筹资活动产生的现金流量净额",
     ],
+    "total_assets": [
+        "Total assets",
+        "资产总计",
+        "总资产",
+    ],
+    "total_liabilities": [
+        "Total liabilities",
+        "负债合计",
+        "总负债",
+    ],
     "equity": ["Total equity", "Total shareholders' equity", "所有者权益合计", "股东权益合计"],
     "equity_attributable_to_owners": [
         "Equity attributable to owners of the parent",
@@ -52,6 +62,7 @@ _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
     ],
     "net_profit": [
         "Net profit",
+        "Net income",
         "Profit for the period",
         "Profit attributable to shareholders",
         "Profit attributable to equity holders",
@@ -93,6 +104,17 @@ _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
         "Capital expenditure paid",
         "Payments for acquisition and construction of long-term assets",
         "购建固定资产、无形资产和其他长期资产支付的现金",
+    ],
+    "c_pay_to_staff": [
+        "Cash paid to and on behalf of employees",
+        "Cash paid to employees",
+        "支付给职工以及为职工支付的现金",
+    ],
+    "c_paid_for_taxes": [
+        "Taxes paid",
+        "Tax paid",
+        "Cash paid for taxes",
+        "支付的各项税费",
     ],
     "depr_fa_coga_dpba": [
         "Depreciation of long-lived assets",

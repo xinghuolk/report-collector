@@ -32,21 +32,21 @@ P4C 的目标是把以下主表字段纳入稳定 extraction contract：
 ### 利润表
 
 - `revenue`
-- `oper_cost`
-- `operate_profit`
-- `n_income`
+- `operating_cost`
+- `operating_profit`
+- `net_profit`
 
 ### 资产负债表
 
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
+- `total_liabilities`
+- `equity_attributable_to_owners`
 
 ### 现金流量表
 
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `c_pay_to_staff`
 - `c_paid_for_taxes`
 
@@ -57,6 +57,23 @@ P4C 的目标是把以下主表字段纳入稳定 extraction contract：
 - 平均 ROE
 - FCF / 分配能力分析
 - 多年 DCF / FCF Yield
+
+### 2.1 与 Turtle 字段名的映射
+
+P4C 在实现上应优先沿用当前代码中的既有 canonical metric ids，而不是在本阶段重命名 contract。
+
+对应关系为：
+
+- Turtle `oper_cost` -> current code `operating_cost`
+- Turtle `operate_profit` -> current code `operating_profit`
+- Turtle `n_income` -> current code `net_profit`
+- Turtle `total_liab` -> current code `total_liabilities`
+- Turtle `total_hldr_eqy_exc_min_int` -> current code `equity_attributable_to_owners`
+- Turtle `n_cashflow_act` -> current code `operating_cash_flow`
+- Turtle `n_cashflow_inv_act` -> current code `investing_cash_flow`
+- Turtle `n_cash_flows_fnc_act` -> current code `financing_cash_flow`
+
+本阶段可通过文档映射或后续 adapter / export 层处理命名差异，但不应在 P4C coverage phase 中同时引入大范围 metric rename。
 
 ## 3. 范围
 
@@ -111,7 +128,7 @@ P4C 必须继续遵守现有主路径：
 - 分部收入摘要
 - 非 GAAP / adjusted revenue
 
-### `oper_cost`
+### `operating_cost`
 
 目标语义：
 
@@ -124,7 +141,7 @@ P4C 必须继续遵守现有主路径：
 - 研发费用
 - 财务费用
 
-### `operate_profit`
+### `operating_profit`
 
 目标语义：
 
@@ -136,7 +153,7 @@ P4C 必须继续遵守现有主路径：
 - 毛利润
 - EBITDA / adjusted operating profit
 
-### `n_income`
+### `net_profit`
 
 目标语义：
 
@@ -156,13 +173,13 @@ P4C 必须继续遵守现有主路径：
 
 - 资产总计 / total assets
 
-### `total_liab`
+### `total_liabilities`
 
 目标语义：
 
 - 负债合计 / total liabilities
 
-### `total_hldr_eqy_exc_min_int`
+### `equity_attributable_to_owners`
 
 目标语义：
 
@@ -175,19 +192,19 @@ P4C 必须继续遵守现有主路径：
 
 ## 5.3 现金流量表
 
-### `n_cashflow_act`
+### `operating_cash_flow`
 
 目标语义：
 
 - 经营活动现金流净额 / net cash generated from operating activities
 
-### `n_cashflow_inv_act`
+### `investing_cash_flow`
 
 目标语义：
 
 - 投资活动现金流净额 / net cash used in investing activities
 
-### `n_cash_flows_fnc_act`
+### `financing_cash_flow`
 
 目标语义：
 

@@ -161,6 +161,7 @@ _DEFAULT_DEFINITIONS = (
         allowed_table_kinds=("income_statement",),
         normalized_row_labels=(
             "net profit",
+            "net income",
             "profit for the period",
             "profit attributable to shareholders",
             "profit attributable to equity holders",
@@ -495,6 +496,48 @@ _DEFAULT_DEFINITIONS = (
             "HK": (
                 "net cash generated from financing activities",
                 "net cash used in financing activities",
+            ),
+        },
+    ),
+    MetricMappingDefinition(
+        metric_id="c_pay_to_staff",
+        statement_type="cash_flow_statement",
+        allowed_table_kinds=("cash_flow_statement",),
+        normalized_row_labels=(
+            "cash paid to and on behalf of employees",
+            "cash paid to employees",
+        ),
+        period_scope="duration",
+        value_type="amount",
+        unit_expectation="currency_amount",
+        sign_rule="non_negative",
+        aliases_by_market={
+            "CN": ("支付给职工以及为职工支付的现金",),
+            "HK": (
+                "cash paid to and on behalf of employees",
+                "cash paid to employees",
+            ),
+        },
+    ),
+    MetricMappingDefinition(
+        metric_id="c_paid_for_taxes",
+        statement_type="cash_flow_statement",
+        allowed_table_kinds=("cash_flow_statement",),
+        normalized_row_labels=(
+            "taxes paid",
+            "tax paid",
+            "cash paid for taxes",
+        ),
+        period_scope="duration",
+        value_type="amount",
+        unit_expectation="currency_amount",
+        sign_rule="non_negative",
+        aliases_by_market={
+            "CN": ("支付的各项税费",),
+            "HK": (
+                "taxes paid",
+                "tax paid",
+                "cash paid for taxes",
             ),
         },
     ),

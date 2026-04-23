@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the remaining pre-P5 core statement coverage gaps for Turtle by adding deterministic-first support for 12 high-value statement metrics: `revenue`, `oper_cost`, `operate_profit`, `n_income`, `total_assets`, `total_liab`, `total_hldr_eqy_exc_min_int`, `n_cashflow_act`, `n_cashflow_inv_act`, `n_cash_flows_fnc_act`, `c_pay_to_staff`, and `c_paid_for_taxes`.
+**Goal:** Close the remaining pre-P5 core statement coverage gaps for Turtle by adding deterministic-first support for 12 high-value statement metrics: `revenue`, `operating_cost`, `operating_profit`, `net_profit`, `total_assets`, `total_liabilities`, `equity_attributable_to_owners`, `operating_cash_flow`, `investing_cash_flow`, `financing_cash_flow`, `c_pay_to_staff`, and `c_paid_for_taxes`.
 
 **Architecture:** Preserve the existing main path: `pdf -> structure recovery -> normalized table semantics -> metric mapping registry -> candidate facts -> canonical facts`. Prefer statement-row deterministic coverage. Use bounded semantic fallback only for row-label ambiguity when the existing framework already supports it.
 
@@ -32,6 +32,23 @@ Priority order:
 2. bounded semantic fallback for local row-label ambiguity only
 
 This phase should not introduce new note/disclosure supplement paths for the target metrics unless the paired spec is explicitly revised.
+
+## Metric-Id Mapping Note
+
+This plan should follow current codebase metric ids rather than introducing a rename during coverage work.
+
+Mapping:
+
+- Turtle `oper_cost` -> current code `operating_cost`
+- Turtle `operate_profit` -> current code `operating_profit`
+- Turtle `n_income` -> current code `net_profit`
+- Turtle `total_liab` -> current code `total_liabilities`
+- Turtle `total_hldr_eqy_exc_min_int` -> current code `equity_attributable_to_owners`
+- Turtle `n_cashflow_act` -> current code `operating_cash_flow`
+- Turtle `n_cashflow_inv_act` -> current code `investing_cash_flow`
+- Turtle `n_cash_flows_fnc_act` -> current code `financing_cash_flow`
+
+If downstream Turtle naming needs to be normalized later, do that in a dedicated mapping / adapter layer or a future rename plan, not inside this P4C coverage phase.
 
 ## Onboarding Requirement
 
@@ -80,15 +97,15 @@ Depending on what diagnostics show, the work may also touch:
 Record the fixed anchors, target metric set, and current phase-entry expectations for:
 
 - `revenue`
-- `oper_cost`
-- `operate_profit`
-- `n_income`
+- `operating_cost`
+- `operating_profit`
+- `net_profit`
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `total_liabilities`
+- `equity_attributable_to_owners`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `c_pay_to_staff`
 - `c_paid_for_taxes`
 
@@ -134,34 +151,34 @@ Include examples such as:
   - `revenue`
   - `turnover`
   - `营业收入`
-- `oper_cost`:
+- `operating_cost`:
   - `cost of sales`
   - `cost of revenue`
   - `营业成本`
-- `operate_profit`:
+- `operating_profit`:
   - `operating profit`
   - `profit from operations`
   - `营业利润`
-- `n_income`:
+- `net_profit`:
   - `net income`
   - `profit for the year`
   - `净利润`
 - `total_assets`:
   - `total assets`
   - `资产总计`
-- `total_liab`:
+- `total_liabilities`:
   - `total liabilities`
   - `负债合计`
-- `total_hldr_eqy_exc_min_int`:
+- `equity_attributable_to_owners`:
   - `equity attributable to owners of the parent`
   - `归属于母公司股东权益`
-- `n_cashflow_act`:
+- `operating_cash_flow`:
   - `net cash generated from operating activities`
   - `经营活动产生的现金流量净额`
-- `n_cashflow_inv_act`:
+- `investing_cash_flow`:
   - `net cash used in investing activities`
   - `投资活动产生的现金流量净额`
-- `n_cash_flows_fnc_act`:
+- `financing_cash_flow`:
   - `net cash generated from financing activities`
   - `筹资活动产生的现金流量净额`
 - `c_pay_to_staff`:
@@ -223,8 +240,8 @@ Add only the normalization rules needed for the 12 metrics.
 Do not:
 
 - collapse owner-attributable equity into generic `total equity`
-- collapse `n_income` into `n_income_attr_p`
-- collapse `operate_profit` into `total_profit`
+- collapse `net_profit` into `n_income_attr_p`
+- collapse `operating_profit` into `total_profit`
 
 - [ ] **Step 3: Re-run the focused semantics tests**
 

@@ -2,6 +2,21 @@ import pytest
 
 from financial_report_analysis.registries import load_metric_registry
 
+_P4C_METRIC_IDS = {
+    "revenue",
+    "operating_cost",
+    "operating_profit",
+    "net_profit",
+    "total_assets",
+    "total_liabilities",
+    "equity_attributable_to_owners",
+    "operating_cash_flow",
+    "investing_cash_flow",
+    "financing_cash_flow",
+    "c_pay_to_staff",
+    "c_paid_for_taxes",
+}
+
 
 def test_metric_mapping_registry_matches_revenue_from_income_statement_semantics() -> None:
     registry = load_metric_registry()
@@ -46,6 +61,168 @@ def test_metric_mapping_registry_prefers_semantic_matches_over_flat_aliases() ->
 
     assert definition is not None
     assert definition.metric_id == "net_profit"
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "table_kind", "label", "period_scope", "statement_type"),
+    [
+        ("revenue", "HK", "income_statement", "turnover", "duration", "income_statement"),
+        (
+            "operating_cost",
+            "HK",
+            "income_statement",
+            "cost of sales",
+            "duration",
+            "income_statement",
+        ),
+        (
+            "operating_profit",
+            "HK",
+            "income_statement",
+            "profit from operations",
+            "duration",
+            "income_statement",
+        ),
+        (
+            "net_profit",
+            "HK",
+            "income_statement",
+            "net income",
+            "duration",
+            "income_statement",
+        ),
+        (
+            "total_assets",
+            "CN",
+            "balance_sheet",
+            "资产总计",
+            "point_in_time",
+            "balance_sheet",
+        ),
+        (
+            "total_liabilities",
+            "CN",
+            "balance_sheet",
+            "负债合计",
+            "point_in_time",
+            "balance_sheet",
+        ),
+        (
+            "equity_attributable_to_owners",
+            "CN",
+            "balance_sheet",
+            "归属于母公司股东权益",
+            "point_in_time",
+            "balance_sheet",
+        ),
+        (
+            "operating_cash_flow",
+            "CN",
+            "cash_flow_statement",
+            "经营活动产生的现金流量净额",
+            "duration",
+            "cash_flow_statement",
+        ),
+        (
+            "investing_cash_flow",
+            "HK",
+            "cash_flow_statement",
+            "net cash used in investing activities",
+            "duration",
+            "cash_flow_statement",
+        ),
+        (
+            "financing_cash_flow",
+            "CN",
+            "cash_flow_statement",
+            "筹资活动产生的现金流量净额",
+            "duration",
+            "cash_flow_statement",
+        ),
+        (
+            "c_pay_to_staff",
+            "HK",
+            "cash_flow_statement",
+            "cash paid to and on behalf of employees",
+            "duration",
+            "cash_flow_statement",
+        ),
+        (
+            "c_paid_for_taxes",
+            "CN",
+            "cash_flow_statement",
+            "支付的各项税费",
+            "duration",
+            "cash_flow_statement",
+        ),
+    ],
+)
+def test_metric_mapping_registry_matches_p4c_core_statement_fields(
+    metric_id: str,
+    market: str,
+    table_kind: str,
+    label: str,
+    period_scope: str,
+    statement_type: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind=table_kind,
+        normalized_row_label=label,
+        value_time_shape=period_scope,
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+    assert definition.statement_type == statement_type
+    assert definition.period_scope == period_scope
+
+
+@pytest.mark.parametrize(
+    ("market", "table_kind", "label", "period_scope"),
+    [
+        ("HK", "income_statement", "gross profit", "duration"),
+        ("HK", "income_statement", "ebitda", "duration"),
+        ("HK", "income_statement", "adjusted net profit", "duration"),
+        (
+            "HK",
+            "income_statement",
+            "profit for the year attributable to owners of the parent",
+            "duration",
+        ),
+        (
+            "HK",
+            "income_statement",
+            "profit attributable to owners of the parent",
+            "duration",
+        ),
+        ("CN", "income_statement", "归属于母公司股东的净利润", "duration"),
+        ("HK", "income_statement", "other income", "duration"),
+        ("CN", "income_statement", "投资收益", "duration"),
+        ("HK", "cash_flow_statement", "cash and cash equivalents", "duration"),
+        ("HK", "balance_sheet", "total equity", "point_in_time"),
+    ],
+)
+def test_metric_mapping_registry_rejects_p4c_negative_controls(
+    market: str,
+    table_kind: str,
+    label: str,
+    period_scope: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind=table_kind,
+        normalized_row_label=label,
+        value_time_shape=period_scope,
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is None or definition.metric_id not in _P4C_METRIC_IDS
 
 
 @pytest.mark.parametrize(

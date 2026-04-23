@@ -368,7 +368,7 @@ def test_cn_annual_row_label_normalization_strips_numbering_prefixes() -> None:
         )
     )
 
-    assert semantics.rows[0].normalized_row_label == "营业收入"
+    assert semantics.rows[0].normalized_row_label == "revenue"
     assert semantics.rows[0].semantic_source == "deterministic"
 
 
@@ -462,6 +462,56 @@ def test_balance_sheet_english_attributable_equity_maps_to_registered_phrase() -
     ]
 
 
+def test_balance_sheet_p4c_total_rows_keep_owner_scope_distinct() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:p4c-balance-sheet",
+            document_id="doc",
+            page_range=(15, 15),
+            table_kind="balance_sheet",
+            title_text="Consolidated Statement of Financial Position",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-total-assets",
+                    row_index=1,
+                    label_raw="资产总计",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-total-liabilities",
+                    row_index=2,
+                    label_raw="Total liabilities",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-total-equity",
+                    row_index=3,
+                    label_raw="Total equity",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-owner-equity",
+                    row_index=4,
+                    label_raw="归属于母公司股东权益",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "total assets",
+        "total liabilities",
+        "equity",
+        "equity attributable to owners of the parent",
+    ]
+
+
 def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -496,6 +546,48 @@ def test_normalize_table_semantics_maps_operating_cost_variants() -> None:
     ]
 
 
+def test_normalize_table_semantics_maps_p4c_income_statement_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:p4c-income",
+            document_id="doc",
+            page_range=(14, 14),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-revenue",
+                    row_index=1,
+                    label_raw="Turnover",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-operating-profit",
+                    row_index=2,
+                    label_raw="Profit from operations",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-net-profit",
+                    row_index=3,
+                    label_raw="净利润",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "revenue",
+        "operating profit",
+        "net profit",
+    ]
+
+
 def test_normalize_table_semantics_maps_gross_profit_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -527,6 +619,48 @@ def test_normalize_table_semantics_maps_gross_profit_variants() -> None:
     assert [row.normalized_row_label for row in semantics.rows] == [
         "gross profit",
         "gross profit",
+    ]
+
+
+def test_normalize_table_semantics_preserves_p4c_negative_control_boundaries() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:p4c-negative-controls",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-gross-profit",
+                    row_index=1,
+                    label_raw="Gross profit",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-profit-before-tax",
+                    row_index=2,
+                    label_raw="Profit before tax",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-owner-profit",
+                    row_index=3,
+                    label_raw="Profit attributable to owners of the parent",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "gross profit",
+        "total profit",
+        "net profit attributable to owners of the parent",
     ]
 
 
@@ -696,6 +830,48 @@ def test_normalize_table_semantics_maps_cash_flow_primary_section_variants() -> 
         "operating cash flow",
         "investing cash flow",
         "financing cash flow",
+    ]
+
+
+def test_normalize_table_semantics_maps_p4c_cash_flow_detail_variants() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:p4c-cash-flow-details",
+            document_id="doc",
+            page_range=(17, 17),
+            table_kind="cash_flow_statement",
+            title_text="Consolidated Statement of Cash Flows",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-staff",
+                    row_index=1,
+                    label_raw="Cash paid to and on behalf of employees",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-taxes",
+                    row_index=2,
+                    label_raw="支付的各项税费",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-cash",
+                    row_index=3,
+                    label_raw="Cash and cash equivalents",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "cash paid to and on behalf of employees",
+        "taxes paid",
+        "cash and cash equivalents",
     ]
 
 

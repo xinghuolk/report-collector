@@ -94,26 +94,39 @@ P5 的核心目标是：
 
 ## 4.1 P5 前必须补
 
+### Turtle 字段名与当前代码 canonical id 映射
+
+Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游 Turtle 仍使用旧字段名，应通过映射层处理：
+
+- Turtle `oper_cost` -> current code `operating_cost`
+- Turtle `operate_profit` -> current code `operating_profit`
+- Turtle `n_income` -> current code `net_profit`
+- Turtle `total_liab` -> current code `total_liabilities`
+- Turtle `total_hldr_eqy_exc_min_int` -> current code `equity_attributable_to_owners`
+- Turtle `n_cashflow_act` -> current code `operating_cash_flow`
+- Turtle `n_cashflow_inv_act` -> current code `investing_cash_flow`
+- Turtle `n_cash_flows_fnc_act` -> current code `financing_cash_flow`
+
 以下字段应视为 `pre-P5 required coverage`：
 
 ### 利润表
 
 - `revenue`
-- `oper_cost`
-- `operate_profit`
-- `n_income`
+- `operating_cost`
+- `operating_profit`
+- `net_profit`
 
 ### 资产负债表
 
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
+- `total_liabilities`
+- `equity_attributable_to_owners`
 
 ### 现金流量表
 
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `c_pay_to_staff`
 - `c_paid_for_taxes`
 
@@ -194,15 +207,15 @@ P5 的核心目标是：
 **优先字段：**
 
 - `revenue`
-- `oper_cost`
-- `operate_profit`
-- `n_income`
+- `operating_cost`
+- `operating_profit`
+- `net_profit`
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `total_liabilities`
+- `equity_attributable_to_owners`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `c_pay_to_staff`
 - `c_paid_for_taxes`
 

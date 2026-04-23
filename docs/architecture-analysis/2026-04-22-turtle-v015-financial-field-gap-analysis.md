@@ -344,6 +344,19 @@ v0.15 把很多年报文本内容也作为数据包的一部分：
 
 为方便后续排期，可以把 v0.15 / 龟龟取数清单中的字段与当前路线图拆成三栏：
 
+### 8.0 当前代码 canonical id 映射说明
+
+为避免 Turtle 字段名和当前代码 contract 混淆，以下字段在本文中应按当前代码 canonical ids 理解：
+
+- Turtle `oper_cost` -> current code `operating_cost`
+- Turtle `operate_profit` -> current code `operating_profit`
+- Turtle `n_income` -> current code `net_profit`
+- Turtle `total_liab` -> current code `total_liabilities`
+- Turtle `total_hldr_eqy_exc_min_int` -> current code `equity_attributable_to_owners`
+- Turtle `n_cashflow_act` -> current code `operating_cash_flow`
+- Turtle `n_cashflow_inv_act` -> current code `investing_cash_flow`
+- Turtle `n_cash_flows_fnc_act` -> current code `financing_cash_flow`
+
 ### 8.1 已覆盖
 
 这些字段已经在当前路线中明确纳入，且 P1-P3 已形成 active extraction coverage 或已完成阶段实现：
@@ -409,25 +422,25 @@ v0.15 把很多年报文本内容也作为数据包的一部分：
 这些字段在 v0.15 或龟龟投资取数清单中已经是直接消费项，但当前总路线图还没有把它们正式拆成 active phase：
 
 - `revenue`
-- `oper_cost`
+- `operating_cost`
 - `gross_profit`
 - `rd_exp`
 - `sell_exp` / `admin_exp` 或等价 SG&A
-- `operate_profit`
-- `n_income`
+- `operating_profit`
+- `net_profit`
 - `invest_income`
 - `asset_disp_income`
 - `fv_value_chg_gain`
 - `non_oper_income`
 - `non_oper_exp`
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
+- `total_liabilities`
+- `equity_attributable_to_owners`
 - `total_cur_assets`
 - `other_cur_assets`
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `c_pay_to_staff`
 - `c_paid_for_taxes`
 - `n_recp_disp_fiolta`
@@ -451,15 +464,15 @@ v0.15 把很多年报文本内容也作为数据包的一部分：
 这组字段对穿透回报、分配能力、资产负债约束和现金上游障碍判断最直接：
 
 - `revenue`
-- `oper_cost`
-- `operate_profit`
-- `n_income`
+- `operating_cost`
+- `operating_profit`
+- `net_profit`
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `total_liabilities`
+- `equity_attributable_to_owners`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `c_pay_to_staff`
 - `c_paid_for_taxes`
 - 母公司 `money_cap`
@@ -507,9 +520,9 @@ v0.15 把很多年报文本内容也作为数据包的一部分：
 
 如果需要把当前路线进一步和 v0.15 对齐，最稳的方式不是直接进入完整 P4，而是先做一个较小的 `P4-lite`：
 
-1. 先补 `revenue` / `oper_cost` / `operate_profit` / `n_income`
-2. 再补 `total_assets` / `total_liab` / `total_hldr_eqy_exc_min_int`
-3. 再补 `n_cashflow_act` / `n_cashflow_inv_act` / `n_cash_flows_fnc_act`
+1. 先补 `revenue` / `operating_cost` / `operating_profit` / `net_profit`
+2. 再补 `total_assets` / `total_liabilities` / `equity_attributable_to_owners`
+3. 再补 `operating_cash_flow` / `investing_cash_flow` / `financing_cash_flow`
 4. 然后进入母公司关键字段与 `restricted_cash` 桥接
 
 这样能先把龟龟投资当前最直接消费的主表和现金质量输入补齐，再进入更高歧义的附注和文本层。
@@ -534,15 +547,15 @@ v0.15 把很多年报文本内容也作为数据包的一部分：
 建议继续作为主路线中的正式字段推进，而不是放进灵活字段池：
 
 - `revenue`
-- `oper_cost`
-- `operate_profit`
-- `n_income`
+- `operating_cost`
+- `operating_profit`
+- `net_profit`
 - `total_assets`
-- `total_liab`
-- `total_hldr_eqy_exc_min_int`
-- `n_cashflow_act`
-- `n_cashflow_inv_act`
-- `n_cash_flows_fnc_act`
+- `total_liabilities`
+- `equity_attributable_to_owners`
+- `operating_cash_flow`
+- `investing_cash_flow`
+- `financing_cash_flow`
 - `money_cap`
 - `st_borr`
 - `lt_borr`

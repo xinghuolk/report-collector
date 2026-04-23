@@ -1,3 +1,5 @@
+import pytest
+
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.models.facts import CandidateFact
 from financial_report_analysis.models.facts import CanonicalFact
@@ -161,6 +163,41 @@ def test_fact_pipeline_normalizes_chinese_revenue_label() -> None:
     normalized = normalizer.normalize_candidates([chinese_candidate])
 
     assert normalized[0].metric_id == "revenue"
+
+
+@pytest.mark.parametrize(
+    ("metric_label_raw", "statement_type", "expected_metric_id"),
+    [
+        ("资产总计", "balance_sheet", "total_assets"),
+        ("负债合计", "balance_sheet", "total_liabilities"),
+        ("支付给职工以及为职工支付的现金", "cash_flow_statement", "c_pay_to_staff"),
+        ("支付的各项税费", "cash_flow_statement", "c_paid_for_taxes"),
+    ],
+)
+def test_fact_pipeline_normalizes_p4c_core_statement_labels(
+    metric_label_raw: str,
+    statement_type: str,
+    expected_metric_id: str,
+) -> None:
+    normalizer = FactNormalizer()
+
+    candidate = CandidateFact(
+        **{
+            **_candidate(
+                fact_id=f"candidate-{expected_metric_id}",
+                period_id="2024FY",
+                source_rank_hint=1,
+                numeric_value=100.0,
+                statement_type=statement_type,
+            ).__dict__,
+            "metric_label_raw": metric_label_raw,
+            "statement_type": statement_type,
+        }
+    )
+
+    normalized = normalizer.normalize_candidates([candidate])
+
+    assert normalized[0].metric_id == expected_metric_id
 
 
 def test_fact_pipeline_normalizes_common_cn_units() -> None:
@@ -1930,6 +1967,353 @@ def test_table_candidate_facts_match_cash_flow_primary_section_aliases() -> None
         "investing_cash_flow",
         "financing_cash_flow",
     }
+
+
+def test_table_candidate_facts_emit_p4c_income_statement_candidates_with_deterministic_provenance() -> (
+    None
+):
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4c-income-contract",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="income_statement",
+                    title_text="Consolidated Statement of Profit or Loss",
+                    statement_scope_guess="consolidated",
+                    table_unit="thousand",
+                    table_currency="HKD",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-revenue",
+                            row_index=1,
+                            label_raw="Turnover",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="1,000",
+                                    numeric_value=1000.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-cost",
+                            row_index=2,
+                            label_raw="Cost of sales",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="800",
+                                    numeric_value=800.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-operating-profit",
+                            row_index=3,
+                            label_raw="Profit from operations",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="200",
+                                    numeric_value=200.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-net-profit",
+                            row_index=4,
+                            label_raw="净利润",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=4,
+                                    column_index=1,
+                                    text_raw="120",
+                                    numeric_value=120.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "revenue",
+        "operating_cost",
+        "operating_profit",
+        "net_profit",
+    }
+    assert all(fact["statement_type"] == "income_statement" for fact in candidate_facts)
+    assert all(fact["period_id"] == "2025FY" for fact in candidate_facts)
+    assert all(fact["entity_scope"] == "consolidated" for fact in candidate_facts)
+    assert all(
+        fact["extensions"]["table_kind"] == "income_statement"
+        for fact in candidate_facts
+    )
+    assert all(
+        fact["extensions"]["semantic_source"] == "deterministic"
+        for fact in candidate_facts
+    )
+
+
+def test_table_candidate_facts_emit_p4c_balance_sheet_totals_with_deterministic_provenance() -> (
+    None
+):
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4c-balance-contract",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="balance_sheet",
+                    title_text="Consolidated Statement of Financial Position",
+                    statement_scope_guess="consolidated",
+                    table_unit="thousand",
+                    table_currency="HKD",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="point",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-assets",
+                            row_index=1,
+                            label_raw="资产总计",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="9,000",
+                                    numeric_value=9000.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-liabilities",
+                            row_index=2,
+                            label_raw="Total liabilities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="5,000",
+                                    numeric_value=5000.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-owner-equity",
+                            row_index=3,
+                            label_raw="归属于母公司股东权益",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="3,100",
+                                    numeric_value=3100.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "total_assets",
+        "total_liabilities",
+        "equity_attributable_to_owners",
+    }
+    assert all(fact["statement_type"] == "balance_sheet" for fact in candidate_facts)
+    assert all(fact["period_id"] == "2025FY" for fact in candidate_facts)
+    assert all(fact["entity_scope"] == "consolidated" for fact in candidate_facts)
+    assert all(
+        fact["extensions"]["table_kind"] == "balance_sheet"
+        for fact in candidate_facts
+    )
+    assert all(
+        fact["extensions"]["semantic_source"] == "deterministic"
+        for fact in candidate_facts
+    )
+
+
+def test_table_candidate_facts_emit_p4c_cash_flow_detail_candidates_with_deterministic_provenance() -> (
+    None
+):
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4c-cash-flow-contract",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="cash_flow_statement",
+                    title_text="Consolidated Statement of Cash Flows",
+                    statement_scope_guess="consolidated",
+                    table_unit="thousand",
+                    table_currency="HKD",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-operating",
+                            row_index=1,
+                            label_raw="Net cash generated from operating activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="500",
+                                    numeric_value=500.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-investing",
+                            row_index=2,
+                            label_raw="net cash from investing activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="-200",
+                                    numeric_value=-200.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-financing",
+                            row_index=3,
+                            label_raw="net cash from financing activities",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="-100",
+                                    numeric_value=-100.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-staff",
+                            row_index=4,
+                            label_raw="Cash paid to and on behalf of employees",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=4,
+                                    column_index=1,
+                                    text_raw="120",
+                                    numeric_value=120.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-taxes",
+                            row_index=5,
+                            label_raw="支付的各项税费",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=5,
+                                    column_index=1,
+                                    text_raw="80",
+                                    numeric_value=80.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "operating_cash_flow",
+        "investing_cash_flow",
+        "financing_cash_flow",
+        "c_pay_to_staff",
+        "c_paid_for_taxes",
+    }
+    assert all(
+        fact["statement_type"] == "cash_flow_statement" for fact in candidate_facts
+    )
+    assert all(fact["period_id"] == "2025FY" for fact in candidate_facts)
+    assert all(fact["entity_scope"] == "consolidated" for fact in candidate_facts)
+    assert all(
+        fact["extensions"]["table_kind"] == "cash_flow_statement"
+        for fact in candidate_facts
+    )
+    assert all(
+        fact["extensions"]["semantic_source"] == "deterministic"
+        for fact in candidate_facts
+    )
 
 
 def test_analyze_report_promotes_gross_profit_to_canonical_facts() -> None:
