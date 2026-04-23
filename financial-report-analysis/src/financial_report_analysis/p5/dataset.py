@@ -105,7 +105,7 @@ def _present_row_from_fact(
 
 def _dedupe_present_rows(rows: list[P5DatasetRow]) -> list[P5DatasetRow]:
     grouped: dict[
-        tuple[str, int, str, str, str],
+        tuple[str, int, str, str, str, str, str],
         list[P5DatasetRow],
     ] = defaultdict(list)
     for row in rows:
@@ -283,13 +283,15 @@ def _row_sort_key(row: P5DatasetRow) -> tuple[object, ...]:
     )
 
 
-def _row_key(row: P5DatasetRow) -> tuple[str, int, str, str, str]:
+def _row_key(row: P5DatasetRow) -> tuple[str, int, str, str, str, str, str]:
     return (
         row.issuer_id,
         row.fiscal_year,
         row.metric_id,
         row.entity_scope,
         row.period_scope,
+        row.statement_type,
+        row.source_fact_id or "",
     )
 
 

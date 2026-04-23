@@ -160,9 +160,13 @@ def test_assemble_dataset_dedupes_duplicate_canonical_facts_with_conflict_summar
         now_func=lambda: "2026-04-23T00:00:00",
     )
 
-    assert len(dataset.rows) == 1
-    assert dataset.rows[0].metric_id == "revenue"
-    assert dataset.rows[0].value == 100.0
+    assert len(dataset.rows) == 2
+    assert {
+        (row.statement_type, row.source_fact_id, row.value) for row in dataset.rows
+    } == {
+        ("income_statement", "fact-revenue-a", 100.0),
+        ("income_statement", "fact-revenue-b", 120.0),
+    }
     assert dataset.quality_summary["duplicate_fact_conflicts"] == [
         {
             "issuer_id": "CN_601919",
@@ -281,5 +285,92 @@ def test_assemble_dataset_separates_duplicate_conflicts_by_statement_type(
         now_func=lambda: "2026-04-23T00:00:00",
     )
 
-    assert len(dataset.rows) == 1
+    assert len(dataset.rows) == 2
+    assert {
+        (row.statement_type, row.source_fact_id, row.value) for row in dataset.rows
+    } == {
+        ("income_statement", "fact-revenue-income", 100.0),
+        ("cash_flow_statement", "fact-revenue-cashflow", 120.0),
+    }
     assert dataset.quality_summary["duplicate_fact_conflicts"] == []
+
+
+def test_assemble_dataset_preserves_statement_type_and_source_fact_lineage(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-revenue-income-a",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-income-a",
+                "extensions": {"period_scope": "duration"},
+            },
+            {
+                "fact_id": "fact-revenue-income-b",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 120.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-income-b",
+                "extensions": {"period_scope": "duration"},
+            },
+            {
+                "fact_id": "fact-revenue-cashflow",
+                "metric_id": "revenue",
+                "statement_type": "cash_flow_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 130.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-cashflow",
+                "extensions": {"period_scope": "duration"},
+            },
+        ),
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    revenue_rows = [row for row in dataset.rows if row.metric_id == "revenue"]
+    assert len(revenue_rows) == 3
+    assert {
+        (row.statement_type, row.source_fact_id) for row in revenue_rows
+    } == {
+        ("income_statement", "fact-revenue-income-a"),
+        ("income_statement", "fact-revenue-income-b"),
+        ("cash_flow_statement", "fact-revenue-cashflow"),
+    }
+    assert dataset.quality_summary["duplicate_fact_conflicts"] == [
+        {
+            "issuer_id": "CN_601919",
+            "fiscal_year": 2025,
+            "metric_id": "revenue",
+            "entity_scope": "consolidated",
+            "period_scope": "duration",
+            "statement_type": "income_statement",
+            "values": [100.0, 120.0],
+            "source_fact_ids": [
+                "fact-revenue-income-a",
+                "fact-revenue-income-b",
+            ],
+        }
+    ]
