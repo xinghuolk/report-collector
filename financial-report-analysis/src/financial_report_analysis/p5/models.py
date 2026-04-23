@@ -94,6 +94,50 @@ class P5DatasetArtifact:
 
 
 @dataclass(frozen=True, slots=True)
+class P5ExtractedReviewSurface:
+    artifact_id: str
+    artifact_version: str
+    pipeline_version: str
+    source_pdf_path: str
+    manifest_entry_key: tuple[str, int, str]
+    quality_gate: str
+    review_issue_count: int
+    missing_status_groups: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class P5DatasetReviewSurface:
+    dataset_id: str
+    dataset_version: str
+    issuer_count: int
+    period_count: int
+    source_artifact_ids: tuple[str, ...]
+    present_row_count: int
+    missing_row_count: int
+    review_required_artifact_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class P5ArtifactLineage:
+    dataset_id: str
+    source_artifact_id: str
+    source_pdf_path: str
+    pipeline_version: str
+    source_fact_id: str | None
+    evidence_bundle_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class P5RecomputePlan:
+    manifest_id: str
+    dataset_id: str
+    target_artifact_ids: tuple[str, ...]
+    rebuild_dataset: bool
+    rebuild_turtle_export: bool
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class P5TurtleExport:
     dataset_id: str
     dataset_version: str
