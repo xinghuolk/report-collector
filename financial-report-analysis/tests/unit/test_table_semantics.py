@@ -48,6 +48,39 @@ def _balance_sheet_table_with_row(label: str) -> ParsedTable:
     )
 
 
+def _statement_table_with_row(*, table_kind: str, title_text: str, label: str) -> ParsedTable:
+    value_time_shape = "point_in_time" if table_kind == "balance_sheet" else "duration"
+    return ParsedTable(
+        table_id=f"doc:table:{table_kind}:{label.replace(' ', '-')}",
+        document_id="doc",
+        page_range=(1, 1),
+        table_kind=table_kind,
+        title_text=title_text,
+        statement_scope_guess="consolidated",
+        body_rows=[
+            ParsedRow(
+                row_id="row-1",
+                row_index=1,
+                label_raw=label,
+                normalized_label_hint=None,
+                value_cells=[],
+            )
+        ],
+        period_columns=[
+            ParsedColumn(
+                column_id="column-1",
+                column_index=1,
+                header_text="2025",
+                period_id="2025FY",
+                value_time_shape=value_time_shape,
+                comparison_axis="current",
+                is_current=True,
+                is_comparison=False,
+            )
+        ],
+    )
+
+
 def test_normalize_table_semantics_keeps_row_hint_separate_from_metric_mapping() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -324,6 +357,119 @@ def test_table_semantics_suppresses_p3_asset_negative_controls(label: str) -> No
     semantics = normalize_table_semantics(_balance_sheet_table_with_row(label))
 
     assert semantics.rows[0].normalized_row_label is None
+
+
+@pytest.mark.parametrize(
+    ("table_kind", "title_text", "label", "expected"),
+    [
+        (
+            "balance_sheet",
+            "Consolidated Statement of Financial Position",
+            "固定资产",
+            "fixed assets",
+        ),
+        (
+            "balance_sheet",
+            "Consolidated Statement of Financial Position",
+            "Construction in progress",
+            "construction in progress",
+        ),
+        (
+            "income_statement",
+            "Consolidated Statement of Profit or Loss",
+            "研发费用",
+            "research and development expenses",
+        ),
+        (
+            "income_statement",
+            "Consolidated Statement of Profit or Loss",
+            "投资收益",
+            "investment income",
+        ),
+        (
+            "income_statement",
+            "Consolidated Statement of Profit or Loss",
+            "资产处置收益",
+            "gain on disposal of assets",
+        ),
+        (
+            "cash_flow_statement",
+            "Consolidated Statement of Cash Flows",
+            "处置固定资产、无形资产和其他长期资产收回的现金",
+            "cash received from disposal of long-term assets",
+        ),
+        (
+            "cash_flow_statement",
+            "Consolidated Statement of Cash Flows",
+            "取得投资收益收到的现金",
+            "cash received from investment returns",
+        ),
+    ],
+)
+def test_table_semantics_normalizes_p4e_target_fields(
+    table_kind: str,
+    title_text: str,
+    label: str,
+    expected: str,
+) -> None:
+    semantics = normalize_table_semantics(
+        _statement_table_with_row(
+            table_kind=table_kind,
+            title_text=title_text,
+            label=label,
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label == expected
+
+
+@pytest.mark.parametrize(
+    ("table_kind", "title_text", "label"),
+    [
+        (
+            "income_statement",
+            "Consolidated Statement of Profit or Loss",
+            "interest income",
+        ),
+        (
+            "income_statement",
+            "Consolidated Statement of Profit or Loss",
+            "公允价值变动收益",
+        ),
+        (
+            "cash_flow_statement",
+            "Consolidated Statement of Cash Flows",
+            "投资活动产生的现金流量净额",
+        ),
+        (
+            "cash_flow_statement",
+            "Consolidated Statement of Cash Flows",
+            "收回投资收到的现金",
+        ),
+    ],
+)
+def test_table_semantics_keeps_p4e_negative_controls_out_of_target_aliases(
+    table_kind: str,
+    title_text: str,
+    label: str,
+) -> None:
+    semantics = normalize_table_semantics(
+        _statement_table_with_row(
+            table_kind=table_kind,
+            title_text=title_text,
+            label=label,
+        )
+    )
+
+    assert semantics.rows[0].normalized_row_label not in {
+        "fixed assets",
+        "construction in progress",
+        "research and development expenses",
+        "investment income",
+        "gain on disposal of assets",
+        "cash received from disposal of long-term assets",
+        "cash received from investment returns",
+    }
 
 
 def test_normalized_table_semantics_emit_unknown_sentinels_for_unresolved_unit_currency() -> None:

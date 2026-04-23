@@ -30,6 +30,16 @@ _P4D_METRIC_IDS = {
     "equity_attributable_to_owners",
 }
 
+_P4E_METRIC_IDS = {
+    "fix_assets",
+    "cip",
+    "rd_exp",
+    "invest_income",
+    "asset_disp_income",
+    "n_recp_disp_fiolta",
+    "c_recp_return_invest",
+}
+
 
 def test_metric_mapping_registry_matches_revenue_from_income_statement_semantics() -> None:
     registry = load_metric_registry()
@@ -301,6 +311,102 @@ def test_metric_mapping_registry_rejects_p4d_negative_controls(
     )
 
     assert definition is None or definition.metric_id not in _P4D_METRIC_IDS
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "table_kind", "label", "period_scope"),
+    [
+        ("fix_assets", "CN", "balance_sheet", "固定资产", "point_in_time"),
+        ("cip", "CN", "balance_sheet", "在建工程", "point_in_time"),
+        ("rd_exp", "CN", "income_statement", "研发费用", "duration"),
+        ("invest_income", "CN", "income_statement", "投资收益", "duration"),
+        ("asset_disp_income", "CN", "income_statement", "资产处置收益", "duration"),
+        (
+            "n_recp_disp_fiolta",
+            "CN",
+            "cash_flow_statement",
+            "处置固定资产、无形资产和其他长期资产收回的现金",
+            "duration",
+        ),
+        (
+            "c_recp_return_invest",
+            "CN",
+            "cash_flow_statement",
+            "取得投资收益收到的现金",
+            "duration",
+        ),
+        (
+            "fix_assets",
+            "HK",
+            "balance_sheet",
+            "property, plant and equipment",
+            "point_in_time",
+        ),
+        (
+            "cip",
+            "HK",
+            "balance_sheet",
+            "construction in progress",
+            "point_in_time",
+        ),
+    ],
+)
+def test_metric_mapping_registry_matches_p4e_target_fields(
+    metric_id: str,
+    market: str,
+    table_kind: str,
+    label: str,
+    period_scope: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind=table_kind,
+        normalized_row_label=label,
+        value_time_shape=period_scope,
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+
+
+@pytest.mark.parametrize(
+    ("market", "table_kind", "label", "period_scope"),
+    [
+        ("HK", "balance_sheet", "investment properties", "point_in_time"),
+        ("HK", "balance_sheet", "right-of-use assets", "point_in_time"),
+        ("HK", "balance_sheet", "capitalized development costs", "point_in_time"),
+        ("HK", "income_statement", "interest income", "duration"),
+        ("CN", "income_statement", "公允价值变动收益", "duration"),
+        ("HK", "income_statement", "other income", "duration"),
+        (
+            "CN",
+            "cash_flow_statement",
+            "投资活动产生的现金流量净额",
+            "duration",
+        ),
+        ("CN", "cash_flow_statement", "收回投资收到的现金", "duration"),
+    ],
+)
+def test_metric_mapping_registry_rejects_p4e_negative_controls(
+    market: str,
+    table_kind: str,
+    label: str,
+    period_scope: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind=table_kind,
+        normalized_row_label=label,
+        value_time_shape=period_scope,
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is None or definition.metric_id not in _P4E_METRIC_IDS
 
 
 @pytest.mark.parametrize(

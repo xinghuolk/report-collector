@@ -57,6 +57,16 @@ _P4D_PARENT_METRIC_IDS = {
     "equity_attributable_to_owners",
 }
 
+_P4E_METRIC_IDS = {
+    "fix_assets",
+    "cip",
+    "rd_exp",
+    "invest_income",
+    "asset_disp_income",
+    "n_recp_disp_fiolta",
+    "c_recp_return_invest",
+}
+
 
 def _resolve_sample(*relative_parts: str) -> Path:
     for root in (REPO_ROOT, MAIN_REPO_ROOT):
@@ -1673,6 +1683,91 @@ def test_hk_09987_2025_keeps_p4d_parent_metrics_not_surfaced() -> None:
         "interest_paid_cash",
         "time_deposits_or_wealth_products",
     }.issubset(_metric_ids_from_candidates(payload))
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_cn_601919_2025_surfaces_p4e_core_subset() -> None:
+    pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="CN")
+    metric_ids = _metric_ids_from_candidates(payload)
+
+    assert {"fix_assets", "cip", "rd_exp", "c_recp_return_invest"}.issubset(metric_ids)
+    assert metric_ids.intersection(_P4E_METRIC_IDS) == {
+        "fix_assets",
+        "cip",
+        "rd_exp",
+        "c_recp_return_invest",
+    }
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="fix_assets",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="cip",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="rd_exp",
+        statement_type="income_statement",
+        table_kind="income_statement",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="c_recp_return_invest",
+        statement_type="cash_flow_statement",
+        table_kind="cash_flow_statement",
+    )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_02498_2022_surfaces_p4e_balance_sheet_subset() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    metric_ids = _metric_ids_from_candidates(payload)
+
+    assert metric_ids.intersection(_P4E_METRIC_IDS) == {"fix_assets", "cip"}
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="fix_assets",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="cip",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk_09987_2025_keeps_p4e_metrics_not_surfaced() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    surfaced_metric_ids = {
+        str(candidate.get("metric_id"))
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict)
+        and candidate.get("extraction_method") == "table_semantics"
+        and candidate.get("entity_scope") == "consolidated"
+        and isinstance(candidate.get("extensions"), dict)
+        and candidate["extensions"].get("table_kind")
+        in {"income_statement", "balance_sheet", "cash_flow_statement"}
+        and candidate["extensions"].get("semantic_source") == "deterministic"
+    }
+
+    assert not surfaced_metric_ids.intersection(_P4E_METRIC_IDS)
 
 
 def test_hk_09987_debt_note_disclosure_supplement_preserves_statement_row_precedence(

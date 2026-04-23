@@ -66,10 +66,11 @@ P5 的核心目标是：
 
 ### 3.2 当前真正阻塞 P5 的缺口
 
-当前阻塞 P5 的不是所有剩余字段，而是以下两层：
+当前阻塞 P5 的不是所有剩余字段，而是以下三层：
 
 1. 主表核心骨架仍不完整
 2. 少量高价值母公司 / 附注 bridge 仍未形成稳定 contract
+3. 经营还原、非经常性现金流入分类与长期投入质量仍缺一小组 pre-P5 required 字段
 
 ### 3.3 默认原则
 
@@ -77,7 +78,8 @@ P5 的核心目标是：
 
 1. 先补主表核心 coverage
 2. 再补剩余 parent / notes bridge
-3. 再进入 P5 multi-year dataset
+3. 再补经营质量与长期投入增强
+4. 再进入 P5 multi-year dataset
 
 不建议让 P5 同时承担：
 
@@ -139,6 +141,16 @@ Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游
 - `restricted_cash`
 - 定存 / 理财 / 高流动性金融资产
 
+### 经营质量与长期投入增强
+
+- `fix_assets`
+- `cip`
+- `rd_exp`
+- `invest_income`
+- `asset_disp_income`
+- `n_recp_disp_fiolta`
+- `c_recp_return_invest`
+
 这些字段之所以被归为 P5 前必须补，是因为它们直接影响：
 
 - 5 年营收 CAGR
@@ -154,17 +166,12 @@ Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游
 
 ### 利润与现金流增强
 
-- `invest_income`
-- `asset_disp_income`
 - `fv_value_chg_gain`
 - `non_oper_income`
 - `non_oper_exp`
 - `gross_profit`
 - `selling_general_administrative` / SG&A 等价口径
-- `n_recp_disp_fiolta`
-- `c_recp_return_invest`
 - `receiv_tax_refund`
-- `rd_exp`
 - `repurchase_of_stock`
 - `change_in_receivables`
 - `change_in_payables`
@@ -178,8 +185,7 @@ Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游
 - `other_cur_assets`
 - `total_cur_assets`
 - `total_cur_liab`
-- `cip`
-- 更完整的 `lt_eqt_invest` / `fix_assets` / `minority_int` 多年增强
+- 更完整的 `lt_eqt_invest` / `minority_int` 多年增强
 
 ### 高价值附注增强
 
@@ -198,7 +204,7 @@ Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游
 
 ## 5. 下一阶段建议切分
 
-本路线建议拆成三个后续阶段。
+本路线建议拆成四个后续阶段。
 
 ## 5.1 P4C Investor Core Statement Gaps
 
@@ -261,9 +267,35 @@ Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游
 - 继续遵守 P4A/P4B 的 precedence / review contract
 - note / disclosure 只补缺，不静默覆盖 higher-priority facts
 
-## 5.3 P5 Multi-Year Investor Dataset
+## 5.3 P4E Investor Earnings Quality And Capex Follow-up
 
-**目标：** 在 P4C/P4D 的稳定字段基础上，组装多年可消费数据集。
+**目标：** 在不继续扩母公司范围的前提下，补齐 P5 前仍然缺失的经营还原、非经常性现金流入分类与长期投入质量字段。
+
+**优先字段：**
+
+- `fix_assets`
+- `cip`
+- `rd_exp`
+- `invest_income`
+- `asset_disp_income`
+- `n_recp_disp_fiolta`
+- `c_recp_return_invest`
+
+**默认路径：**
+
+- 主表 deterministic path 优先
+- 只在当前框架已经允许的局部歧义处使用 bounded fallback
+- 不把广义附注、文本桥接或母公司扩展重新混入本阶段
+
+**非目标：**
+
+- 母公司整套 coverage
+- `minority_int` / `non_oper_income` / `non_oper_exp` / `receiv_tax_refund` 等可后置增强项
+- 大范围 note bridge 扩张
+
+## 5.4 P5 Multi-Year Investor Dataset
+
+**目标：** 在 P4C/P4D/P4E 的稳定字段基础上，组装多年可消费数据集。
 
 **第一版应包含：**
 
@@ -288,7 +320,7 @@ Post-P4 路线应优先沿用当前代码中的 canonical metric ids。若下游
 4. statement / parent / note bridge 的 precedence 已在前序 phase 中收口
 5. 不需要 issuer-specific 分支来拼多年度字段
 
-如果这些条件不满足，说明应先继续做 P4C / P4D，而不是启动 P5。
+如果这些条件不满足，说明应先继续做 P4C / P4D / P4E，而不是启动 P5。
 
 ## 7. P5 设计时必须回答的问题
 
@@ -313,6 +345,6 @@ Post-P4 继续遵守已有判断：
 
 Post-P4 的正确顺序不是“直接开始 P5”，而是：
 
-`P4C 主表核心补齐 -> P4D 母公司与附注补齐 -> P5 多年数据集`
+`P4C 主表核心补齐 -> P4D 母公司与附注补齐 -> P4E 经营还原与长期投入增强 -> P5 多年数据集`
 
 这样才能让 P5 真正成为 dataset assembly phase，而不是继续补字段的杂糅 phase。

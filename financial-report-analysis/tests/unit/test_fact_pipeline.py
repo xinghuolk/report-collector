@@ -2321,6 +2321,362 @@ def test_analyze_report_keeps_parent_and_consolidated_facts_on_separate_tracks()
     assert parent_lte[0].entity_scope == "parent_company"
 
 
+def test_table_candidate_facts_emit_p4e_target_candidates() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4e-balance",
+                    document_id="doc-1",
+                    page_range=(1, 1),
+                    table_kind="balance_sheet",
+                    title_text="Consolidated Statement of Financial Position",
+                    statement_scope_guess="consolidated",
+                    table_unit="元",
+                    table_currency="CNY",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025年12月31日",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="point",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-fix-assets",
+                            row_index=1,
+                            label_raw="固定资产",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="5,000",
+                                    numeric_value=5000.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-cip",
+                            row_index=2,
+                            label_raw="在建工程",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="900",
+                                    numeric_value=900.0,
+                                    page_index=1,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            ),
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4e-income",
+                    document_id="doc-1",
+                    page_range=(2, 2),
+                    table_kind="income_statement",
+                    title_text="合并利润表",
+                    statement_scope_guess="consolidated",
+                    table_unit="元",
+                    table_currency="CNY",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025年度",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-rd",
+                            row_index=1,
+                            label_raw="研发费用",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="120",
+                                    numeric_value=120.0,
+                                    page_index=2,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-invest-income",
+                            row_index=2,
+                            label_raw="投资收益",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="80",
+                                    numeric_value=80.0,
+                                    page_index=2,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-asset-disp",
+                            row_index=3,
+                            label_raw="资产处置收益",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=3,
+                                    column_index=1,
+                                    text_raw="20",
+                                    numeric_value=20.0,
+                                    page_index=2,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            ),
+            normalize_table_semantics(
+                ParsedTable(
+                    table_id="table-p4e-cash-flow",
+                    document_id="doc-1",
+                    page_range=(3, 3),
+                    table_kind="cash_flow_statement",
+                    title_text="合并现金流量表",
+                    statement_scope_guess="consolidated",
+                    table_unit="元",
+                    table_currency="CNY",
+                    period_columns=[
+                        ParsedColumn(
+                            column_id="column-1",
+                            column_index=1,
+                            header_text="2025年度",
+                            period_id="2025FY",
+                            comparison_axis="current",
+                            value_time_shape="duration",
+                            is_current=True,
+                        )
+                    ],
+                    body_rows=[
+                        ParsedRow(
+                            row_id="row-disp-cash",
+                            row_index=1,
+                            label_raw="处置固定资产、无形资产和其他长期资产收回的现金",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=1,
+                                    column_index=1,
+                                    text_raw="60",
+                                    numeric_value=60.0,
+                                    page_index=3,
+                                )
+                            ],
+                        ),
+                        ParsedRow(
+                            row_id="row-invest-return-cash",
+                            row_index=2,
+                            label_raw="取得投资收益收到的现金",
+                            normalized_label_hint=None,
+                            value_cells=[
+                                ParsedCell(
+                                    row_index=2,
+                                    column_index=1,
+                                    text_raw="45",
+                                    numeric_value=45.0,
+                                    page_index=3,
+                                )
+                            ],
+                        ),
+                    ],
+                )
+            ),
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="CN",
+    )
+
+    assert {fact["metric_id"] for fact in candidate_facts} == {
+        "fix_assets",
+        "cip",
+        "rd_exp",
+        "invest_income",
+        "asset_disp_income",
+        "n_recp_disp_fiolta",
+        "c_recp_return_invest",
+    }
+    assert all(fact["entity_scope"] == "consolidated" for fact in candidate_facts)
+    assert all(
+        fact["extensions"]["semantic_source"] == "deterministic"
+        for fact in candidate_facts
+    )
+
+
+def test_table_candidate_facts_skip_p4e_negative_controls() -> None:
+    candidate_facts = build_table_candidate_facts(
+        [
+            _normalized_table_semantics(
+                table_id="table-p4e-negatives-balance",
+                document_id="doc-1",
+                table_kind="balance_sheet",
+                period_id="2025FY",
+                rows=[
+                    ("investment properties", None, 100.0),
+                    ("right-of-use assets", None, 90.0),
+                    ("capitalized development costs", None, 80.0),
+                ],
+                statement_scope_guess="consolidated",
+            ),
+            NormalizedTableSemantics(
+                table_id="table-p4e-negatives-income",
+                document_id="doc-1",
+                page_range=(2, 2),
+                table_kind="income_statement",
+                title_text="Consolidated Statement of Profit or Loss",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-interest-income",
+                        label_raw="interest income",
+                        normalized_row_label="interest income",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="10",
+                                numeric_value=10.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-fv-gain",
+                        label_raw="公允价值变动收益",
+                        normalized_row_label="公允价值变动收益",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="12",
+                                numeric_value=12.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            ),
+            NormalizedTableSemantics(
+                table_id="table-p4e-negatives-cash-flow",
+                document_id="doc-1",
+                page_range=(3, 3),
+                table_kind="cash_flow_statement",
+                title_text="Consolidated Statement of Cash Flows",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-investing-total",
+                        label_raw="投资活动产生的现金流量净额",
+                        normalized_row_label="investing cash flow",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="150",
+                                numeric_value=150.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-cash-recovered-investment",
+                        label_raw="收回投资收到的现金",
+                        normalized_row_label="收回投资收到的现金",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="40",
+                                numeric_value=40.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            ),
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    assert {
+        fact["metric_id"]
+        for fact in candidate_facts
+        if fact["metric_id"]
+        in {
+            "fix_assets",
+            "cip",
+            "rd_exp",
+            "invest_income",
+            "asset_disp_income",
+            "n_recp_disp_fiolta",
+            "c_recp_return_invest",
+        }
+    } == set()
+
+
 def test_table_candidate_facts_emit_p4c_cash_flow_detail_candidates_with_deterministic_provenance() -> (
     None
 ):
