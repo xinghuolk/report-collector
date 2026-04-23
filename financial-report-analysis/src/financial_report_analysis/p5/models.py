@@ -103,6 +103,9 @@ class P5ExtractedReviewSurface:
     quality_gate: str
     review_issue_count: int
     missing_status_groups: tuple[str, ...]
+    review_required_signals: tuple[str, ...] = ()
+    duplicate_conflict_count: int = 0
+    scope_mismatch_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,10 +114,28 @@ class P5DatasetReviewSurface:
     dataset_version: str
     issuer_count: int
     period_count: int
+    pipeline_versions: tuple[str, ...]
     source_artifact_ids: tuple[str, ...]
     present_row_count: int
     missing_row_count: int
     review_required_artifact_ids: tuple[str, ...]
+    duplicate_conflict_count: int = 0
+    scope_mismatch_count: int = 0
+    unknown_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class P5TurtleExportReviewSurface:
+    dataset_id: str
+    dataset_version: str
+    source_artifact_ids: tuple[str, ...]
+    row_count: int
+    present_row_count: int
+    missing_row_count: int
+    alias_count: int
+    review_required_artifact_ids: tuple[str, ...] = ()
+    duplicate_conflict_count: int = 0
+    scope_mismatch_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +146,9 @@ class P5ArtifactLineage:
     pipeline_version: str
     source_fact_id: str | None
     evidence_bundle_id: str | None
+    manifest_entry_key: tuple[str, int, str] | None = None
+    export_row_index: int | None = None
+    turtle_field: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +159,25 @@ class P5RecomputePlan:
     rebuild_dataset: bool
     rebuild_turtle_export: bool
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class P5RecomputeDiffSummary:
+    reason: str
+    target_artifact_ids: tuple[str, ...]
+    dataset_changed: bool
+    turtle_export_changed: bool
+    rebuilt_dataset: bool
+    rebuilt_turtle_export: bool
+
+
+@dataclass(frozen=True, slots=True)
+class P5RecomputeResult:
+    manifest_id: str
+    extracted_artifact_ids: tuple[str, ...]
+    dataset_path: Path
+    turtle_export_path: Path
+    diff_summary: P5RecomputeDiffSummary
 
 
 @dataclass(frozen=True, slots=True)

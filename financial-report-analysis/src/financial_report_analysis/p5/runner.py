@@ -37,6 +37,8 @@ def run_p5_dataset_build(
     dataset_id: str,
     pdf_root: str | Path | None = None,
     required_metric_ids: tuple[str, ...] = (),
+    force_rebuild_artifact_ids: tuple[str, ...] = (),
+    write_turtle_export: bool = True,
     build_artifact_func: Callable[
         [P5ManifestEntry],
         P5ExtractedArtifact,
@@ -47,12 +49,14 @@ def run_p5_dataset_build(
 ) -> P5RunResult:
     manifest = load_manifest(manifest_path, pdf_root=pdf_root)
     repository = P5JsonArtifactRepository(artifact_root)
+    forced_artifact_ids = set(force_rebuild_artifact_ids)
 
     extracted_artifacts: list[P5ExtractedArtifact] = []
     for entry in manifest.entries:
         artifact = _load_or_build_artifact(
             repository=repository,
             entry=entry,
+            force_rebuild=entry.artifact_id in forced_artifact_ids,
             build_artifact_func=build_artifact_func,
         )
         extracted_artifacts.append(artifact)
@@ -64,8 +68,10 @@ def run_p5_dataset_build(
         now_func=now_func,
     )
     dataset_path = repository.save_dataset_artifact(dataset)
-    turtle_export = build_turtle_export_func(dataset)
-    turtle_export_path = _save_turtle_export(repository, turtle_export)
+    turtle_export_path = repository.datasets_dir / f"{repository._dataset_path(dataset_id).stem}_turtle_export.json"  # noqa: SLF001
+    if write_turtle_export:
+        turtle_export = build_turtle_export_func(dataset)
+        turtle_export_path = _save_turtle_export(repository, turtle_export)
 
     return P5RunResult(
         manifest_id=manifest.manifest_id,
@@ -136,9 +142,10 @@ def _load_or_build_artifact(
     *,
     repository: P5JsonArtifactRepository,
     entry: P5ManifestEntry,
+    force_rebuild: bool,
     build_artifact_func: Callable[[P5ManifestEntry], P5ExtractedArtifact],
 ) -> P5ExtractedArtifact:
-    if not repository.extracted_artifact_exists(entry.artifact_id):
+    if force_rebuild or not repository.extracted_artifact_exists(entry.artifact_id):
         return _build_and_persist_artifact(
             repository=repository,
             entry=entry,

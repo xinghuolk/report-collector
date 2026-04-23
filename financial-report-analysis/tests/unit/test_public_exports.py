@@ -82,3 +82,35 @@ def test_p5_public_exports_are_available() -> None:
     assert P5Manifest is not None
     assert P5ManifestEntry is not None
     assert callable(load_manifest)
+
+
+def test_post_p5_public_exports_are_available() -> None:
+    from financial_report_analysis.p5 import (
+        P5ArtifactLineage,
+        P5DatasetReviewSurface,
+        P5ExtractedReviewSurface,
+        P5RecomputeDiffSummary,
+        P5RecomputePlan,
+        P5RecomputeResult,
+        P5TurtleExportReviewSurface,
+        build_dataset_lineage,
+        build_dataset_review_surface,
+        build_extracted_review_surface,
+        build_turtle_export_review_surface,
+        build_recompute_plan,
+        execute_recompute_plan,
+    )
+
+    assert P5ExtractedReviewSurface is not None
+    assert P5DatasetReviewSurface is not None
+    assert P5TurtleExportReviewSurface is not None
+    assert P5ArtifactLineage is not None
+    assert P5RecomputePlan is not None
+    assert P5RecomputeDiffSummary is not None
+    assert P5RecomputeResult is not None
+    assert callable(build_extracted_review_surface)
+    assert callable(build_dataset_review_surface)
+    assert callable(build_turtle_export_review_surface)
+    assert callable(build_dataset_lineage)
+    assert callable(build_recompute_plan)
+    assert callable(execute_recompute_plan)
