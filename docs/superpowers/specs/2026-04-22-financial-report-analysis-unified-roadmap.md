@@ -30,7 +30,13 @@
 - 先做 `review surface`
 - 再做 `artifact lineage contract`
 - 再做 `deterministic recompute contract`
-- 如需 LLM，最多预留为后续 whole-document assessment / diff review extension，不进入当前主逻辑
+- 如需 LLM，最多预留为后续 `whole-document assessment / diff review` 扩展，不进入当前主逻辑
+
+同时，应把 `LLM whole-document assessment` 明确视为 post-P5 之后的开放方向：
+
+- 它的职责是读取整份 PDF，形成受限 assessment / comparison artifact
+- 它可以服务 review、差异摘要与 coverage gap 识别
+- 它不能成为 canonical facts 的主来源，也不能进入 deterministic recompute 裁决链
 
 ## 1. 目的
 
@@ -283,6 +289,7 @@ pdf
 4. **把 LLM whole-document assessment 作为后续扩展，而不是当前阻塞项。**
    - 如果未来需要整份 PDF 对照评估，应作为 review / diff artifact 的可插拔扩展。
    - 它可以帮助发现系统漏抽、误抽和 scope 冲突，但不应成为主事实来源。
+   - 这条能力应在总路线中保留正式位置，但默认排在 review / lineage / deterministic recompute 之后。
 
 5. **storage abstraction 可以后置，但 lineage contract 不能后置。**
    - 当前 JSON artifact repository 足以支撑第一版 post-P5 基础设施。
@@ -433,6 +440,15 @@ pdf
 - recompute 使用 deterministic contract，可在 manifest、artifact version 或 pipeline version 变化时稳定重建目标 artifact。
 - 当前 JSON repository 之上已有足够的 review / lineage / recompute 结构，不必先引入数据库。
 - 若未来引入 whole-document LLM assessment，它只能作为 review / diff 扩展，不进入 recompute 主裁决链路。
+
+### Milestone G: Whole-Document LLM Assessment Extension
+
+预期结果：
+
+- 能对整份 PDF 形成受限的 `assessment / comparison artifact`。
+- 能把系统抽取结果与 LLM 文档级观察做结构化 diff。
+- 该能力只服务 review、gap detection 与差异摘要，不直接改写 canonical facts。
+- 该能力不进入 deterministic recompute 主链，只作为可插拔评估扩展存在。
 
 ## 10. 非目标
 
