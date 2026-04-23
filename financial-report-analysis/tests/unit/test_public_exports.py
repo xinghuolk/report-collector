@@ -66,3 +66,19 @@ def test_semantic_fallback_package_exports_public_entry_points() -> None:
         "percent",
         "unknown",
     )
+
+
+def test_p5_public_exports_are_available() -> None:
+    from financial_report_analysis.p5 import (
+        P5DatasetArtifact,
+        P5ExtractedArtifact,
+        P5Manifest,
+        P5ManifestEntry,
+        load_manifest,
+    )
+
+    assert P5DatasetArtifact is not None
+    assert P5ExtractedArtifact is not None
+    assert P5Manifest is not None
+    assert P5ManifestEntry is not None
+    assert callable(load_manifest)
