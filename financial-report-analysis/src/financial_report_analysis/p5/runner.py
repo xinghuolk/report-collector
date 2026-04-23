@@ -6,7 +6,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
-from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
+from financial_report_analysis.p5.artifact_repository import (
+    P5ArtifactRepositoryError,
+    P5JsonArtifactRepository,
+)
 from financial_report_analysis.p5.dataset import assemble_dataset
 from financial_report_analysis.p5.extraction import build_extracted_artifact
 from financial_report_analysis.p5.manifest import load_manifest
@@ -47,14 +50,10 @@ def run_p5_dataset_build(
 
     extracted_artifacts: list[P5ExtractedArtifact] = []
     for entry in manifest.entries:
-        artifact = (
-            repository.load_extracted_artifact(entry.artifact_id)
-            if repository.extracted_artifact_exists(entry.artifact_id)
-            else _build_and_persist_artifact(
-                repository=repository,
-                entry=entry,
-                build_artifact_func=build_artifact_func,
-            )
+        artifact = _load_or_build_artifact(
+            repository=repository,
+            entry=entry,
+            build_artifact_func=build_artifact_func,
         )
         extracted_artifacts.append(artifact)
 
@@ -133,11 +132,51 @@ def _build_and_persist_artifact(
     return artifact
 
 
+def _load_or_build_artifact(
+    *,
+    repository: P5JsonArtifactRepository,
+    entry: P5ManifestEntry,
+    build_artifact_func: Callable[[P5ManifestEntry], P5ExtractedArtifact],
+) -> P5ExtractedArtifact:
+    if not repository.extracted_artifact_exists(entry.artifact_id):
+        return _build_and_persist_artifact(
+            repository=repository,
+            entry=entry,
+            build_artifact_func=build_artifact_func,
+        )
+
+    artifact = repository.load_extracted_artifact(entry.artifact_id)
+    if _artifact_matches_manifest_entry(artifact, entry):
+        return artifact
+
+    return _build_and_persist_artifact(
+        repository=repository,
+        entry=entry,
+        build_artifact_func=build_artifact_func,
+    )
+
+
+def _artifact_matches_manifest_entry(
+    artifact: P5ExtractedArtifact,
+    entry: P5ManifestEntry,
+) -> bool:
+    return (
+        artifact.manifest_entry == entry
+        and artifact.source_pdf_path == entry.pdf_path
+        and Path(str(artifact.document.get("pdf_path", ""))) == entry.pdf_path
+        and str(artifact.document.get("document_id", "")) == str(entry.pdf_path)
+    )
+
+
 def _save_turtle_export(
     repository: P5JsonArtifactRepository,
     turtle_export: P5TurtleExport,
 ) -> Path:
-    path = repository.datasets_dir / f"{turtle_export.dataset_id}_turtle_export.json"
+    try:
+        safe_dataset_id = repository._dataset_path(turtle_export.dataset_id).stem  # noqa: SLF001
+    except P5ArtifactRepositoryError as exc:
+        raise P5ArtifactRepositoryError(str(exc)) from exc
+    path = repository.datasets_dir / f"{safe_dataset_id}_turtle_export.json"
     return repository._write_json(  # noqa: SLF001 - reuse repository atomic JSON write path
         path,
         asdict(turtle_export),

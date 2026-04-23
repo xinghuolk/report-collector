@@ -3,8 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
-from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
+import pytest
+
+from financial_report_analysis.p5.artifact_repository import (
+    P5ArtifactRepositoryError,
+    P5JsonArtifactRepository,
+)
+from financial_report_analysis.p5.models import (
+    P5ExtractedArtifact,
+    P5ManifestEntry,
+    P5TurtleExport,
+)
 from financial_report_analysis.p5.runner import main, run_p5_dataset_build
 
 
@@ -31,7 +40,10 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
         pipeline_version="p5-v1",
         manifest_entry=entry,
         source_pdf_path=entry.pdf_path,
-        document={"document_id": str(entry.pdf_path)},
+        document={
+            "document_id": str(entry.pdf_path),
+            "pdf_path": str(entry.pdf_path),
+        },
         document_metadata={},
         candidate_facts=(),
         canonical_facts=(
@@ -179,6 +191,104 @@ def test_run_p5_dataset_build_builds_missing_extracted_artifact(
     assert P5JsonArtifactRepository(tmp_path / "data" / "p5").extracted_artifact_exists(
         entry.artifact_id
     )
+
+
+def test_run_p5_dataset_build_rebuilds_cached_artifact_when_manifest_pdf_changes(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    cached_entry = _entry(tmp_path)
+    updated_pdf_path = tmp_path / "report_2025_updated.pdf"
+    updated_pdf_path.write_bytes(b"%PDF-1.4\n")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_id": "p5_seed",
+                "manifest_version": "1.0",
+                "entries": [
+                    {
+                        "issuer_id": cached_entry.issuer_id,
+                        "market": cached_entry.market,
+                        "stock_code": cached_entry.stock_code,
+                        "fiscal_year": cached_entry.fiscal_year,
+                        "report_type": cached_entry.report_type,
+                        "pdf_path": str(updated_pdf_path),
+                        "source": cached_entry.source,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    repository = P5JsonArtifactRepository(tmp_path / "data" / "p5")
+    repository.save_extracted_artifact(_artifact(cached_entry))
+
+    calls = {"build": 0}
+
+    def build_artifact_func(entry_arg: P5ManifestEntry) -> P5ExtractedArtifact:
+        calls["build"] += 1
+        built = _artifact(entry_arg)
+        return built
+
+    result = run_p5_dataset_build(
+        manifest_path=manifest_path,
+        artifact_root=tmp_path / "data" / "p5",
+        dataset_id="p5_seed",
+        build_artifact_func=build_artifact_func,
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert calls["build"] == 1
+    reloaded = repository.load_extracted_artifact(cached_entry.artifact_id)
+    assert reloaded.source_pdf_path == updated_pdf_path
+    assert reloaded.manifest_entry.pdf_path == updated_pdf_path
+    assert result.extracted_artifact_ids == (cached_entry.artifact_id,)
+
+
+def test_run_p5_dataset_build_rejects_unsafe_turtle_export_dataset_id(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    entry = _entry(tmp_path)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_id": "p5_seed",
+                "manifest_version": "1.0",
+                "entries": [
+                    {
+                        "issuer_id": entry.issuer_id,
+                        "market": entry.market,
+                        "stock_code": entry.stock_code,
+                        "fiscal_year": entry.fiscal_year,
+                        "report_type": entry.report_type,
+                        "pdf_path": str(entry.pdf_path),
+                        "source": entry.source,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def build_turtle_export_func(_dataset) -> P5TurtleExport:
+        return P5TurtleExport(
+            dataset_id="../outside",
+            dataset_version="1.0",
+            created_at="2026-04-23T00:00:00",
+            rows=(),
+            alias_map={},
+        )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="unsafe dataset_id"):
+        run_p5_dataset_build(
+            manifest_path=manifest_path,
+            artifact_root=tmp_path / "data" / "p5",
+            dataset_id="p5_seed",
+            build_artifact_func=_artifact,
+            build_turtle_export_func=build_turtle_export_func,
+            now_func=lambda: "2026-04-23T00:00:00",
+        )
 
 
 def test_main_wires_cli_arguments_and_prints_result(
