@@ -185,11 +185,12 @@ class SqlAlchemyP5ArtifactRepository:
         )
         with Session(self.engine) as session:
             self._upsert_issuer(session, artifact)
-            self._upsert_report(session, artifact)
+            report = self._upsert_report(session, artifact)
             record = session.get(ExtractedArtifactRecord, artifact.artifact_id)
             if record is None:
                 record = ExtractedArtifactRecord(
                     artifact_id=artifact.artifact_id,
+                    report_id=report.report_id,
                     issuer_id=artifact.manifest_entry.issuer_id,
                     fiscal_year=artifact.manifest_entry.fiscal_year,
                     report_type=artifact.manifest_entry.report_type,
@@ -200,6 +201,7 @@ class SqlAlchemyP5ArtifactRepository:
                 )
                 session.add(record)
             else:
+                record.report_id = report.report_id
                 record.issuer_id = artifact.manifest_entry.issuer_id
                 record.fiscal_year = artifact.manifest_entry.fiscal_year
                 record.report_type = artifact.manifest_entry.report_type
@@ -413,6 +415,9 @@ class SqlAlchemyP5ArtifactRepository:
     ) -> int:
         if not lineage_records:
             return 0
+        dataset_ids = {lineage.dataset_id for lineage in lineage_records}
+        if len(dataset_ids) != 1:
+            raise ValueError("lineage records must belong to exactly one dataset")
         dataset_id = lineage_records[0].dataset_id
         with Session(self.engine) as session:
             session.query(DatasetLineageRecord).filter(
@@ -526,7 +531,7 @@ class SqlAlchemyP5ArtifactRepository:
         issuer.company_name = entry.company_name
 
     @staticmethod
-    def _upsert_report(session: Session, artifact: P5ExtractedArtifact) -> None:
+    def _upsert_report(session: Session, artifact: P5ExtractedArtifact) -> ReportRecord:
         entry = artifact.manifest_entry
         statement = select(ReportRecord).where(
             ReportRecord.issuer_id == entry.issuer_id,
@@ -544,7 +549,10 @@ class SqlAlchemyP5ArtifactRepository:
                 pdf_path=str(entry.pdf_path),
             )
             session.add(report)
-            return
+            session.flush()
+            return report
         report.source = entry.source
         report.report_language = entry.report_language
         report.pdf_path = str(entry.pdf_path)
+        session.flush()
+        return report

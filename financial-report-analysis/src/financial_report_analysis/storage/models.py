@@ -85,6 +85,12 @@ class ExtractedArtifactRecord(Base):
     __tablename__ = "extracted_artifacts"
 
     artifact_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    report_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("reports.report_id"),
+        nullable=False,
+        index=True,
+    )
     issuer_id: Mapped[str] = mapped_column(
         String(32),
         ForeignKey("issuers.issuer_id"),

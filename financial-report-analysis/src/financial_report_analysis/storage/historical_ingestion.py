@@ -40,41 +40,61 @@ class HistoricalIngestionService:
         manifest_version: str = "1.0",
     ) -> HistoricalReportRegistration:
         with Session(self.engine) as session:
-            self._upsert_issuer(session, entry)
-            report = self._upsert_report(session, entry)
-            if manifest_id is not None:
-                self._upsert_manifest_entry(
-                    session,
-                    manifest_id=manifest_id,
-                    manifest_version=manifest_version,
-                    entry=entry,
-                )
-            session.commit()
-
-            artifact_status: ArtifactStatus = "missing"
-            if session.get(ExtractedArtifactRecord, entry.artifact_id) is not None:
-                artifact_status = "available"
-
-            return HistoricalReportRegistration(
-                report_id=report.report_id,
-                issuer_id=entry.issuer_id,
-                fiscal_year=entry.fiscal_year,
-                report_type=entry.report_type,
-                pdf_path=str(entry.pdf_path),
-                artifact_status=artifact_status,
+            registration = self._register_report_in_session(
+                session,
+                entry,
+                manifest_id=manifest_id,
+                manifest_version=manifest_version,
             )
+            session.commit()
+            return registration
 
     def register_manifest(
         self,
         manifest: P5Manifest,
     ) -> tuple[HistoricalReportRegistration, ...]:
-        return tuple(
-            self.register_report(
-                entry,
-                manifest_id=manifest.manifest_id,
-                manifest_version=manifest.manifest_version,
+        with Session(self.engine) as session:
+            registrations = tuple(
+                self._register_report_in_session(
+                    session,
+                    entry,
+                    manifest_id=manifest.manifest_id,
+                    manifest_version=manifest.manifest_version,
+                )
+                for entry in manifest.entries
             )
-            for entry in manifest.entries
+            session.commit()
+            return registrations
+
+    def _register_report_in_session(
+        self,
+        session: Session,
+        entry: P5ManifestEntry,
+        *,
+        manifest_id: str | None,
+        manifest_version: str,
+    ) -> HistoricalReportRegistration:
+        self._upsert_issuer(session, entry)
+        report = self._upsert_report(session, entry)
+        if manifest_id is not None:
+            self._upsert_manifest_entry(
+                session,
+                manifest_id=manifest_id,
+                manifest_version=manifest_version,
+                entry=entry,
+            )
+
+        artifact_status: ArtifactStatus = "missing"
+        if session.get(ExtractedArtifactRecord, entry.artifact_id) is not None:
+            artifact_status = "available"
+
+        return HistoricalReportRegistration(
+            report_id=report.report_id,
+            issuer_id=entry.issuer_id,
+            fiscal_year=entry.fiscal_year,
+            report_type=entry.report_type,
+            pdf_path=str(entry.pdf_path),
+            artifact_status=artifact_status,
         )
 
     @staticmethod

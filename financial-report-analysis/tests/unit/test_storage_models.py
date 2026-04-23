@@ -196,6 +196,7 @@ def test_db_p1_core_tables_expose_expected_foreign_keys(tmp_path: Path) -> None:
     assert ("report_file_id", "report_files") in fk_targets("documents")
     assert ("document_id", "documents") in fk_targets("document_versions")
     assert ("document_version_id", "document_versions") in fk_targets("extraction_runs")
+    assert ("report_id", "reports") in fk_targets("extracted_artifacts")
     assert ("primary_evidence_item_id", "evidence_items") in fk_targets(
         "evidence_bundles"
     )
@@ -235,6 +236,7 @@ def test_storage_core_models_persist_minimum_registry_and_artifact_rows(
         )
         extracted = ExtractedArtifactRecord(
             artifact_id="CN_601919_2025",
+            report_id=1,
             issuer_id="CN_601919",
             fiscal_year=2025,
             report_type="annual",
@@ -277,8 +279,10 @@ def test_storage_core_models_persist_minimum_registry_and_artifact_rows(
         session.commit()
 
     with Session(engine) as session:
+        extracted_record = session.get(ExtractedArtifactRecord, "CN_601919_2025")
         assert session.get(IssuerRecord, "CN_601919") is not None
         assert session.get(ManifestRecord, "p5_seed_3_issuers_2_years") is not None
-        assert session.get(ExtractedArtifactRecord, "CN_601919_2025") is not None
+        assert extracted_record is not None
+        assert extracted_record.report_id == 1
         assert session.get(DatasetArtifactRecord, "p5_seed") is not None
         assert session.get(RecomputeRunRecord, "recompute:p5_seed:001") is not None

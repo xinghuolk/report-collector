@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -132,3 +133,41 @@ def test_register_manifest_creates_manifest_and_manifest_entries(tmp_path: Path)
 
     assert manifest_record is not None
     assert manifest_entry_count == 2
+
+
+def test_register_manifest_is_atomic_when_a_later_entry_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+    service = HistoricalIngestionService(engine)
+    manifest = P5Manifest(
+        manifest_id="p5_seed",
+        manifest_version="1.0",
+        entries=(_entry(tmp_path, fiscal_year=2024), _entry(tmp_path, fiscal_year=2025)),
+    )
+
+    original = service._upsert_manifest_entry
+    call_count = 0
+
+    def failing_upsert(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("boom")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_upsert_manifest_entry", failing_upsert)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        service.register_manifest(manifest)
+
+    with Session(engine) as session:
+        report_count = session.scalar(select(func.count()).select_from(ReportRecord))
+        manifest_count = session.scalar(select(func.count()).select_from(ManifestRecord))
+        manifest_entry_count = session.scalar(select(func.count()).select_from(ManifestEntryRecord))
+
+    assert report_count == 0
+    assert manifest_count == 0
+    assert manifest_entry_count == 0

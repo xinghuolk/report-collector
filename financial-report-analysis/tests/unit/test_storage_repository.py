@@ -239,3 +239,62 @@ def test_db_repository_round_trips_review_surfaces_lineage_and_recompute(
     assert repository.list_lineage_records(dataset_id=dataset.dataset_id) == lineage
     assert repository.list_lineage_records(source_artifact_id=artifact.artifact_id) == lineage
     assert repository.load_recompute_result("run-1") == result
+
+
+def test_db_repository_rejects_mixed_dataset_lineage_records(tmp_path: Path) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+    repository = SqlAlchemyP5ArtifactRepository(engine)
+
+    first_entry = _entry(tmp_path, issuer_id="CN_601919", stock_code="601919", fiscal_year=2025)
+    first_lineage = build_dataset_lineage(
+        dataset=_dataset(first_entry.artifact_id),
+        extracted_artifacts=(_artifact(first_entry),),
+        turtle_export=_turtle_export(),
+    )[0]
+
+    second_entry = _entry(tmp_path, issuer_id="CN_600519", stock_code="600519", fiscal_year=2024)
+    second_dataset = P5DatasetArtifact(
+        dataset_id="another_seed",
+        dataset_version="1.0",
+        created_at="2026-04-23T00:00:00+00:00",
+        issuer_count=1,
+        periods=(2024,),
+        metrics=("revenue",),
+        rows=(
+            P5DatasetRow(
+                issuer_id="CN_600519",
+                market="CN",
+                stock_code="600519",
+                fiscal_year=2024,
+                metric_id="revenue",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="income_statement",
+                value=50.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="canonical-2",
+                source_artifact_id=second_entry.artifact_id,
+                evidence_bundle_id="bundle-2",
+            ),
+        ),
+        quality_summary={},
+        source_artifacts=(second_entry.artifact_id,),
+    )
+    second_lineage = build_dataset_lineage(
+        dataset=second_dataset,
+        extracted_artifacts=(_artifact(second_entry),),
+        turtle_export=P5TurtleExport(
+            dataset_id="another_seed",
+            dataset_version="1.0",
+            created_at="2026-04-23T00:00:00+00:00",
+            rows=(),
+            alias_map={},
+        ),
+    )[0]
+
+    with pytest.raises(ValueError, match="exactly one dataset"):
+        repository.save_lineage_records((first_lineage, second_lineage))
