@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 financial-report-analysis-api = "financial_report_analysis.api.app:main"
+financial-report-analysis-p5 = "financial_report_analysis.p5.runner:main"
 
 [build-system]
 requires = ["hatchling"]
