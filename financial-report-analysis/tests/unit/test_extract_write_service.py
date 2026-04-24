@@ -170,3 +170,92 @@ def test_persist_analysis_extract_result_rolls_back_when_late_write_fails(
     )
     assert coverage.report_registered is False
     assert runtime.storage_repository.extracted_artifact_exists("CN_601919_2025") is False
+
+
+def test_build_p5_outputs_for_persisted_extract_returns_response_payload(
+    tmp_path: Path,
+) -> None:
+    from financial_report_analysis.api.extract_write_service import (
+        build_p5_outputs_for_persisted_extract,
+    )
+
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    request = AnalysisExtractRequest(
+        pdf_path=str(pdf_path),
+        market="CN",
+        persist_to_storage=True,
+        build_turtle=True,
+        issuer_id="CN_601919",
+        stock_code="601919",
+        fiscal_year=2025,
+        report_type="annual",
+    )
+    storage_result = persist_analysis_extract_result(
+        runtime=runtime,
+        request=request,
+        document={"document_id": str(pdf_path), "pdf_path": str(pdf_path)},
+        extracted_payload={
+            "document_metadata": {},
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-revenue",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": "yuan",
+                    "normalized_unit": "currency_amount",
+                    "precision": 0,
+                    "confidence": 0.99,
+                    "document_id": str(pdf_path),
+                    "block_id": "block-1",
+                    "page_index": 0,
+                    "evidence_bundle_id": "bundle-1",
+                }
+            ],
+        },
+        pipeline_result={
+            "canonical_facts": [
+                {
+                    "fact_id": "canonical-revenue",
+                    "metric_id": "revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "numeric_value": 100.0,
+                    "currency": "CNY",
+                    "normalized_unit": "currency_amount",
+                    "evidence_bundle_id": "bundle-1",
+                    "extensions": {"period_scope": "fy"},
+                }
+            ],
+            "derived_facts": [],
+            "validation_report": {"overall_status": "ok", "issues": []},
+            "review_packets": [],
+            "quality_gate": "pass",
+        },
+        now_func=lambda: "2026-04-24T00:00:00+00:00",
+    )
+
+    build_result = build_p5_outputs_for_persisted_extract(
+        runtime=runtime,
+        request=request,
+        storage_result=storage_result,
+        now_func=lambda: "2026-04-24T00:00:00+00:00",
+    )
+
+    assert build_result is not None
+    payload = build_result.to_response_dict()
+    assert payload["dataset_id"] == "single_report_CN_601919_2025_annual_CN_601919_2025"
+    assert payload["turtle_export_id"] == payload["dataset_id"]
+    assert payload["dataset_lookup_path"] == f"/datasets/{payload['dataset_id']}"
+    assert payload["turtle_export_lookup_path"] is None
+    assert payload["source_artifact_ids"] == ("CN_601919_2025",)
+    assert payload["lineage_record_count"] >= 1
