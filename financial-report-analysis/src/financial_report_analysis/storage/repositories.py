@@ -783,6 +783,132 @@ class SqlAlchemyP5ArtifactRepository:
             payload = json.loads(record.payload_json)
         return turtle_export_from_payload(payload)
 
+    def save_p5_assembly_bundle(
+        self,
+        *,
+        dataset: P5DatasetArtifact,
+        dataset_review_surface: P5DatasetReviewSurface,
+        lineage_records: tuple[P5ArtifactLineage, ...],
+        turtle_export: P5TurtleExport | None = None,
+        turtle_export_review_surface: P5TurtleExportReviewSurface | None = None,
+    ) -> int:
+        if dataset_review_surface.dataset_id != dataset.dataset_id:
+            raise ValueError("dataset review surface must belong to the dataset")
+        if turtle_export is None and turtle_export_review_surface is not None:
+            raise ValueError("turtle export review surface requires a turtle export")
+        if turtle_export is not None and turtle_export.dataset_id != dataset.dataset_id:
+            raise ValueError("turtle export must belong to the dataset")
+        if (
+            turtle_export_review_surface is not None
+            and turtle_export_review_surface.dataset_id != dataset.dataset_id
+        ):
+            raise ValueError("turtle export review surface must belong to the dataset")
+        lineage_dataset_ids = {lineage.dataset_id for lineage in lineage_records}
+        if lineage_dataset_ids and lineage_dataset_ids != {dataset.dataset_id}:
+            raise ValueError("lineage records must belong to the dataset")
+
+        with Session(self.engine) as session:
+            with session.begin():
+                dataset_payload_json = json.dumps(
+                    dataset_artifact_to_payload(dataset),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                dataset_record = session.get(DatasetArtifactRecord, dataset.dataset_id)
+                if dataset_record is None:
+                    dataset_record = DatasetArtifactRecord(
+                        dataset_id=dataset.dataset_id,
+                        dataset_version=dataset.dataset_version,
+                        issuer_count=dataset.issuer_count,
+                        payload_json=dataset_payload_json,
+                        created_at=dataset.created_at,
+                    )
+                    session.add(dataset_record)
+                else:
+                    dataset_record.dataset_version = dataset.dataset_version
+                    dataset_record.issuer_count = dataset.issuer_count
+                    dataset_record.payload_json = dataset_payload_json
+                    dataset_record.created_at = dataset.created_at
+
+                dataset_surface_payload_json = json.dumps(
+                    dataset_review_surface_to_payload(dataset_review_surface),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                dataset_surface_record = session.get(
+                    DatasetReviewSurfaceRecord,
+                    dataset_review_surface.dataset_id,
+                )
+                if dataset_surface_record is None:
+                    dataset_surface_record = DatasetReviewSurfaceRecord(
+                        dataset_id=dataset_review_surface.dataset_id,
+                        payload_json=dataset_surface_payload_json,
+                    )
+                    session.add(dataset_surface_record)
+                else:
+                    dataset_surface_record.payload_json = dataset_surface_payload_json
+
+                if turtle_export is not None:
+                    turtle_payload_json = json.dumps(
+                        turtle_export_to_payload(turtle_export),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    turtle_record = session.get(
+                        TurtleExportArtifactRecord,
+                        turtle_export.dataset_id,
+                    )
+                    if turtle_record is None:
+                        turtle_record = TurtleExportArtifactRecord(
+                            dataset_id=turtle_export.dataset_id,
+                            dataset_version=turtle_export.dataset_version,
+                            payload_json=turtle_payload_json,
+                            created_at=turtle_export.created_at,
+                        )
+                        session.add(turtle_record)
+                    else:
+                        turtle_record.dataset_version = turtle_export.dataset_version
+                        turtle_record.payload_json = turtle_payload_json
+                        turtle_record.created_at = turtle_export.created_at
+
+                if turtle_export_review_surface is not None:
+                    turtle_surface_payload_json = json.dumps(
+                        turtle_export_review_surface_to_payload(
+                            turtle_export_review_surface
+                        ),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    turtle_surface_record = session.get(
+                        TurtleExportReviewSurfaceRecord,
+                        turtle_export_review_surface.dataset_id,
+                    )
+                    if turtle_surface_record is None:
+                        turtle_surface_record = TurtleExportReviewSurfaceRecord(
+                            dataset_id=turtle_export_review_surface.dataset_id,
+                            payload_json=turtle_surface_payload_json,
+                        )
+                        session.add(turtle_surface_record)
+                    else:
+                        turtle_surface_record.payload_json = turtle_surface_payload_json
+
+                session.query(DatasetLineageRecord).filter(
+                    DatasetLineageRecord.dataset_id == dataset.dataset_id
+                ).delete()
+                for lineage in lineage_records:
+                    session.add(
+                        DatasetLineageRecord(
+                            dataset_id=lineage.dataset_id,
+                            source_artifact_id=lineage.source_artifact_id,
+                            payload_json=json.dumps(
+                                artifact_lineage_to_payload(lineage),
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
+                        )
+                    )
+        return len(lineage_records)
+
     def list_extracted_artifact_ids(
         self,
         *,

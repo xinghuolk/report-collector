@@ -36,9 +36,7 @@ class DbP5AssemblyResult:
 
     @property
     def turtle_export_lookup_path(self) -> str | None:
-        if self.turtle_export_id is None:
-            return None
-        return f"/datasets/{self.turtle_export_id}"
+        return None
 
 
 def build_db_p5_outputs_for_artifact(
@@ -61,27 +59,33 @@ def build_db_p5_outputs_for_artifact(
     )
     if request.dataset_version is not None:
         dataset = replace(dataset, dataset_version=request.dataset_version)
-    repository.save_dataset_artifact(dataset)
-    repository.save_dataset_review_surface(
-        build_dataset_review_surface(dataset, extracted_artifacts=(artifact,))
+    dataset_review_surface = build_dataset_review_surface(
+        dataset,
+        extracted_artifacts=(artifact,),
     )
 
     turtle_export_id: str | None = None
     turtle_export = None
+    turtle_export_review_surface = None
     if request.build_turtle:
         turtle_export = build_turtle_export(dataset)
-        repository.save_turtle_export(turtle_export)
-        repository.save_turtle_export_review_surface(
-            build_turtle_export_review_surface(turtle_export, dataset=dataset)
+        turtle_export_review_surface = build_turtle_export_review_surface(
+            turtle_export,
+            dataset=dataset,
         )
         turtle_export_id = turtle_export.dataset_id
 
-    lineage_record_count = repository.save_lineage_records(
-        build_dataset_lineage(
-            dataset=dataset,
-            extracted_artifacts=(artifact,),
-            turtle_export=turtle_export,
-        )
+    lineage_records = build_dataset_lineage(
+        dataset=dataset,
+        extracted_artifacts=(artifact,),
+        turtle_export=turtle_export,
+    )
+    lineage_record_count = repository.save_p5_assembly_bundle(
+        dataset=dataset,
+        dataset_review_surface=dataset_review_surface,
+        turtle_export=turtle_export,
+        turtle_export_review_surface=turtle_export_review_surface,
+        lineage_records=lineage_records,
     )
     return DbP5AssemblyResult(
         dataset_id=dataset.dataset_id,

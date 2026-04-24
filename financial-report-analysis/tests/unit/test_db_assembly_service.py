@@ -113,6 +113,7 @@ def test_build_db_p5_outputs_for_artifact_persists_turtle_export(
     assert result.dataset_id == "custom_dataset"
     assert result.dataset_version == "api-test"
     assert result.turtle_export_id == "custom_dataset"
+    assert result.turtle_export_lookup_path is None
     turtle = runtime.storage_repository.load_turtle_export("custom_dataset")
     turtle_surface = runtime.storage_repository.load_turtle_export_review_surface(
         "custom_dataset"

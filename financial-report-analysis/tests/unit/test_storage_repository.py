@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.lineage import build_dataset_lineage
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
@@ -23,6 +25,7 @@ from financial_report_analysis.p5.review import (
     build_turtle_export_review_surface,
 )
 from financial_report_analysis.storage.database import create_sqlite_engine, initialize_database
+from financial_report_analysis.storage import repositories as storage_repositories
 from financial_report_analysis.storage.repositories import SqlAlchemyP5ArtifactRepository
 
 if TYPE_CHECKING:
@@ -298,3 +301,55 @@ def test_db_repository_rejects_mixed_dataset_lineage_records(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="exactly one dataset"):
         repository.save_lineage_records((first_lineage, second_lineage))
+
+
+def test_db_repository_rolls_back_p5_assembly_bundle_on_serializer_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+    repository = SqlAlchemyP5ArtifactRepository(engine)
+    entry = _entry(tmp_path, issuer_id="CN_601919", stock_code="601919", fiscal_year=2025)
+    artifact = _artifact(entry)
+    dataset = replace(_dataset(artifact.artifact_id), dataset_id="p5_atomic_failure")
+    turtle_export = replace(_turtle_export(), dataset_id=dataset.dataset_id)
+    dataset_surface = build_dataset_review_surface(
+        dataset,
+        extracted_artifacts=(artifact,),
+    )
+    turtle_surface = build_turtle_export_review_surface(
+        turtle_export,
+        dataset=dataset,
+    )
+    lineage = build_dataset_lineage(
+        dataset=dataset,
+        extracted_artifacts=(artifact,),
+        turtle_export=turtle_export,
+    )
+
+    def fail_turtle_export_to_payload(_turtle_export: P5TurtleExport) -> dict[str, object]:
+        raise RuntimeError("serializer failed")
+
+    monkeypatch.setattr(
+        storage_repositories,
+        "turtle_export_to_payload",
+        fail_turtle_export_to_payload,
+    )
+
+    with pytest.raises(RuntimeError, match="serializer failed"):
+        repository.save_p5_assembly_bundle(
+            dataset=dataset,
+            dataset_review_surface=dataset_surface,
+            lineage_records=lineage,
+            turtle_export=turtle_export,
+            turtle_export_review_surface=turtle_surface,
+        )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="missing dataset artifact"):
+        repository.load_dataset_artifact(dataset.dataset_id)
+    with pytest.raises(P5ArtifactRepositoryError, match="missing turtle export"):
+        repository.load_turtle_export(dataset.dataset_id)
+    with pytest.raises(P5ArtifactRepositoryError, match="missing dataset review surface"):
+        repository.load_dataset_review_surface(dataset.dataset_id)
+    assert repository.list_lineage_records(dataset_id=dataset.dataset_id) == ()
