@@ -463,6 +463,75 @@ def test_extract_endpoint_returns_503_when_build_requested_without_storage(
     assert response.json()["detail"] == "storage repository is not configured"
 
 
+def test_extract_endpoint_maps_build_repository_errors_to_422(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from financial_report_analysis.p5.artifact_repository import (
+        P5ArtifactRepositoryError,
+    )
+
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": "yuan",
+                    "normalized_unit": "currency_amount",
+                    "precision": 0,
+                    "confidence": 0.99,
+                    "document_id": str(pdf_path),
+                    "block_id": "block-1",
+                    "page_index": 0,
+                    "evidence_bundle_id": "bundle-1",
+                }
+            ],
+        },
+    )
+
+    def raise_repository_error(**kwargs):
+        del kwargs
+        raise P5ArtifactRepositoryError("missing test artifact")
+
+    monkeypatch.setattr(
+        "financial_report_analysis.api.routes.build_p5_outputs_for_persisted_extract",
+        raise_repository_error,
+    )
+
+    client = TestClient(create_app(storage_db_path=tmp_path / "storage.db"))
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "persist_to_storage": True,
+            "build_dataset": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "missing test artifact"
+
+
 def test_extract_endpoint_persists_dataset_when_build_dataset_requested(
     monkeypatch,
     tmp_path,

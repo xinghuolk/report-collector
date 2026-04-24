@@ -219,14 +219,14 @@ def extract_analysis(
                 request=request,
                 storage_result=storage_result,
             )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
         except P5ArtifactRepositoryError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
         except RuntimeError as exc:
