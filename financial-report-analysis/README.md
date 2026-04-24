@@ -42,6 +42,22 @@ Run the API with:
 uv run financial-report-analysis-api
 ```
 
+Run the real-PDF extract/persist/readback smoke with:
+
+```bash
+uv run pytest tests/integration/test_real_pdf_extract_persist_e2e.py -q
+```
+
+To validate a different annual-report sample, point the smoke at another
+downloaded PDF fixture:
+
+```bash
+FRA_REAL_PDF_E2E_MARKET=CN \
+FRA_REAL_PDF_E2E_STOCK_CODE=600519 \
+FRA_REAL_PDF_E2E_FISCAL_YEAR=2025 \
+uv run pytest tests/integration/test_real_pdf_extract_persist_e2e.py -q
+```
+
 ## Output Contract
 
 The service returns a stable analysis envelope containing:
