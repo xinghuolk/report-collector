@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from financial_report_analysis.api.app import app as module_app
+from financial_report_analysis.api.app import build_uvicorn_settings
 from financial_report_analysis.api.app import create_app
 from financial_report_analysis.api.runtime import ApiRuntime
 from financial_report_analysis.api.runtime import STORAGE_DB_PATH_ENV, build_api_runtime
@@ -67,3 +68,28 @@ def test_build_api_runtime_uses_env_fallback(
 
     assert runtime.storage_db_path == storage_db_path
     assert runtime.storage_engine is not None
+
+
+def test_build_uvicorn_settings_uses_analysis_api_env(monkeypatch) -> None:
+    monkeypatch.setenv("FRA_API_HOST", "127.0.0.1")
+    monkeypatch.setenv("FRA_API_PORT", "8123")
+
+    settings = build_uvicorn_settings()
+
+    assert settings == {
+        "host": "127.0.0.1",
+        "port": 8123,
+        "reload": False,
+    }
+
+
+def test_build_uvicorn_settings_defaults_to_analysis_service_port(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("FRA_API_HOST", raising=False)
+    monkeypatch.delenv("FRA_API_PORT", raising=False)
+
+    settings = build_uvicorn_settings()
+
+    assert settings["host"] == "0.0.0.0"
+    assert settings["port"] == 8001

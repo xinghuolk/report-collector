@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 
 from financial_report_analysis.api.routes import router
 from financial_report_analysis.api.runtime import ApiRuntime, build_api_runtime
+
+API_HOST_ENV = "FRA_API_HOST"
+API_PORT_ENV = "FRA_API_PORT"
+DEFAULT_API_HOST = "0.0.0.0"
+DEFAULT_API_PORT = 8001
 
 
 def create_app(
@@ -25,12 +32,18 @@ def create_app(
 app = create_app()
 
 
+def build_uvicorn_settings() -> dict[str, Any]:
+    return {
+        "host": os.getenv(API_HOST_ENV, DEFAULT_API_HOST),
+        "port": int(os.getenv(API_PORT_ENV, str(DEFAULT_API_PORT))),
+        "reload": False,
+    }
+
+
 def main() -> None:
     import uvicorn
 
     uvicorn.run(
         "financial_report_analysis.api.app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=False,
+        **build_uvicorn_settings(),
     )

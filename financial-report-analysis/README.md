@@ -22,6 +22,26 @@ quality-gated output.
 - The service owns its own ingestion path and does not import `report`'s
   extractor implementation
 
+## Runtime Configuration
+
+Export these variables before starting the API. You can keep the same values in
+`.env` for local reference and load them with your shell tooling.
+
+```bash
+FRA_API_HOST=0.0.0.0
+FRA_API_PORT=8001
+FRA_STORAGE_DB_PATH=./data/financial_report_analysis.sqlite3
+```
+
+`FRA_STORAGE_DB_PATH` is a SQLite file path. The API creates the parent
+directory and database tables when the storage path is configured.
+
+Run the API with:
+
+```bash
+uv run financial-report-analysis-api
+```
+
 ## Output Contract
 
 The service returns a stable analysis envelope containing:
