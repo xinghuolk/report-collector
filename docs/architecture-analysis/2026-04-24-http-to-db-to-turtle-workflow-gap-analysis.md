@@ -14,14 +14,14 @@
 - extract route 已支持 `build_dataset` / `build_turtle` opt-in flags。
 - persisted dataset / turtle / review / lineage 可以通过 storage-backed API/read surface 查回。
 
-因此，本文中的 “HTTP write path 仍不是 DB-backed” 和 “缺少统一 ingest/build orchestration boundary” 已不再准确。Task 5 又补齐了只读 `3-5Y persisted dataset availability view`。当前剩余 gap 应收窄为：
+因此，本文中的 “HTTP write path 仍不是 DB-backed” 和 “缺少统一 ingest/build orchestration boundary” 已不再准确。Task 5 又补齐了只读 `3-5Y persisted dataset availability view`。按当前“单纯数据提供”业务范围，DB-backed data provider baseline 已经完成：
 
-1. 更广义的 3-5Y Turtle workflow orchestration / workflow products 尚未产品化。
-2. 当前 build 是单次 extract 后的 opt-in synchronous path，不是多步骤 workflow orchestration。
+1. 单年年报 PDF 可以抽取并持久化。
+2. dataset / turtle / review / lineage 可以通过 storage-backed surface 读回。
 3. `p5/runner.py` 仍保留 JSON-first runner，但不应作为 availability view 的运行时主路径。
-4. upload/url acquisition、async job handle、retry/rebuild policy、approval workflow 尚未产品化。
-5. availability view 已回答 persisted facts / missing states / lineage；后续还需要 workflow 层把这些状态转成 acquisition、rebuild、approval 等产品动作。
-6. 已完成的只读 availability view 不等于完整 Turtle workflow orchestration。
+4. availability view 已回答 persisted facts / missing states / lineage。
+5. upload/url acquisition、async job handle、retry/rebuild policy、approval workflow、workflow product 生命周期属于 future/out of current scope，不是当前 gap。
+6. 已完成的只读 availability view 不等于完整 Turtle workflow orchestration；但完整 workflow orchestration 暂不需要。
 
 ## 1. Executive Summary
 
@@ -32,7 +32,7 @@
 
 这意味着系统已经从“只能在本地 JSON / 内部模块里跑”推进到了“数据库可承接核心 artifact，HTTP 已能稳定从数据库读关键对象”。
 
-当前系统又进一步补齐了 opt-in **DB-backed write/build slice** 和只读 **3-5Y persisted dataset availability view**。但距离用户想要的完整数据消费目标，仍缺更广义的 **3-5Y Turtle workflow orchestration / workflow products**：
+当前系统又进一步补齐了 opt-in **DB-backed write/build slice** 和只读 **3-5Y persisted dataset availability view**。按当前用户目标，完整数据提供闭环已经是：
 
 ```text
 HTTP PDF ingress
@@ -44,14 +44,13 @@ HTTP PDF ingress
 -> synchronous or handled response
 -> follow-up API lookup
 -> issuer/year-range 3-5Y availability query
--> workflow action planning / acquisition / rebuild / approval products
 ```
 
 **结论：**
 
 - DB-backed ingest/build 的最小 slice 已经完成。
 - 只读 **3-5Y persisted dataset availability view** 已完成。
-- 剩余路线应建立在该只读视图之上，推进更广义的 workflow orchestration / workflow products；不要把多年份 workflow 塞进单次 extract route，也不要把数据提取服务扩成投资 workflow 引擎。
+- workflow orchestration / workflow products 暂时不需要，应作为 future bucket 保留，不作为当前阻塞项。
 
 这条路线既能最快让系统“真的跑通”，又不会破坏路线图已经建立的 storage / document-ledger / review-lineage-recompute contract。
 
@@ -164,7 +163,7 @@ HTTP PDF ingress
 - **read from DB: yes**
 - **single-report write/build slice: yes**
 - **3-5Y persisted dataset availability view: implemented**
-- **broader 3-5Y Turtle workflow orchestration / workflow products: not yet**
+- **broader 3-5Y Turtle workflow orchestration / workflow products: future / out of current scope**
 
 ### 4.2 P5 runner 仍是 JSON-first
 
@@ -197,9 +196,9 @@ HTTP PDF ingress
 - 不调用现有 extract/build path
 - 不输出 Turtle 策略对象，只输出通用数据视图
 
-剩余缺口是基于该视图继续产品化 workflow orchestration：acquisition、retry/rebuild、approval、job handle、以及 Turtle 策略侧输入编排。
+如果未来业务需要，后续可基于该视图继续产品化 workflow orchestration：acquisition、retry/rebuild、approval、job handle、以及 Turtle 策略侧输入编排。它们不属于当前数据提供闭环的未完成项。
 
-### 4.4 3-5 年数据消费还缺 workflow products
+### 4.4 3-5 年 workflow products 属于 future scope
 
 当前已经有：
 
@@ -207,7 +206,7 @@ HTTP PDF ingress
 - Turtle export artifact
 - 3-5Y persisted dataset availability view
 
-但还没有把“按 issuer / 3-5 fiscal years / required metric coverage”查询结果升级成 workflow products，负责：
+当前暂不需要把“按 issuer / 3-5 fiscal years / required metric coverage”查询结果升级成 workflow products。若未来需要，这一层才负责：
 
 - 对缺失 report 发起 acquisition
 - 对缺失 artifact 或 stale 状态发起 rebuild/retry
@@ -215,7 +214,7 @@ HTTP PDF ingress
 - 管理 async job handle、approval、review transitions
 - 编排 Turtle 策略侧输入
 
-当前应避免把“3-5 年数据视图已完成”误读为“3-5Y Turtle workflow orchestration 已完成”。
+当前应避免两个误读：不要把“3-5 年数据视图已完成”误读为“3-5Y Turtle workflow orchestration 已完成”；也不要把暂不需要的 workflow orchestration 继续当成当前 gap。
 
 ## 5. 可选路线
 
@@ -423,7 +422,7 @@ HTTP -> DB write -> API read back
 - 查询接口只读，不触发 extract/recompute/build
 - 与 upload/url acquisition、approval workflow、Turtle 策略编排的边界
 
-该只读 availability view 已实现；后续 spec 应聚焦更广义的 3-5Y Turtle workflow orchestration / workflow products。
+该只读 availability view 已实现；后续只有在业务需要 workflow/job/product lifecycle 时，才应聚焦更广义的 3-5Y Turtle workflow orchestration / workflow products。
 
 ## 11. Final Recommendation
 
@@ -431,7 +430,7 @@ HTTP -> DB write -> API read back
 
 - `3-5Y persisted dataset availability view`
 
-**下一步应该做：**
+**未来如果需要才做：**
 
 - 基于 availability view 的 3-5Y Turtle workflow orchestration / workflow products
 
@@ -442,15 +441,14 @@ HTTP -> DB write -> API read back
 - 继续把 JSON runner 扩成长期主路径
 - 提前做 approval/workflow 全套
 
-最小正确路线是：
+当前已完成的最小正确路线是：
 
 ```text
 existing DB-backed single-report write/build slice
 -> 3-5Y persisted dataset availability view
--> richer workflow/review API
 ```
 
-## 12. 最小全流程验证当前还缺什么
+## 12. 最小全流程验证当前状态
 
 当前单报告竖切已经可以证明：
 
@@ -473,9 +471,9 @@ issuer + fiscal-year range
 -> read back through stable API
 ```
 
-因此，本文早期提出的 availability view spec 已经不是下一步“待定义能力”。当前仍缺的是建立在该 view 之上的更广义 workflow orchestration / workflow products，让系统从“能回答覆盖情况”继续走到“能稳定产出 3-5 年可消费分析数据包”。
+因此，本文早期提出的 availability view spec 已经不是下一步“待定义能力”。按当前“单纯数据提供”范围，最小全流程已经完成；更广义 workflow orchestration / workflow products 是 future scope。
 
-剩余最小闭环应收窄为 6 类能力：
+如果未来要把当前数据提供层升级成 workflow/product 层，再考虑 6 类能力：
 
 1. **Workflow orchestration boundary**
    - 需要一个独立的 3-5Y workflow entrypoint，消费 availability view 的覆盖计划。
@@ -506,7 +504,7 @@ issuer + fiscal-year range
      - product / audit / lineage 可读回。
      - `/api/v1/analysis/extract` 默认行为不被多年份 workflow 污染。
 
-这意味着下一份正式 spec 不应再定义“单报告写入 DB”或“只读 availability view”能力，而应定义更上层的：
+这意味着如果未来需要下一份正式 spec，不应再定义“单报告写入 DB”或“只读 availability view”能力，而应定义更上层的：
 
 `financial-report-analysis-3-5y-turtle-workflow-products-design`
 

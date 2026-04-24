@@ -1,6 +1,6 @@
 # Active Plans
 
-There are no active implementation plans after the 2026-04-24 DB-backed extract to P5/Turtle orchestration closeout.
+There are no active implementation plans after the 2026-04-24 DB-backed 3-5Y data provider closeout.
 
 Before creating a new plan, read:
 

@@ -24,6 +24,7 @@
 - `Storage-Backed API Runtime Slice` 已完成并收口。
 - `DB-Backed Extract Persistence And Lookup Slice` 已完成并收口。
 - `DB-Backed Extract To P5/Turtle Orchestration` 已完成并收口。
+- `3-5Y Persisted Dataset Availability View` 已完成并收口，设计文档已归档。
 - 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
 - `new-report-sample-onboarding-and-field-variance-process.md` 不再只是补充说明，而应视为后续字段 phase 的正式前置方法约束。
 - `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 仍然是后续 coverage 需求的重要来源，但当前分支已经不再处于 pre-P5 的字段扩张阶段。
@@ -31,28 +32,25 @@
 - `docs/superpowers/specs/reference/2026-04-23-financial-report-analysis-core-database-architecture-planning.md` 仍是更长期 fact-ledger / metric-governance / DB 架构方向参考。
 - `docs/superpowers/specs/reference/2026-04-23-financial-report-analysis-turtle-post-p4-coverage-roadmap.md` 仍保留 post-P5 enhancement candidates，但 pre-P5/P4C/P4D/P4E/P5 主线已经完成。
 
-因此，当前推荐的下一步不再是继续新开 `P4x` 或 `P5` coverage phase，而是进入：
+因此，当前推荐的下一步不再是继续新开 `P4x` / `P5` coverage phase，也不再是补数据库数据提供能力。当前可收口为：
 
-`Post-P5 Review / Storage / Lineage / Recompute Foundation`
+`DB-backed 3-5Y data provider baseline complete`
 
-这条线的默认边界应为：
+这条已完成基线包括：
 
-- 先做 `review surface`
-- 再做 `artifact lineage contract`
-- 再做 `deterministic recompute contract`
-- 如需 LLM，最多预留为后续 `whole-document assessment / diff review` 扩展，不进入当前主逻辑
+- 单年年报 PDF 经 `/api/v1/analysis/extract` 抽取并持久化。
+- extracted artifact / dataset / turtle / review / lineage 可通过 storage-backed surface 查回。
+- 3-5 年 read-only availability/data view 能基于已持久化 facts 返回 coverage、missing states、audit 与 lineage。
+- 查询路径不触发 PDF extraction、recompute、dataset build 或 Turtle build。
 
-同时，应把 `LLM whole-document assessment` 明确视为 post-P5 之后的开放方向：
+同时，应把以下内容明确视为 future/out of current scope，而不是当前未完成项：
 
-- 它的职责是读取整份 PDF，形成受限 assessment / comparison artifact
-- 它可以服务 review、差异摘要与 coverage gap 识别
-- 它不能成为 canonical facts 的主来源，也不能进入 deterministic recompute 裁决链
-
-还应把“数据库重构 / durable storage abstraction”视为这条 post-P5 foundation 的**后续阶段**，而不是并行起步项：
-
-- 只有当 `review surface`、`lineage contract` 与 `deterministic recompute contract` 达到可用完成状态后，才进入数据库阶段
-- 数据库阶段应建立在已经稳定的 artifact / review / lineage / recompute contract 之上，而不是反过来驱动这些 contract 频繁变化
-- 数据库阶段的默认起步选型应是 `SQLAlchemy + SQLite-first`，同时保持 schema 与 repository boundary 可迁移到 `Postgres`
+- 3-5Y workflow run / job 状态表。
+- 缺失年份自动发现、自动补抽、自动 retry/rebuild。
+- recompute / stale 策略落库与产品化生命周期。
+- 正式 3-5Y workflow product artifact 生命周期。
+- approval/review workflow 的完整状态机。
+- whole-document LLM assessment / diff review。
 
 截至当前分支，这条数据库线的 `core baseline` 已经不再是待规划项，而是已实现基线：
 
@@ -61,18 +59,12 @@
 - minimal historical ingestion registry
 - minimal review / lineage / recompute persistence
 
-因此，下一步不宜再从数据库 umbrella spec 直接写一个新的总 implementation plan，而应继续拆成两个后继子阶段：
+因此，下一步不宜再从数据库 umbrella spec、availability spec 或 workflow umbrella spec 直接写新的 implementation plan。只有当出现新的明确业务目标时，才从下面这些 future buckets 中选择一个最小切片：
 
-- `Storage-Backed Query And Audit`
-- `Document Ledger And Extraction-Run Persistence`
-
-这两项截至当前分支也已经完成。因此，新的下一步应从下面这些仍开放的方向中选择一个最小切片，而不是恢复旧 plan：
-
-- 3-5 年 persisted dataset availability view：围绕多年份缺口识别、持久化 facts 查询、缺失年份状态、数据覆盖解释做新的 focused spec。
-- API/write workflow 产品化：在现有 opt-in extract + build 路径上，设计更明确的 ingest/build workflow boundary，但不做 full approval system。
 - Metric governance 与 custom/provisional lifecycle：把 registry 状态、review decision、canonical promotion 的长期方向拆成小的可验证 slice。
 - Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
 - Whole-document LLM assessment / diff review：只作为 review artifact，不进入 canonical facts 或 deterministic recompute 裁决链。
+- 3-5Y workflow/products：只有在业务明确需要自动补齐、job 状态、product artifact 生命周期或 approval workflow 时再启动。
 
 ## 1. 目的
 
@@ -314,14 +306,13 @@ pdf
    - 当前分支里，P2B、P3、P4A、P4B、P4C、P4D、P4E、P5 都已经进入已完成状态。
    - 下一步不应继续按“还有哪个字段 phase 没开”来判断，而应转入 post-P5 基础设施阶段。
 
-2. **优先建设 post-P5 的 review / lineage / recompute 地基。**
-   - 现在最缺的不是再多几个字段，而是让现有 artifact 可审、可追、可重算。
-   - review surface、artifact lineage、dataset lineage、recompute input/output contract 应优先于新的 broad storage abstraction。
+2. **承认 DB-backed data provider baseline 已完成。**
+   - 当前不是“还有数据库层没做完”，而是单年抽取持久化与 3-5 年只读数据提供已经形成闭环。
+   - availability view 已完成并归档；不要再围绕同一目标新开 active spec。
 
-2.1 **把数据库重构明确后置为 post-P5 foundation 的后继阶段。**
-   - 当前可以为数据库重构做 brainstorming 与 contract 设计，但不应让 durable storage 反过来主导本阶段的 review / lineage / recompute 细节。
-   - 更准确的顺序应是：
-     `review surface -> lineage contract -> deterministic recompute -> durable storage`
+2.1 **把 workflow/products 明确后置为 future scope。**
+   - 当前业务暂不需要 job 状态表、自动补齐、recompute 生命周期、product artifact 生命周期或 approval workflow。
+   - 这些能力只在后续业务明确要求时再做 focused spec。
 
 3. **保持 recompute core 为 deterministic。**
    - recompute 的主逻辑应只依赖 manifest、persisted extracted artifacts、dataset assembly rules 和版本化 contract。
@@ -332,10 +323,9 @@ pdf
    - 它可以帮助发现系统漏抽、误抽和 scope 冲突，但不应成为主事实来源。
    - 这条能力应在总路线中保留正式位置，但默认排在 review / lineage / deterministic recompute 之后。
 
-5. **storage abstraction 可以后置，但 lineage contract 不能后置。**
-   - 当前 JSON artifact repository 足以支撑第一版 post-P5 基础设施。
-   - 只有当 review / recompute / query 需求已经稳定时，才值得推进数据库或更重的 storage layer。
-   - 如果 database 阶段提前启动，目标也应是承接既有 contract，而不是重写 contract。
+5. **不要把 future workflow 当作当前 gap。**
+   - 当前最小数据提供目标不要求 async job handle、自动 acquisition、approval workflow 或产品生命周期。
+   - gap 文档中的 workflow/product 内容应作为 future bucket 参考，不作为当前阻塞项。
 
 6. **后续新增字段 phase 必须建立在 post-P5 基础设施之上。**
    - 如果后面还要继续承接 `v0.15` gap list、parent scope 深挖或 broad notes bridge，应先有 review / lineage guardrails。
@@ -509,6 +499,20 @@ pdf
   - lineage links
   - recompute events / diff summaries
 
+当前状态：
+
+- 已完成 DB-backed extract persistence / lookup、document ledger、storage-backed API runtime、query/audit、extract-to-P5/Turtle opt-in build，以及 3-5Y persisted dataset availability view。
+- 对当前“单纯数据提供”业务而言，Durable Storage And Query Foundation 已经足够收口。
+
+### Milestone F3: 3-5Y Persisted Data Provider Closeout
+
+当前状态：
+
+- 单年年报 PDF 可以抽取并持久化为 extracted artifacts。
+- 已持久化的 dataset / turtle / review / lineage surface 可以读回。
+- 3-5Y availability/data view 可以按 issuer/year range 返回 persisted facts、missing states、coverage explanation 与 lineage。
+- 该里程碑不包含 workflow run/job 状态、自动补齐、recompute 生命周期、正式 workflow product artifact 生命周期或 approval workflow。
+
 ### Milestone G: Whole-Document LLM Assessment Extension
 
 预期结果：
@@ -547,9 +551,9 @@ pick one active phase
 
 ## 12. 当前最小全流程验证定义
 
-截至 2026-04-24，单报告级的 `HTTP -> DB -> dataset/turtle -> readback` 竖切已经不再是主要缺口。后续最小全流程验证应升级为 3-5 年 persisted dataset availability view，而不是继续扩大 `/api/v1/analysis/extract` 的职责。
+截至 2026-04-24，单报告级的 `HTTP -> DB -> dataset/turtle -> readback` 竖切和 3-5 年 persisted dataset availability view 都已经完成。当前最小全流程定义为已实现基线，而不是新的 active spec 输入。
 
-新的最小全流程应验证：
+已完成的最小全流程为：
 
 ```text
 issuer + fiscal-year range
@@ -570,8 +574,6 @@ issuer + fiscal-year range
 
 这一轮真实 PDF 仍然重要，但只作为 seed 输入。推荐 anchor 是 `01810`、`09987` 和 `601919`：先从这些 PDF 预提取并写入持久化层，再用 availability view 查询已持久化数据。
 
-因此，下一份 active spec 应优先围绕：
+`financial-report-analysis-3-5y-persisted-dataset-availability-view-design` 已完成并归档。真实 PDF 可继续作为 seed smoke test，但 availability correctness 的第一层验证应使用 seeded DB / mocked extracted artifacts，避免每次收口都被完整 real-PDF matrix 和 Ollama fallback 成本拖住。
 
-`financial-report-analysis-3-5y-persisted-dataset-availability-view-design`
-
-这条线展开。真实 PDF 可作为 seed smoke test，但 availability correctness 的第一层验证应使用 seeded DB / mocked extracted artifacts，避免每次收口都被完整 real-PDF matrix 和 Ollama fallback 成本拖住。
+在没有新增业务目标前，不需要新的 active implementation plan。
