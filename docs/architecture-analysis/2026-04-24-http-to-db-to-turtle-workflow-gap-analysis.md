@@ -450,7 +450,7 @@ existing DB-backed single-report write/build slice
 -> richer workflow/review API
 ```
 
-## 12. 最小全流程验证还缺什么
+## 12. 最小全流程验证当前还缺什么
 
 当前单报告竖切已经可以证明：
 
@@ -461,7 +461,7 @@ HTTP extract
 -> persisted dataset / turtle / review / lineage readback
 ```
 
-因此，最小全流程验证不应该继续只验证“单个 PDF 能写入并读回”。真正缺少的是一条面向数据消费的多年份只读闭环：
+Task 5 已经补齐了第一条面向数据消费的多年份只读闭环：
 
 ```text
 issuer + fiscal-year range
@@ -473,50 +473,52 @@ issuer + fiscal-year range
 -> read back through stable API
 ```
 
-最小闭环还缺 6 类能力：
+因此，本文早期提出的 availability view spec 已经不是下一步“待定义能力”。当前仍缺的是建立在该 view 之上的更广义 workflow orchestration / workflow products，让系统从“能回答覆盖情况”继续走到“能稳定产出 3-5 年可消费分析数据包”。
 
-1. **Availability view service boundary**
-   - 需要一个独立的 3-5Y availability view service，输入为 `issuer_id / market / stock_code / fiscal_year_range / required_profile`。
-   - 不应继续把多年份编排塞进 `/api/v1/analysis/extract`。
+剩余最小闭环应收窄为 6 类能力：
 
-2. **Availability planner**
-   - 需要在返回数据视图前明确每个年份的状态。
-   - 最小状态集合应覆盖：`covered`、`missing_report`、`missing_extracted_artifact`、`stale_or_recompute_needed`、`out_of_scope`。
-   - 这一步的输出必须可进入 response / audit，不允许静默忽略缺失年份。
+1. **Workflow orchestration boundary**
+   - 需要一个独立的 3-5Y workflow entrypoint，消费 availability view 的覆盖计划。
+   - 不应继续把多年份 workflow 塞进 `/api/v1/analysis/extract`。
 
-3. **DB-first multi-year view assembly**
-   - 需要从已持久化的 extracted artifacts / canonical facts 组装多年份数据视图。
-   - JSON runner 可以继续作为兼容或离线工具，但不应作为 3-5Y availability view 的运行时主路径。
+2. **Report discovery / ingest decision**
+   - 对 `missing_report` / `missing_extracted_artifact` 年份，需要定义发现报告、排队抽取、或只返回缺口的策略。
+   - 第一版可以不自动 rebuild，但 response 必须明确哪些年份需要人工或后续 workflow 补齐。
 
-4. **Reuse / missing policy**
-   - 需要定义什么时候复用已有 artifact，什么时候只返回缺口。
-   - 第一版不触发 rebuild，但必须让 response 明确说明缺口原因。
+3. **DB-first multi-year product assembly**
+   - 需要从 persisted extracted artifacts / canonical facts 组装 3-5Y workflow product。
+   - JSON runner 可以继续作为兼容或离线工具，但不应作为长期 runtime 主路径。
 
-5. **Stable availability result and readback**
-   - availability 返回值至少应包含：`issuer_id`、`year_range`、`metric_profile`、`coverage_summary`、`missing_items`、`source_artifact_ids`。
-   - source artifact / dataset audit 信息必须能通过现有 storage-backed API/read surface 查回。
+4. **Reuse / recompute policy**
+   - 需要定义什么时候复用已有 artifact，什么时候触发 recompute，什么时候只返回缺口。
+   - availability view 给出覆盖状态，workflow layer 负责把这些状态转成可执行策略。
 
-6. **Focused verification matrix**
-   - 默认验证应使用 seed DB / mocked extracted artifact，而不是每次跑完整 real-PDF matrix。
+5. **Stable workflow product and readback**
+   - workflow product 返回值至少应包含：`issuer_id`、`year_range`、`metric_profile`、`coverage_summary`、`source_artifact_ids`、`product_artifact_id`。
+   - dataset / turtle / review / lineage 信息必须能通过 storage-backed API/read surface 查回。
+
+6. **Focused workflow verification matrix**
+   - 默认验证应复用 seed DB / mocked extracted artifact / availability view fixture，而不是每次跑完整 real-PDF matrix。
    - 最小测试应覆盖：
      - 一个 issuer 的 3 个年份中 2 年已覆盖、1 年缺失。
-     - availability view 能复用已有 extracted artifacts。
-     - 缺失年份进入 coverage explanation，而不是被忽略。
-     - artifact / audit / lineage 可读回。
+     - workflow 能复用 availability view 给出的已有 extracted artifacts。
+     - 缺失年份进入 workflow product explanation，而不是被忽略。
+     - product / audit / lineage 可读回。
      - `/api/v1/analysis/extract` 默认行为不被多年份 workflow 污染。
 
-这意味着下一份正式 spec 不应再定义“单报告写入 DB”能力，而应定义：
+这意味着下一份正式 spec 不应再定义“单报告写入 DB”或“只读 availability view”能力，而应定义更上层的：
 
-`financial-report-analysis-3-5y-persisted-dataset-availability-view-design`
+`financial-report-analysis-3-5y-turtle-workflow-products-design`
 
-它的验收目标应该是：
+它的验收目标应该基于已完成的 availability view：
 
 ```text
 seeded DB artifacts
 -> 3-5Y availability request
 -> explicit availability plan
+-> workflow orchestration decision
 -> facts / missing states / lineage from persisted data
--> stable readback
+-> stable product readback
 ```
 
-真实 PDF 验证可以作为该 availability view 的 seed smoke test，但不应作为第一层 correctness 测试的默认前提。
+真实 PDF 验证可以继续作为 workflow seed smoke test，但不应作为第一层 correctness 测试的默认前提。
