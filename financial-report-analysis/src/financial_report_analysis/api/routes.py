@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from financial_report_analysis.adapters.report_adapter import ReportAdapter
 from financial_report_analysis.api.extract_write_service import (
+    build_p5_outputs_for_persisted_extract,
     persist_analysis_extract_result,
 )
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
@@ -142,7 +143,7 @@ def get_recompute_result(
 @router.post(
     "/api/v1/analysis/extract",
     response_model=AnalysisExtractResponse,
-    response_model_exclude_none=True,
+    response_model_exclude_unset=True,
 )
 def extract_analysis(
     request: AnalysisExtractRequest,
@@ -196,7 +197,7 @@ def extract_analysis(
         document=document,
         pipeline_result=pipeline_result,
     )
-    if request.persist_to_storage:
+    if request.persist_to_storage or request.build_dataset or request.build_turtle:
         if (
             runtime.storage_repository is None
             or runtime.historical_ingestion_service is None
@@ -213,12 +214,30 @@ def extract_analysis(
                 extracted_payload=extracted_payload,
                 pipeline_result=pipeline_result,
             )
+            build_result = build_p5_outputs_for_persisted_extract(
+                runtime=runtime,
+                request=request,
+                storage_result=storage_result,
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
-        analysis_result["storage"] = storage_result.to_response_dict()
+        except P5ArtifactRepositoryError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            ) from exc
+        storage_payload = storage_result.to_response_dict()
+        if build_result is not None:
+            storage_payload["build"] = build_result.to_response_dict()
+        analysis_result["storage"] = storage_payload
     return analysis_result
 
 

@@ -409,6 +409,197 @@ def test_extract_endpoint_persisted_result_is_readable_by_storage_get_routes(
     assert issuer_response.json()["reports"][0]["fiscal_year"] == 2025
 
 
+def test_extract_endpoint_rejects_build_dataset_without_persistence() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": "ignored.pdf",
+            "market": "CN",
+            "build_dataset": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "build_dataset requires persist_to_storage=true" in response.text
+
+
+def test_extract_endpoint_returns_503_when_build_requested_without_storage(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [],
+        },
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "persist_to_storage": True,
+            "build_dataset": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "storage repository is not configured"
+
+
+def test_extract_endpoint_persists_dataset_when_build_dataset_requested(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": "yuan",
+                    "normalized_unit": "currency_amount",
+                    "precision": 0,
+                    "confidence": 0.99,
+                    "document_id": str(pdf_path),
+                    "block_id": "block-1",
+                    "page_index": 0,
+                    "evidence_bundle_id": "bundle-1",
+                }
+            ],
+        },
+    )
+
+    client = TestClient(create_app(storage_db_path=tmp_path / "storage.db"))
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "min_confidence": 0.8,
+            "persist_to_storage": True,
+            "build_dataset": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "company_name": "COSCO SHIPPING Holdings",
+            "report_language": "zh",
+        },
+    )
+
+    assert response.status_code == 200
+    build = response.json()["storage"]["build"]
+    assert build["dataset_id"] == "single_report_CN_601919_2025_annual_CN_601919_2025"
+    assert build["turtle_export_id"] is None
+
+    dataset_response = client.get(build["dataset_lookup_path"])
+    audit_response = client.get(f"/datasets/{build['dataset_id']}/audit")
+
+    assert dataset_response.status_code == 200
+    assert audit_response.status_code == 200
+
+
+def test_extract_endpoint_persists_turtle_when_build_turtle_requested(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": "yuan",
+                    "normalized_unit": "currency_amount",
+                    "precision": 0,
+                    "confidence": 0.99,
+                    "document_id": str(pdf_path),
+                    "block_id": "block-1",
+                    "page_index": 0,
+                    "evidence_bundle_id": "bundle-1",
+                }
+            ],
+        },
+    )
+
+    client = TestClient(create_app(storage_db_path=tmp_path / "storage.db"))
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "min_confidence": 0.8,
+            "persist_to_storage": True,
+            "build_turtle": True,
+            "dataset_id": "api_single_report_dataset",
+            "dataset_version": "api-test",
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "company_name": "COSCO SHIPPING Holdings",
+            "report_language": "zh",
+        },
+    )
+
+    assert response.status_code == 200
+    build = response.json()["storage"]["build"]
+    assert build["dataset_id"] == "api_single_report_dataset"
+    assert build["dataset_version"] == "api-test"
+    assert build["turtle_export_id"] == "api_single_report_dataset"
+    assert build["turtle_export_lookup_path"] is None
+
+    audit_response = client.get("/datasets/api_single_report_dataset/audit")
+
+    assert audit_response.status_code == 200
+    assert audit_response.json()["turtle_export_review_surface"] is not None
+
+
 def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     monkeypatch,
     tmp_path: Path,
