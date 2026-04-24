@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from dataclasses import dataclass, field
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from financial_report_analysis.models.table import ParsedTable
+from financial_report_analysis.models.facts import CandidateFact, CanonicalFact, DerivedFact
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
 from financial_report_analysis.p5.artifact_repository import (
     P5ArtifactRepositoryError,
@@ -46,17 +49,46 @@ from financial_report_analysis.p5.review import (
 )
 
 from .artifacts import EvidenceBundleRecord
+from .artifacts import (
+    build_document_id,
+    build_document_version_id,
+    build_extraction_run_id,
+    build_fact_lineage_record_id,
+    build_quality_gate_result_id,
+    build_report_file_id,
+    build_statement_table_column_id,
+    build_statement_table_id,
+    build_statement_table_payload_id,
+    build_statement_table_row_id,
+    build_validation_issue_id,
+)
 from .models import (
+    CandidateFactRecord,
+    CanonicalFactRecord,
     DatasetLineageRecord,
     DatasetArtifactRecord,
+    DocumentRecord,
+    DocumentVersionRecord,
+    DerivedFactRecord,
     DatasetReviewSurfaceRecord,
     ExtractedArtifactRecord,
     ExtractedReviewSurfaceRecord,
+    ExtractionRunRecord,
+    FactLineageRecord,
+    FactSetRecord,
     IssuerRecord,
+    QualityGateResultRecord,
     RecomputeRunRecord,
+    ReportFileRecord,
     ReportRecord,
+    StatementTableColumnRecord,
+    StatementTablePayloadRecord,
+    StatementTableRecord,
+    StatementTableRowRecord,
     TurtleExportArtifactRecord,
     TurtleExportReviewSurfaceRecord,
+    ValidationIssueRecord,
+    ValidationReportRecord,
 )
 
 
@@ -97,6 +129,56 @@ class DatasetAuditView:
     turtle_export_review_surface: P5TurtleExportReviewSurface | None
     latest_recompute_run_id: str | None
     latest_recompute_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentVersionIdentity:
+    report_file_id: str
+    document_id: str
+    document_version_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionRunIdentity:
+    extraction_run_id: str
+    document_version_id: str
+    pipeline_version: str
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class StatementTableLedgerEntry:
+    statement_table_id: str
+    extraction_run_id: str
+    document_version_id: str
+    source_table_id: str
+    table_family: str
+    statement_type: str
+    row_ids: tuple[str, ...]
+    column_ids: tuple[str, ...]
+    payload_kinds: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FactSetLedgerEntry:
+    fact_set_id: str
+    extraction_run_id: str
+    fact_set_kind: str
+    status: str
+    fact_ids: tuple[str, ...]
+    lineage_record_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationLedgerEntry:
+    validation_report_id: str
+    extraction_run_id: str
+    fact_set_id: str
+    overall_status: str
+    issue_ids: tuple[str, ...]
+    issue_codes: tuple[str, ...]
+    quality_gate_result_id: str
+    quality_gate_status: str
 
 
 @dataclass(slots=True)
@@ -204,6 +286,145 @@ class InMemoryEvidenceRepository:
 @dataclass(slots=True)
 class SqlAlchemyP5ArtifactRepository:
     engine: Engine
+
+    def ensure_document_version(
+        self,
+        *,
+        report_id: int,
+        file_path: str,
+        version_label: str | None = None,
+        report_file_payload: dict[str, object] | None = None,
+        document_payload: dict[str, object] | None = None,
+        document_version_payload: dict[str, object] | None = None,
+    ) -> DocumentVersionIdentity:
+        report_file_id = build_report_file_id(report_id, file_path)
+        document_id = build_document_id(report_file_id)
+        document_version_id = build_document_version_id(
+            document_id,
+            version_label=version_label,
+        )
+        with Session(self.engine) as session:
+            report_file = session.get(ReportFileRecord, report_file_id)
+            if report_file is None:
+                report_file = ReportFileRecord(
+                    report_file_id=report_file_id,
+                    report_id=report_id,
+                    file_path=file_path,
+                    payload_json=(
+                        json.dumps(report_file_payload, ensure_ascii=False, sort_keys=True)
+                        if report_file_payload is not None
+                        else None
+                    ),
+                )
+                session.add(report_file)
+            else:
+                report_file.report_id = report_id
+                report_file.file_path = file_path
+                report_file.payload_json = (
+                    json.dumps(report_file_payload, ensure_ascii=False, sort_keys=True)
+                    if report_file_payload is not None
+                    else report_file.payload_json
+                )
+
+            document = session.get(DocumentRecord, document_id)
+            if document is None:
+                document = DocumentRecord(
+                    document_id=document_id,
+                    report_file_id=report_file_id,
+                    payload_json=(
+                        json.dumps(document_payload, ensure_ascii=False, sort_keys=True)
+                        if document_payload is not None
+                        else None
+                    ),
+                )
+                session.add(document)
+            else:
+                document.report_file_id = report_file_id
+                document.payload_json = (
+                    json.dumps(document_payload, ensure_ascii=False, sort_keys=True)
+                    if document_payload is not None
+                    else document.payload_json
+                )
+
+            document_version = session.get(DocumentVersionRecord, document_version_id)
+            if document_version is None:
+                document_version = DocumentVersionRecord(
+                    document_version_id=document_version_id,
+                    document_id=document_id,
+                    version_label=version_label,
+                    payload_json=(
+                        json.dumps(
+                            document_version_payload,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                        if document_version_payload is not None
+                        else None
+                    ),
+                )
+                session.add(document_version)
+            else:
+                document_version.document_id = document_id
+                document_version.version_label = version_label
+                document_version.payload_json = (
+                    json.dumps(
+                        document_version_payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    if document_version_payload is not None
+                    else document_version.payload_json
+                )
+            session.commit()
+        return DocumentVersionIdentity(
+            report_file_id=report_file_id,
+            document_id=document_id,
+            document_version_id=document_version_id,
+        )
+
+    def save_extraction_run(
+        self,
+        *,
+        document_version_id: str,
+        pipeline_version: str,
+        status: str,
+        payload: dict[str, object] | None = None,
+    ) -> ExtractionRunIdentity:
+        extraction_run_id = build_extraction_run_id(
+            document_version_id,
+            pipeline_version=pipeline_version,
+        )
+        with Session(self.engine) as session:
+            record = session.get(ExtractionRunRecord, extraction_run_id)
+            if record is None:
+                record = ExtractionRunRecord(
+                    extraction_run_id=extraction_run_id,
+                    document_version_id=document_version_id,
+                    pipeline_version=pipeline_version,
+                    status=status,
+                    payload_json=(
+                        json.dumps(payload, ensure_ascii=False, sort_keys=True)
+                        if payload is not None
+                        else None
+                    ),
+                )
+                session.add(record)
+            else:
+                record.document_version_id = document_version_id
+                record.pipeline_version = pipeline_version
+                record.status = status
+                record.payload_json = (
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True)
+                    if payload is not None
+                    else record.payload_json
+                )
+            session.commit()
+        return ExtractionRunIdentity(
+            extraction_run_id=extraction_run_id,
+            document_version_id=document_version_id,
+            pipeline_version=pipeline_version,
+            status=status,
+        )
 
     def list_available_fiscal_years(self, issuer_id: str) -> tuple[int, ...]:
         statement = (
@@ -668,6 +889,500 @@ class SqlAlchemyP5ArtifactRepository:
             latest_recompute_reason=(
                 recompute_record.reason if recompute_record is not None else None
             ),
+        )
+
+    def save_statement_tables(
+        self,
+        *,
+        extraction_run_id: str,
+        document_version_id: str,
+        tables: tuple[ParsedTable, ...],
+    ) -> tuple[StatementTableLedgerEntry, ...]:
+        entries: list[StatementTableLedgerEntry] = []
+        with Session(self.engine) as session:
+            for table in tables:
+                statement_table_id = build_statement_table_id(
+                    extraction_run_id,
+                    table.table_id,
+                )
+                row_ids = tuple(
+                    build_statement_table_row_id(statement_table_id, row.row_index)
+                    for row in table.body_rows
+                )
+                column_candidates = (*table.period_columns, *table.comparison_columns)
+                column_ids = tuple(
+                    build_statement_table_column_id(
+                        statement_table_id,
+                        column.column_index,
+                    )
+                    for column in column_candidates
+                )
+                record = session.get(StatementTableRecord, statement_table_id)
+                if record is None:
+                    record = StatementTableRecord(
+                        statement_table_id=statement_table_id,
+                        extraction_run_id=extraction_run_id,
+                        document_version_id=document_version_id,
+                        table_family=table.table_kind,
+                        statement_type=table.table_kind,
+                        payload_json=None,
+                    )
+                    session.add(record)
+                else:
+                    record.extraction_run_id = extraction_run_id
+                    record.document_version_id = document_version_id
+                    record.table_family = table.table_kind
+                    record.statement_type = table.table_kind
+
+                for row in table.body_rows:
+                    row_id = build_statement_table_row_id(
+                        statement_table_id,
+                        row.row_index,
+                    )
+                    row_record = session.get(StatementTableRowRecord, row_id)
+                    row_payload = json.dumps(asdict(row), ensure_ascii=False, sort_keys=True)
+                    if row_record is None:
+                        row_record = StatementTableRowRecord(
+                            statement_table_row_id=row_id,
+                            statement_table_id=statement_table_id,
+                            row_index=row.row_index,
+                            payload_json=row_payload,
+                        )
+                        session.add(row_record)
+                    else:
+                        row_record.statement_table_id = statement_table_id
+                        row_record.row_index = row.row_index
+                        row_record.payload_json = row_payload
+
+                for column in column_candidates:
+                    column_id = build_statement_table_column_id(
+                        statement_table_id,
+                        column.column_index,
+                    )
+                    column_record = session.get(StatementTableColumnRecord, column_id)
+                    column_payload = json.dumps(asdict(column), ensure_ascii=False, sort_keys=True)
+                    if column_record is None:
+                        column_record = StatementTableColumnRecord(
+                            statement_table_column_id=column_id,
+                            statement_table_id=statement_table_id,
+                            column_index=column.column_index,
+                            payload_json=column_payload,
+                        )
+                        session.add(column_record)
+                    else:
+                        column_record.statement_table_id = statement_table_id
+                        column_record.column_index = column.column_index
+                        column_record.payload_json = column_payload
+
+                table_payloads = {
+                    "table": {
+                        "table_id": table.table_id,
+                        "document_id": table.document_id,
+                        "page_range": list(table.page_range),
+                        "table_kind": table.table_kind,
+                        "title_text": table.title_text,
+                        "statement_scope_guess": table.statement_scope_guess,
+                    },
+                    "source_blocks": [asdict(block) for block in table.source_blocks],
+                }
+                payload_kinds = tuple(sorted(table_payloads))
+                for payload_kind, payload in table_payloads.items():
+                    payload_id = build_statement_table_payload_id(
+                        statement_table_id,
+                        payload_kind,
+                    )
+                    payload_record = session.get(
+                        StatementTablePayloadRecord,
+                        payload_id,
+                    )
+                    payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+                    if payload_record is None:
+                        payload_record = StatementTablePayloadRecord(
+                            statement_table_payload_id=payload_id,
+                            statement_table_id=statement_table_id,
+                            payload_kind=payload_kind,
+                            payload_json=payload_json,
+                        )
+                        session.add(payload_record)
+                    else:
+                        payload_record.statement_table_id = statement_table_id
+                        payload_record.payload_kind = payload_kind
+                        payload_record.payload_json = payload_json
+
+                entries.append(
+                    StatementTableLedgerEntry(
+                        statement_table_id=statement_table_id,
+                        extraction_run_id=extraction_run_id,
+                        document_version_id=document_version_id,
+                        source_table_id=table.table_id,
+                        table_family=table.table_kind,
+                        statement_type=table.table_kind,
+                        row_ids=row_ids,
+                        column_ids=column_ids,
+                        payload_kinds=payload_kinds,
+                    )
+                )
+            session.commit()
+        return tuple(entries)
+
+    def list_statement_tables(
+        self,
+        *,
+        extraction_run_id: str,
+    ) -> tuple[StatementTableLedgerEntry, ...]:
+        statement = (
+            select(StatementTableRecord)
+            .where(StatementTableRecord.extraction_run_id == extraction_run_id)
+            .order_by(StatementTableRecord.statement_table_id)
+        )
+        with Session(self.engine) as session:
+            records = session.scalars(statement).all()
+            entries: list[StatementTableLedgerEntry] = []
+            for record in records:
+                row_ids = tuple(
+                    session.scalars(
+                        select(StatementTableRowRecord.statement_table_row_id)
+                        .where(
+                            StatementTableRowRecord.statement_table_id
+                            == record.statement_table_id
+                        )
+                        .order_by(StatementTableRowRecord.row_index)
+                    ).all()
+                )
+                column_ids = tuple(
+                    session.scalars(
+                        select(StatementTableColumnRecord.statement_table_column_id)
+                        .where(
+                            StatementTableColumnRecord.statement_table_id
+                            == record.statement_table_id
+                        )
+                        .order_by(StatementTableColumnRecord.column_index)
+                    ).all()
+                )
+                payload_kinds = tuple(
+                    session.scalars(
+                        select(StatementTablePayloadRecord.payload_kind)
+                        .where(
+                            StatementTablePayloadRecord.statement_table_id
+                            == record.statement_table_id
+                        )
+                        .order_by(StatementTablePayloadRecord.payload_kind)
+                    ).all()
+                )
+                table_payload_record = session.scalar(
+                    select(StatementTablePayloadRecord)
+                    .where(
+                        StatementTablePayloadRecord.statement_table_id
+                        == record.statement_table_id,
+                        StatementTablePayloadRecord.payload_kind == "table",
+                    )
+                )
+                source_table_id = record.statement_table_id
+                if table_payload_record is not None and table_payload_record.payload_json:
+                    payload = json.loads(table_payload_record.payload_json)
+                    if isinstance(payload, dict):
+                        source_table_id = str(payload.get("table_id", record.statement_table_id))
+                entries.append(
+                    StatementTableLedgerEntry(
+                        statement_table_id=record.statement_table_id,
+                        extraction_run_id=record.extraction_run_id,
+                        document_version_id=record.document_version_id,
+                        source_table_id=source_table_id,
+                        table_family=record.table_family,
+                        statement_type=record.statement_type,
+                        row_ids=row_ids,
+                        column_ids=column_ids,
+                        payload_kinds=payload_kinds,
+                    )
+                )
+        return tuple(entries)
+
+    def save_fact_set(
+        self,
+        *,
+        fact_set_id: str,
+        extraction_run_id: str,
+        fact_set_kind: str,
+        status: str,
+        facts: tuple[CandidateFact | CanonicalFact | DerivedFact, ...],
+    ) -> FactSetLedgerEntry:
+        lineage_record_ids: list[str] = []
+        with Session(self.engine) as session:
+            fact_set_record = session.get(FactSetRecord, fact_set_id)
+            if fact_set_record is None:
+                fact_set_record = FactSetRecord(
+                    fact_set_id=fact_set_id,
+                    extraction_run_id=extraction_run_id,
+                    fact_set_kind=fact_set_kind,
+                    status=status,
+                )
+                session.add(fact_set_record)
+            else:
+                fact_set_record.extraction_run_id = extraction_run_id
+                fact_set_record.fact_set_kind = fact_set_kind
+                fact_set_record.status = status
+
+            if fact_set_kind == "candidate":
+                session.query(CandidateFactRecord).filter(
+                    CandidateFactRecord.fact_set_id == fact_set_id
+                ).delete()
+            elif fact_set_kind == "canonical":
+                session.query(CanonicalFactRecord).filter(
+                    CanonicalFactRecord.fact_set_id == fact_set_id
+                ).delete()
+            elif fact_set_kind == "derived":
+                session.query(DerivedFactRecord).filter(
+                    DerivedFactRecord.fact_set_id == fact_set_id
+                ).delete()
+            else:
+                raise ValueError(f"unsupported fact_set_kind: {fact_set_kind}")
+
+            session.query(FactLineageRecord).filter(
+                FactLineageRecord.fact_set_id == fact_set_id
+            ).delete()
+
+            for fact in facts:
+                payload_json = json.dumps(asdict(fact), ensure_ascii=False, sort_keys=True)
+                if fact_set_kind == "candidate":
+                    session.add(
+                        CandidateFactRecord(
+                            fact_id=fact.fact_id,
+                            fact_set_id=fact_set_id,
+                            payload_json=payload_json,
+                        )
+                    )
+                elif fact_set_kind == "canonical":
+                    session.add(
+                        CanonicalFactRecord(
+                            fact_id=fact.fact_id,
+                            fact_set_id=fact_set_id,
+                            payload_json=payload_json,
+                        )
+                    )
+                    assert isinstance(fact, CanonicalFact)
+                    for source_fact_id in fact.source_candidate_fact_ids:
+                        lineage_record_id = build_fact_lineage_record_id(
+                            fact_set_id,
+                            source_fact_id,
+                            fact.fact_id,
+                            "candidate_to_canonical",
+                        )
+                        lineage_record_ids.append(lineage_record_id)
+                        session.add(
+                            FactLineageRecord(
+                                fact_lineage_record_id=lineage_record_id,
+                                fact_set_id=fact_set_id,
+                                source_fact_id=source_fact_id,
+                                target_fact_id=fact.fact_id,
+                                lineage_kind="candidate_to_canonical",
+                                payload_json=None,
+                            )
+                        )
+                elif fact_set_kind == "derived":
+                    session.add(
+                        DerivedFactRecord(
+                            fact_id=fact.fact_id,
+                            fact_set_id=fact_set_id,
+                            payload_json=payload_json,
+                        )
+                    )
+                    assert isinstance(fact, DerivedFact)
+                    for source_fact_id in fact.source_canonical_fact_ids:
+                        lineage_record_id = build_fact_lineage_record_id(
+                            fact_set_id,
+                            source_fact_id,
+                            fact.fact_id,
+                            "canonical_to_derived",
+                        )
+                        lineage_record_ids.append(lineage_record_id)
+                        session.add(
+                            FactLineageRecord(
+                                fact_lineage_record_id=lineage_record_id,
+                                fact_set_id=fact_set_id,
+                                source_fact_id=source_fact_id,
+                                target_fact_id=fact.fact_id,
+                                lineage_kind="canonical_to_derived",
+                                payload_json=None,
+                            )
+                        )
+            session.commit()
+        return FactSetLedgerEntry(
+            fact_set_id=fact_set_id,
+            extraction_run_id=extraction_run_id,
+            fact_set_kind=fact_set_kind,
+            status=status,
+            fact_ids=tuple(fact.fact_id for fact in facts),
+            lineage_record_ids=tuple(lineage_record_ids),
+        )
+
+    def list_fact_sets(
+        self,
+        *,
+        extraction_run_id: str,
+    ) -> tuple[FactSetLedgerEntry, ...]:
+        statement = (
+            select(FactSetRecord)
+            .where(FactSetRecord.extraction_run_id == extraction_run_id)
+            .order_by(FactSetRecord.fact_set_kind, FactSetRecord.fact_set_id)
+        )
+        with Session(self.engine) as session:
+            fact_set_records = session.scalars(statement).all()
+            entries: list[FactSetLedgerEntry] = []
+            for record in fact_set_records:
+                if record.fact_set_kind == "candidate":
+                    fact_ids = tuple(
+                        session.scalars(
+                            select(CandidateFactRecord.fact_id)
+                            .where(CandidateFactRecord.fact_set_id == record.fact_set_id)
+                            .order_by(CandidateFactRecord.fact_id)
+                        ).all()
+                    )
+                elif record.fact_set_kind == "canonical":
+                    fact_ids = tuple(
+                        session.scalars(
+                            select(CanonicalFactRecord.fact_id)
+                            .where(CanonicalFactRecord.fact_set_id == record.fact_set_id)
+                            .order_by(CanonicalFactRecord.fact_id)
+                        ).all()
+                    )
+                else:
+                    fact_ids = tuple(
+                        session.scalars(
+                            select(DerivedFactRecord.fact_id)
+                            .where(DerivedFactRecord.fact_set_id == record.fact_set_id)
+                            .order_by(DerivedFactRecord.fact_id)
+                        ).all()
+                    )
+                lineage_record_ids = tuple(
+                    session.scalars(
+                        select(FactLineageRecord.fact_lineage_record_id)
+                        .where(FactLineageRecord.fact_set_id == record.fact_set_id)
+                        .order_by(FactLineageRecord.fact_lineage_record_id)
+                    ).all()
+                )
+                entries.append(
+                    FactSetLedgerEntry(
+                        fact_set_id=record.fact_set_id,
+                        extraction_run_id=record.extraction_run_id,
+                        fact_set_kind=record.fact_set_kind,
+                        status=record.status,
+                        fact_ids=fact_ids,
+                        lineage_record_ids=lineage_record_ids,
+                    )
+                )
+        return tuple(entries)
+
+    def save_validation_result(
+        self,
+        *,
+        validation_report_id: str,
+        extraction_run_id: str,
+        fact_set_id: str,
+        overall_status: str,
+        issue_codes: tuple[str, ...],
+        quality_gate_status: str,
+        summary: dict[str, object] | None = None,
+    ) -> ValidationLedgerEntry:
+        quality_gate_result_id = build_quality_gate_result_id(validation_report_id)
+        issue_ids: list[str] = []
+        with Session(self.engine) as session:
+            report_record = session.get(ValidationReportRecord, validation_report_id)
+            summary_json = (
+                json.dumps(summary, ensure_ascii=False, sort_keys=True)
+                if summary is not None
+                else None
+            )
+            if report_record is None:
+                report_record = ValidationReportRecord(
+                    validation_report_id=validation_report_id,
+                    extraction_run_id=extraction_run_id,
+                    fact_set_id=fact_set_id,
+                    overall_status=overall_status,
+                    summary_json=summary_json,
+                )
+                session.add(report_record)
+            else:
+                report_record.extraction_run_id = extraction_run_id
+                report_record.fact_set_id = fact_set_id
+                report_record.overall_status = overall_status
+                report_record.summary_json = summary_json
+
+            session.query(ValidationIssueRecord).filter(
+                ValidationIssueRecord.validation_report_id == validation_report_id
+            ).delete()
+            for index, issue_code in enumerate(issue_codes):
+                issue_id = build_validation_issue_id(
+                    validation_report_id,
+                    issue_code,
+                    index,
+                )
+                issue_ids.append(issue_id)
+                session.add(
+                    ValidationIssueRecord(
+                        validation_issue_id=issue_id,
+                        validation_report_id=validation_report_id,
+                        issue_code=issue_code,
+                        issue_level="error",
+                        payload_json=None,
+                    )
+                )
+
+            quality_record = session.get(QualityGateResultRecord, quality_gate_result_id)
+            if quality_record is None:
+                quality_record = QualityGateResultRecord(
+                    quality_gate_result_id=quality_gate_result_id,
+                    validation_report_id=validation_report_id,
+                    status=quality_gate_status,
+                    summary_json=summary_json,
+                )
+                session.add(quality_record)
+            else:
+                quality_record.validation_report_id = validation_report_id
+                quality_record.status = quality_gate_status
+                quality_record.summary_json = summary_json
+            session.commit()
+        return ValidationLedgerEntry(
+            validation_report_id=validation_report_id,
+            extraction_run_id=extraction_run_id,
+            fact_set_id=fact_set_id,
+            overall_status=overall_status,
+            issue_ids=tuple(issue_ids),
+            issue_codes=issue_codes,
+            quality_gate_result_id=quality_gate_result_id,
+            quality_gate_status=quality_gate_status,
+        )
+
+    def load_validation_result(self, validation_report_id: str) -> ValidationLedgerEntry:
+        with Session(self.engine) as session:
+            report_record = session.get(ValidationReportRecord, validation_report_id)
+            if report_record is None:
+                raise P5ArtifactRepositoryError(
+                    f"missing validation result in DB repository: {validation_report_id}"
+                )
+            issue_rows = session.scalars(
+                select(ValidationIssueRecord)
+                .where(ValidationIssueRecord.validation_report_id == validation_report_id)
+                .order_by(ValidationIssueRecord.validation_issue_id)
+            ).all()
+            quality_record = session.scalar(
+                select(QualityGateResultRecord).where(
+                    QualityGateResultRecord.validation_report_id == validation_report_id
+                )
+            )
+            if quality_record is None:
+                raise P5ArtifactRepositoryError(
+                    "missing quality gate result for validation report in DB repository: "
+                    f"{validation_report_id}"
+                )
+        return ValidationLedgerEntry(
+            validation_report_id=validation_report_id,
+            extraction_run_id=report_record.extraction_run_id,
+            fact_set_id=report_record.fact_set_id,
+            overall_status=report_record.overall_status,
+            issue_ids=tuple(issue.validation_issue_id for issue in issue_rows),
+            issue_codes=tuple(issue.issue_code for issue in issue_rows),
+            quality_gate_result_id=quality_record.quality_gate_result_id,
+            quality_gate_status=quality_record.status,
         )
 
     @staticmethod

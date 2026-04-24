@@ -200,6 +200,9 @@ class RecomputeRunRecord(Base):
 
 class ReportFileRecord(Base):
     __tablename__ = "report_files"
+    __table_args__ = (
+        UniqueConstraint("report_id", "file_path", name="uq_report_files_identity"),
+    )
 
     report_file_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     report_id: Mapped[int] = mapped_column(
@@ -215,6 +218,9 @@ class ReportFileRecord(Base):
 
 class DocumentRecord(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("report_file_id", name="uq_documents_report_file"),
+    )
 
     document_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     report_file_id: Mapped[str] = mapped_column(
@@ -229,6 +235,9 @@ class DocumentRecord(Base):
 
 class DocumentVersionRecord(Base):
     __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint("document_id", "version_label", name="uq_document_versions_identity"),
+    )
 
     document_version_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     document_id: Mapped[str] = mapped_column(
@@ -244,6 +253,13 @@ class DocumentVersionRecord(Base):
 
 class ExtractionRunRecord(Base):
     __tablename__ = "extraction_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id",
+            "pipeline_version",
+            name="uq_extraction_runs_identity",
+        ),
+    )
 
     extraction_run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     document_version_id: Mapped[str] = mapped_column(
@@ -282,6 +298,9 @@ class StatementTableRecord(Base):
 
 class StatementTableRowRecord(Base):
     __tablename__ = "statement_table_rows"
+    __table_args__ = (
+        UniqueConstraint("statement_table_id", "row_index", name="uq_statement_table_rows_identity"),
+    )
 
     statement_table_row_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     statement_table_id: Mapped[str] = mapped_column(
@@ -297,6 +316,13 @@ class StatementTableRowRecord(Base):
 
 class StatementTableColumnRecord(Base):
     __tablename__ = "statement_table_columns"
+    __table_args__ = (
+        UniqueConstraint(
+            "statement_table_id",
+            "column_index",
+            name="uq_statement_table_columns_identity",
+        ),
+    )
 
     statement_table_column_id: Mapped[str] = mapped_column(
         String(128), primary_key=True
@@ -314,6 +340,13 @@ class StatementTableColumnRecord(Base):
 
 class StatementTablePayloadRecord(Base):
     __tablename__ = "statement_table_payloads"
+    __table_args__ = (
+        UniqueConstraint(
+            "statement_table_id",
+            "payload_kind",
+            name="uq_statement_table_payloads_identity",
+        ),
+    )
 
     statement_table_payload_id: Mapped[str] = mapped_column(
         String(128), primary_key=True
