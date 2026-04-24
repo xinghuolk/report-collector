@@ -14,7 +14,7 @@ ANCHOR_PDF_GLOBS = {
 }
 
 
-@pytest.mark.integration
+@pytest.mark.real_pdf
 def test_availability_anchor_pdf_fixtures_exist() -> None:
     missing: list[str] = []
     discovered: dict[str, list[Path]] = {}
