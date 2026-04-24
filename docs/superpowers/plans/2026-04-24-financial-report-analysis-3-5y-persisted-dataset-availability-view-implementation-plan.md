@@ -54,7 +54,7 @@
 - Create: `financial-report-analysis/src/financial_report_analysis/p5/availability.py`
 - Test: `financial-report-analysis/tests/unit/test_p5_availability.py`
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
 
 Create `financial-report-analysis/tests/unit/test_p5_availability.py` with these tests:
 
@@ -280,7 +280,7 @@ def test_availability_rejects_invalid_ranges() -> None:
         )
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -291,7 +291,7 @@ uv run pytest tests/unit/test_p5_availability.py -q
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'financial_report_analysis.p5.availability'`.
 
-- [ ] **Step 3: Implement service and dataclasses**
+- [x] **Step 3: Implement service and dataclasses**
 
 Create `financial-report-analysis/src/financial_report_analysis/p5/availability.py`:
 
@@ -601,7 +601,7 @@ def _numeric(value: Any) -> int | float | None:
     return None
 ```
 
-- [ ] **Step 4: Run unit tests**
+- [x] **Step 4: Run unit tests**
 
 Run:
 
@@ -612,7 +612,7 @@ uv run pytest tests/unit/test_p5_availability.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add financial-report-analysis/src/financial_report_analysis/p5/availability.py financial-report-analysis/tests/unit/test_p5_availability.py
@@ -628,7 +628,7 @@ git commit -m "feat: add multi-year availability service"
 - Modify: `financial-report-analysis/src/financial_report_analysis/api/routes.py`
 - Test: `financial-report-analysis/tests/integration/test_api_storage_runtime.py`
 
-- [ ] **Step 1: Add failing API integration test**
+- [x] **Step 1: Add failing API integration test**
 
 Append this test to `financial-report-analysis/tests/integration/test_api_storage_runtime.py`:
 
@@ -698,7 +698,7 @@ def test_dataset_availability_route_rejects_invalid_year_range(
     assert response.json()["detail"] == "start_year must be <= end_year"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -709,7 +709,7 @@ uv run pytest tests/integration/test_api_storage_runtime.py::test_dataset_availa
 
 Expected: FAIL with 404 because route does not exist.
 
-- [ ] **Step 3: Add Pydantic response models**
+- [x] **Step 3: Add Pydantic response models**
 
 In `financial-report-analysis/src/financial_report_analysis/api/schemas.py`, add these models after `DatasetRowResponse`:
 
@@ -753,7 +753,7 @@ class MultiYearAvailabilityResponse(BaseModel):
     recommended_next_actions: tuple[str, ...] = ()
 ```
 
-- [ ] **Step 4: Add route implementation**
+- [x] **Step 4: Add route implementation**
 
 In `financial-report-analysis/src/financial_report_analysis/api/routes.py`, update imports from schemas:
 
@@ -870,7 +870,7 @@ def _availability_to_response(
     )
 ```
 
-- [ ] **Step 5: Run API tests**
+- [x] **Step 5: Run API tests**
 
 Run:
 
@@ -881,7 +881,7 @@ uv run pytest tests/integration/test_api_storage_runtime.py::test_dataset_availa
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add financial-report-analysis/src/financial_report_analysis/api/schemas.py financial-report-analysis/src/financial_report_analysis/api/routes.py financial-report-analysis/tests/integration/test_api_storage_runtime.py
@@ -897,7 +897,7 @@ git commit -m "feat: expose persisted dataset availability view"
 - Test: `financial-report-analysis/tests/unit/test_public_exports.py`
 - Test: `financial-report-analysis/tests/unit/test_p5_availability.py`
 
-- [ ] **Step 1: Add fake repository guardrail test**
+- [x] **Step 1: Add fake repository guardrail test**
 
 Append this test to `financial-report-analysis/tests/unit/test_p5_availability.py`:
 
@@ -932,7 +932,7 @@ def test_availability_service_does_not_require_write_build_or_extract_methods() 
 
 This test intentionally uses a fake repository with no save/build/extract methods. It proves the service only depends on read methods.
 
-- [ ] **Step 2: Add public export test**
+- [x] **Step 2: Add public export test**
 
 If `financial-report-analysis/tests/unit/test_public_exports.py` already imports P5 symbols, add:
 
@@ -947,7 +947,7 @@ def test_p5_availability_public_exports() -> None:
     assert build_multi_year_availability_view.__name__ == "build_multi_year_availability_view"
 ```
 
-- [ ] **Step 3: Export symbols if project pattern requires it**
+- [x] **Step 3: Export symbols if project pattern requires it**
 
 If `financial-report-analysis/src/financial_report_analysis/p5/__init__.py` already exports P5 classes/functions, add:
 
@@ -973,7 +973,7 @@ Also add these names to `__all__` if `__all__` exists in that file:
 
 If `p5/__init__.py` is intentionally empty and the project does not use package-root exports for P5, do not modify it; the direct module import test above is sufficient.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -984,7 +984,7 @@ uv run pytest tests/unit/test_p5_availability.py tests/unit/test_public_exports.
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add financial-report-analysis/src/financial_report_analysis/p5/__init__.py financial-report-analysis/tests/unit/test_p5_availability.py financial-report-analysis/tests/unit/test_public_exports.py
@@ -1001,7 +1001,7 @@ If `p5/__init__.py` was not changed, omit it from `git add`.
 - Create: `financial-report-analysis/tests/integration/test_p5_availability_real_pdf_seed_contract.py`
 - Optionally create: `financial-report-analysis/scripts/seed-availability-anchor-pdfs.ps1`
 
-- [ ] **Step 1: Add fixture path contract test**
+- [x] **Step 1: Add fixture path contract test**
 
 Create `financial-report-analysis/tests/integration/test_p5_availability_real_pdf_seed_contract.py`:
 
@@ -1040,7 +1040,7 @@ def test_availability_anchor_pdf_fixtures_exist() -> None:
 
 This test is intentionally cheap. It proves the seed inputs exist without extracting PDFs.
 
-- [ ] **Step 2: Run fixture contract test**
+- [x] **Step 2: Run fixture contract test**
 
 Run:
 
@@ -1051,7 +1051,7 @@ uv run pytest tests/integration/test_p5_availability_real_pdf_seed_contract.py -
 
 Expected: PASS.
 
-- [ ] **Step 3: Add optional seed script only if a similar script pattern exists**
+- [x] **Step 3: Add optional seed script only if a similar script pattern exists**
 
 If `financial-report-analysis/scripts/` already contains PowerShell utility scripts, create `financial-report-analysis/scripts/seed-availability-anchor-pdfs.ps1` with this content:
 
@@ -1074,7 +1074,7 @@ Write-Host "Do not run this as part of default closeout."
 
 If there is no PowerShell script pattern in the project, skip this optional script and keep the fixture-path test only.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add financial-report-analysis/tests/integration/test_p5_availability_real_pdf_seed_contract.py
@@ -1092,7 +1092,7 @@ If the optional script was created, include it in the same commit.
 - Modify: `docs/superpowers/specs/active/2026-04-22-financial-report-analysis-unified-roadmap.md` only if implementation names differ from the spec.
 - Modify: `docs/architecture-analysis/2026-04-24-http-to-db-to-turtle-workflow-gap-analysis.md` only if implementation names differ from the spec.
 
-- [ ] **Step 1: Run targeted tests**
+- [x] **Step 1: Run targeted tests**
 
 Run:
 
@@ -1103,7 +1103,7 @@ uv run pytest tests/unit/test_p5_availability.py tests/unit/test_public_exports.
 
 Expected: PASS.
 
-- [ ] **Step 2: Run adjacent storage/API tests**
+- [x] **Step 2: Run adjacent storage/API tests**
 
 Run:
 
@@ -1114,7 +1114,7 @@ uv run pytest tests/unit/test_db_assembly_service.py tests/unit/test_extract_wri
 
 Expected: PASS.
 
-- [ ] **Step 3: Run lint/format check if configured**
+- [x] **Step 3: Run lint/format check if configured**
 
 Run:
 
@@ -1125,7 +1125,7 @@ uv run ruff check src tests
 
 Expected: PASS.
 
-- [ ] **Step 4: Document closeout evidence**
+- [x] **Step 4: Document closeout evidence**
 
 Append a short implementation note to the active spec under a new section `## 14. Implementation Closeout Notes`:
 
@@ -1141,7 +1141,7 @@ Implementation should be considered complete only when:
 - Anchor seed fixture paths for `01810`, `09987`, and `601919` are checked by a cheap integration test.
 ```
 
-- [ ] **Step 5: Commit docs closeout**
+- [x] **Step 5: Commit docs closeout**
 
 ```powershell
 git add docs/superpowers/specs/active/2026-04-24-financial-report-analysis-3-5y-persisted-dataset-availability-view-design.md docs/superpowers/specs/active/2026-04-22-financial-report-analysis-unified-roadmap.md docs/architecture-analysis/2026-04-24-http-to-db-to-turtle-workflow-gap-analysis.md
