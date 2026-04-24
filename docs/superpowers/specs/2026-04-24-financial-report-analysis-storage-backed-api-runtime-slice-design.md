@@ -64,6 +64,16 @@
 - 同时允许 env/config fallback
 - repository 挂在 app state 或通过 dependency helper 获取
 
+第一轮实现至少要明确：
+
+- `create_app(storage_db_path: str | Path | None = None)`
+- 若未显式传入，则允许读取 env/config fallback
+- app factory 负责：
+  - engine creation
+  - `initialize_database(...)`
+  - repository construction
+  - 把 repository 暴露到 `app.state`
+
 ### 4.2 Route 层如何读取 durable objects
 
 route 层不应直接写 SQL，也不应复制 repository 逻辑。

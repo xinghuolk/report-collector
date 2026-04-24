@@ -75,6 +75,10 @@
   - `create_app(...)` 如何接收 storage path / runtime config
   - tests 如何 override temp SQLite
   - app state / dependency 如何暴露 repository
+- [ ] 第一轮最小 contract 目标：
+  - `create_app(storage_db_path: str | Path | None = None)`
+  - 显式参数优先于 env/config fallback
+  - app factory 负责初始化 engine、schema、repository
 - [ ] 不在 route import 时隐式初始化 DB
 
 ## Task 2: Freeze Minimal Response Models
