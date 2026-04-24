@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from financial_report_analysis.p5.models import P5ExtractedArtifact
-from financial_report_analysis.storage import artifacts as _storage_artifacts
-from financial_report_analysis.storage.repositories import ReportCoverage as _ReportCoverage
 
-if not hasattr(_storage_artifacts, "ReportCoverage"):
-    _storage_artifacts.ReportCoverage = _ReportCoverage
+if TYPE_CHECKING:
+    from financial_report_analysis.storage.repositories import ReportCoverage
 
-ReportStatus = Literal["covered", "missing_report"]
-ArtifactStatus = Literal["covered", "missing_report", "missing_extracted_artifact"]
+YearAvailabilityStatus = Literal[
+    "covered",
+    "missing_report",
+    "missing_extracted_artifact",
+    "unknown",
+]
+ReportStatus = Literal["covered", "missing_report", "unknown"]
+ArtifactStatus = Literal[
+    "covered",
+    "missing_report",
+    "missing_extracted_artifact",
+    "unknown",
+]
 MetricAvailabilityStatus = Literal[
     "present",
     "missing_metric",
@@ -30,8 +39,14 @@ class MultiYearAvailabilityRequest:
     report_type: str = "annual"
 
     def __post_init__(self) -> None:
+        if not self.issuer_id.strip():
+            raise ValueError("issuer_id must not be blank")
+        if not self.metric_profile.strip():
+            raise ValueError("metric_profile must not be blank")
         if self.start_year > self.end_year:
             raise ValueError("start_year must be <= end_year")
+        if self.report_type != "annual":
+            raise ValueError("report_type must be annual")
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +54,9 @@ class AvailabilityMetric:
     metric_id: str
     status: MetricAvailabilityStatus
     value: int | float | None = None
+    currency: str | None = None
+    unit: str | None = None
+    quality_status: str | None = None
     source_artifact_id: str | None = None
     source_fact_id: str | None = None
     evidence_bundle_id: str | None = None
@@ -49,6 +67,9 @@ class AvailabilityYear:
     fiscal_year: int
     report_status: ReportStatus
     artifact_status: ArtifactStatus
+    report_id: int | None = None
+    pdf_path: str | None = None
+    source_artifact_ids: tuple[str, ...] = ()
     metrics: tuple[AvailabilityMetric, ...] = ()
 
 
@@ -58,6 +79,7 @@ class MultiYearAvailabilityView:
     start_year: int
     end_year: int
     metric_profile: str
+    report_type: str
     years: tuple[AvailabilityYear, ...]
     coverage_summary: dict[str, int]
     recommended_next_actions: tuple[str, ...] = ()
@@ -69,7 +91,7 @@ class AvailabilityReadRepository(Protocol):
         issuer_id: str,
         fiscal_year: int,
         report_type: str,
-    ) -> _ReportCoverage: ...
+    ) -> ReportCoverage: ...
 
     def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact: ...
 
@@ -103,6 +125,8 @@ def build_multi_year_availability_view(
                     fiscal_year=fiscal_year,
                     report_status="covered",
                     artifact_status="missing_extracted_artifact",
+                    report_id=coverage.report_id,
+                    pdf_path=coverage.pdf_path,
                 )
             )
             continue
@@ -116,6 +140,9 @@ def build_multi_year_availability_view(
                 fiscal_year=fiscal_year,
                 report_status="covered",
                 artifact_status="covered",
+                report_id=coverage.report_id,
+                pdf_path=coverage.pdf_path,
+                source_artifact_ids=coverage.extracted_artifact_ids,
                 metrics=_availability_metrics(artifacts, request.required_metric_ids),
             )
         )
@@ -125,6 +152,7 @@ def build_multi_year_availability_view(
         start_year=request.start_year,
         end_year=request.end_year,
         metric_profile=request.metric_profile,
+        report_type=request.report_type,
         years=tuple(years),
         coverage_summary=_coverage_summary(years),
         recommended_next_actions=_recommended_next_actions(years),
@@ -163,6 +191,9 @@ def _present_metric(artifact_id: str, fact: dict[str, Any]) -> AvailabilityMetri
         metric_id=str(fact["metric_id"]),
         status="present",
         value=value,
+        currency=_optional_str(fact.get("currency")),
+        unit=_optional_str(fact.get("normalized_unit")),
+        quality_status=_optional_str(fact.get("quality_status")),
         source_artifact_id=artifact_id,
         source_fact_id=_optional_str(fact.get("fact_id")),
         evidence_bundle_id=_optional_str(fact.get("evidence_bundle_id")),
@@ -178,7 +209,7 @@ def _missing_metric_status(
             status = missing_group.get(metric_id)
             if status == "out_of_scope":
                 return "out_of_scope"
-            if status not in {None, "absent", "not_surfaced"}:
+            if status is not None:
                 return "unknown"
     return "missing_metric"
 

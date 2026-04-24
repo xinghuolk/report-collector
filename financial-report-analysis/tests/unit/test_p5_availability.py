@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 
 from financial_report_analysis.p5.availability import (
+    AvailabilityYear,
     MultiYearAvailabilityRequest,
     build_multi_year_availability_view,
 )
 from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
-from financial_report_analysis.storage.artifacts import ReportCoverage
+from financial_report_analysis.storage.repositories import ReportCoverage
 
 
 @dataclass
@@ -143,6 +144,7 @@ def test_availability_returns_present_and_missing_years() -> None:
     assert view.issuer_id == "HK_09987"
     assert view.start_year == 2022
     assert view.end_year == 2024
+    assert view.report_type == "annual"
     assert [year.fiscal_year for year in view.years] == [2022, 2023, 2024]
     assert [year.report_status for year in view.years] == [
         "missing_report",
@@ -154,6 +156,16 @@ def test_availability_returns_present_and_missing_years() -> None:
         "missing_extracted_artifact",
         "covered",
     ]
+    assert [(year.report_id, year.pdf_path) for year in view.years] == [
+        (None, None),
+        (2023, "/reports/HK_09987/2023.pdf"),
+        (2024, "/reports/HK_09987/2024.pdf"),
+    ]
+    assert [year.source_artifact_ids for year in view.years] == [
+        (),
+        (),
+        ("HK_09987_2024",),
+    ]
     year_2024 = view.years[2]
     assert {metric.metric_id: metric.status for metric in year_2024.metrics} == {
         "cash": "missing_metric",
@@ -161,6 +173,9 @@ def test_availability_returns_present_and_missing_years() -> None:
     }
     revenue = next(metric for metric in year_2024.metrics if metric.metric_id == "revenue")
     assert revenue.value == 100.0
+    assert revenue.currency == "USD"
+    assert revenue.unit == "currency_amount"
+    assert revenue.quality_status == "ok"
     assert revenue.source_artifact_id == "HK_09987_2024"
     assert revenue.source_fact_id == "fact-revenue-2024"
     assert revenue.evidence_bundle_id == "bundle-revenue-2024"
@@ -176,7 +191,13 @@ def test_availability_returns_present_and_missing_years() -> None:
 def test_availability_uses_missing_status_from_artifact() -> None:
     artifact = _artifact(
         fiscal_year=2025,
-        missing_status={"debt_missing_status": {"st_borr": "out_of_scope"}},
+        missing_status={
+            "debt_missing_status": {
+                "st_borr": "out_of_scope",
+                "lt_borr": "absent",
+                "lease_liab": "not_surfaced",
+            }
+        },
     )
     repository = FakeReadRepository(
         coverages={
@@ -196,7 +217,7 @@ def test_availability_uses_missing_status_from_artifact() -> None:
             start_year=2025,
             end_year=2025,
             metric_profile="turtle_core",
-            required_metric_ids=("revenue", "st_borr"),
+            required_metric_ids=("revenue", "st_borr", "lt_borr", "lease_liab", "cash"),
         ),
     )
 
@@ -204,7 +225,24 @@ def test_availability_uses_missing_status_from_artifact() -> None:
         metric.metric_id: metric.status
         for metric in view.years[0].metrics
     }
-    assert statuses == {"revenue": "present", "st_borr": "out_of_scope"}
+    assert statuses == {
+        "cash": "missing_metric",
+        "lease_liab": "unknown",
+        "lt_borr": "unknown",
+        "revenue": "present",
+        "st_borr": "out_of_scope",
+    }
+
+
+def test_availability_models_reserve_unknown_year_status() -> None:
+    year = AvailabilityYear(
+        fiscal_year=2025,
+        report_status="unknown",
+        artifact_status="unknown",
+    )
+
+    assert year.report_status == "unknown"
+    assert year.artifact_status == "unknown"
 
 
 def test_availability_rejects_invalid_ranges() -> None:
@@ -216,3 +254,28 @@ def test_availability_rejects_invalid_ranges() -> None:
             metric_profile="turtle_core",
             required_metric_ids=("revenue",),
         )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"issuer_id": " "}, "issuer_id must not be blank"),
+        ({"metric_profile": ""}, "metric_profile must not be blank"),
+        ({"report_type": "quarterly"}, "report_type must be annual"),
+    ],
+)
+def test_availability_rejects_invalid_request_fields(
+    kwargs: dict[str, str],
+    message: str,
+) -> None:
+    request_kwargs = {
+        "issuer_id": "HK_09987",
+        "start_year": 2024,
+        "end_year": 2024,
+        "metric_profile": "turtle_core",
+        "required_metric_ids": ("revenue",),
+        **kwargs,
+    }
+
+    with pytest.raises(ValueError, match=message):
+        MultiYearAvailabilityRequest(**request_kwargs)
