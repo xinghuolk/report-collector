@@ -45,7 +45,7 @@
 - Modify: `financial-report-analysis/src/financial_report_analysis/api/schemas.py`
 - Create: `financial-report-analysis/tests/unit/test_api_schemas.py`
 
-- [ ] **Step 1: Write failing schema validation tests**
+- [x] **Step 1: Write failing schema validation tests**
 
 Create `financial-report-analysis/tests/unit/test_api_schemas.py`:
 
@@ -96,7 +96,7 @@ def test_build_turtle_is_accepted_without_repeating_build_dataset() -> None:
     assert request.build_turtle is True
 ```
 
-- [ ] **Step 2: Run the new tests and verify they fail**
+- [x] **Step 2: Run the new tests and verify they fail**
 
 Run from `financial-report-analysis/`:
 
@@ -106,7 +106,7 @@ uv run pytest tests/unit/test_api_schemas.py -q -o addopts=
 
 Expected: FAIL because `build_dataset`, `build_turtle`, `dataset_id`, and `dataset_version` are not yet schema fields.
 
-- [ ] **Step 3: Extend request and response schemas**
+- [x] **Step 3: Extend request and response schemas**
 
 Modify `financial-report-analysis/src/financial_report_analysis/api/schemas.py`:
 
@@ -178,7 +178,7 @@ Then add this field to `AnalysisStorageResult`:
     build: AnalysisBuildResult | None = None
 ```
 
-- [ ] **Step 4: Run schema tests and existing persistence schema tests**
+- [x] **Step 4: Run schema tests and existing persistence schema tests**
 
 Run from `financial-report-analysis/`:
 
@@ -188,7 +188,7 @@ uv run pytest tests/unit/test_api_schemas.py tests/integration/test_analysis_api
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/financial_report_analysis/api/schemas.py tests/unit/test_api_schemas.py
@@ -203,7 +203,7 @@ git commit -m "feat: add extract build request schema"
 - Create: `financial-report-analysis/src/financial_report_analysis/p5/db_assembly_service.py`
 - Create: `financial-report-analysis/tests/unit/test_db_assembly_service.py`
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Create `financial-report-analysis/tests/unit/test_db_assembly_service.py`:
 
@@ -331,7 +331,7 @@ def test_build_db_p5_outputs_for_artifact_persists_turtle_export(
     assert turtle_surface.dataset_id == "custom_dataset"
 ```
 
-- [ ] **Step 2: Run the service tests and verify they fail**
+- [x] **Step 2: Run the service tests and verify they fail**
 
 Run from `financial-report-analysis/`:
 
@@ -341,7 +341,7 @@ uv run pytest tests/unit/test_db_assembly_service.py -q -o addopts=
 
 Expected: FAIL because `financial_report_analysis.p5.db_assembly_service` does not exist.
 
-- [ ] **Step 3: Implement the DB assembly service**
+- [x] **Step 3: Implement the DB assembly service**
 
 Create `financial-report-analysis/src/financial_report_analysis/p5/db_assembly_service.py`:
 
@@ -450,7 +450,7 @@ def _default_single_report_dataset_id(
     return f"single_report_{issuer_id}_{fiscal_year}_{report_type}_{artifact_id}"
 ```
 
-- [ ] **Step 4: Run service tests**
+- [x] **Step 4: Run service tests**
 
 Run from `financial-report-analysis/`:
 
@@ -460,7 +460,7 @@ uv run pytest tests/unit/test_db_assembly_service.py -q -o addopts=
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/financial_report_analysis/p5/db_assembly_service.py tests/unit/test_db_assembly_service.py
@@ -475,7 +475,7 @@ git commit -m "feat: add db backed p5 assembly service"
 - Modify: `financial-report-analysis/src/financial_report_analysis/api/extract_write_service.py`
 - Modify: `financial-report-analysis/tests/unit/test_extract_write_service.py`
 
-- [ ] **Step 1: Write failing orchestration helper test**
+- [x] **Step 1: Write failing orchestration helper test**
 
 Append to `financial-report-analysis/tests/unit/test_extract_write_service.py`:
 
@@ -569,7 +569,7 @@ def test_build_p5_outputs_for_persisted_extract_returns_response_payload(
     assert payload["lineage_record_count"] >= 1
 ```
 
-- [ ] **Step 2: Run the helper test and verify it fails**
+- [x] **Step 2: Run the helper test and verify it fails**
 
 Run from `financial-report-analysis/`:
 
@@ -579,7 +579,7 @@ uv run pytest tests/unit/test_extract_write_service.py::test_build_p5_outputs_fo
 
 Expected: FAIL because `build_p5_outputs_for_persisted_extract` does not exist.
 
-- [ ] **Step 3: Add build result dataclass and helper**
+- [x] **Step 3: Add build result dataclass and helper**
 
 Modify `financial-report-analysis/src/financial_report_analysis/api/extract_write_service.py` imports:
 
@@ -654,7 +654,7 @@ def build_p5_outputs_for_persisted_extract(
     )
 ```
 
-- [ ] **Step 4: Run helper and existing write service tests**
+- [x] **Step 4: Run helper and existing write service tests**
 
 Run from `financial-report-analysis/`:
 
@@ -664,7 +664,7 @@ uv run pytest tests/unit/test_extract_write_service.py tests/unit/test_db_assemb
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/financial_report_analysis/api/extract_write_service.py tests/unit/test_extract_write_service.py
@@ -679,7 +679,7 @@ git commit -m "feat: add extract p5 build orchestration helper"
 - Modify: `financial-report-analysis/src/financial_report_analysis/api/routes.py`
 - Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
 
-- [ ] **Step 1: Write failing HTTP validation and success tests**
+- [x] **Step 1: Write failing HTTP validation and success tests**
 
 Append to `financial-report-analysis/tests/integration/test_analysis_api.py`:
 
@@ -870,7 +870,7 @@ def test_extract_endpoint_persists_turtle_when_build_turtle_requested(
     assert audit_response.json()["turtle_export_review_surface"] is not None
 ```
 
-- [ ] **Step 2: Run new API tests and verify route wiring failures**
+- [x] **Step 2: Run new API tests and verify route wiring failures**
 
 Run from `financial-report-analysis/`:
 
@@ -880,7 +880,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_reje
 
 Expected: validation tests may pass after Task 1; success tests FAIL because route does not call build helper.
 
-- [ ] **Step 3: Wire route to helper**
+- [x] **Step 3: Wire route to helper**
 
 Modify imports in `financial-report-analysis/src/financial_report_analysis/api/routes.py`:
 
@@ -938,7 +938,7 @@ Replace the `if request.persist_to_storage:` block in `extract_analysis(...)` wi
         analysis_result["storage"] = storage_payload
 ```
 
-- [ ] **Step 4: Run targeted API tests**
+- [x] **Step 4: Run targeted API tests**
 
 Run from `financial-report-analysis/`:
 
@@ -948,7 +948,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_retu
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/financial_report_analysis/api/routes.py tests/integration/test_analysis_api.py
@@ -962,7 +962,7 @@ git commit -m "feat: wire extract route to db p5 build"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-04-24-financial-report-analysis-db-backed-extract-to-p5-turtle-orchestration-implementation-plan.md`
 
-- [ ] **Step 1: Run the focused unit and integration suite**
+- [x] **Step 1: Run the focused unit and integration suite**
 
 Run from `financial-report-analysis/`:
 
@@ -972,7 +972,7 @@ uv run pytest tests/unit/test_api_schemas.py tests/unit/test_db_assembly_service
 
 Expected: PASS.
 
-- [ ] **Step 2: Run lint**
+- [x] **Step 2: Run lint**
 
 Run from `financial-report-analysis/`:
 
@@ -982,11 +982,11 @@ uv run ruff check src tests
 
 Expected: `All checks passed!`
 
-- [ ] **Step 3: Mark all completed task checkboxes**
+- [x] **Step 3: Mark all completed task checkboxes**
 
 Edit this plan file and change every completed `- [ ]` to `- [x]`.
 
-- [ ] **Step 4: Commit closeout**
+- [x] **Step 4: Commit closeout**
 
 ```bash
 git add docs/superpowers/plans/2026-04-24-financial-report-analysis-db-backed-extract-to-p5-turtle-orchestration-implementation-plan.md
@@ -1010,3 +1010,6 @@ git commit -m "docs: close db backed extract to p5 turtle plan"
   - `AnalysisExtractBuildResult.to_response_dict()` produces the same keys as `AnalysisBuildResult`.
   - `build_turtle=True` is accepted without `build_dataset=True`; the service builds dataset automatically.
   - `turtle_export_id` uses the existing repository contract where turtle exports are keyed by `dataset_id`.
+  - `turtle_export_lookup_path` intentionally returns `None` until a real turtle export read endpoint exists.
+- Review follow-up:
+  - Task 2 added atomic repository bundle persistence after review.
