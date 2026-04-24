@@ -196,6 +196,45 @@ class DatasetArtifactResponse(BaseModel):
     source_artifacts: list[str]
 
 
+class AvailabilityMetricResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metric_id: str
+    status: str
+    value: int | float | None = None
+    currency: str | None = None
+    unit: str | None = None
+    quality_status: str | None = None
+    source_artifact_id: str | None = None
+    source_fact_id: str | None = None
+    evidence_bundle_id: str | None = None
+
+
+class AvailabilityYearResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fiscal_year: int
+    report_status: str
+    artifact_status: str
+    report_id: int | None = None
+    pdf_path: str | None = None
+    source_artifact_ids: list[str] = Field(default_factory=list)
+    metrics: list[AvailabilityMetricResponse] = Field(default_factory=list)
+
+
+class MultiYearAvailabilityResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issuer_id: str
+    report_type: str
+    start_year: int
+    end_year: int
+    metric_profile: str
+    years: list[AvailabilityYearResponse] = Field(default_factory=list)
+    coverage_summary: dict[str, int]
+    recommended_next_actions: list[str] = Field(default_factory=list)
+
+
 class ExtractedReviewSurfaceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

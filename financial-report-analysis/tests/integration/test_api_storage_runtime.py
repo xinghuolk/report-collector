@@ -239,6 +239,68 @@ def test_storage_backed_routes_return_seeded_objects(tmp_path: Path) -> None:
     assert recompute_response.json()["diff_summary"]["reason"] == "pipeline_version_changed"
 
 
+def test_dataset_availability_route_returns_read_only_multi_year_view(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(storage_db_path=tmp_path / "runtime.db"))
+    _seed_runtime(client, tmp_path)
+
+    response = client.get(
+        "/issuers/CN_601919/dataset-availability",
+        params={
+            "start_year": 2024,
+            "end_year": 2025,
+            "profile": "turtle_core",
+            "required_metric_id": ["revenue", "cash"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["issuer_id"] == "CN_601919"
+    assert payload["start_year"] == 2024
+    assert payload["end_year"] == 2025
+    assert payload["metric_profile"] == "turtle_core"
+    assert [year["fiscal_year"] for year in payload["years"]] == [2024, 2025]
+    assert [year["artifact_status"] for year in payload["years"]] == [
+        "missing_extracted_artifact",
+        "covered",
+    ]
+    year_2025 = payload["years"][1]
+    assert year_2025["source_artifact_ids"] == ["CN_601919_2025"]
+    assert {metric["metric_id"]: metric["status"] for metric in year_2025["metrics"]} == {
+        "cash": "missing_metric",
+        "revenue": "present",
+    }
+    revenue = next(
+        metric for metric in year_2025["metrics"] if metric["metric_id"] == "revenue"
+    )
+    assert revenue["source_artifact_id"] == "CN_601919_2025"
+    assert revenue["source_fact_id"] == "canonical-CN_601919_2025"
+    assert payload["coverage_summary"]["covered_year_count"] == 1
+    assert payload["coverage_summary"]["missing_extracted_artifact_count"] == 1
+    assert "extract_missing_artifacts" in payload["recommended_next_actions"]
+
+
+def test_dataset_availability_route_rejects_invalid_year_range(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(storage_db_path=tmp_path / "runtime.db"))
+
+    response = client.get(
+        "/issuers/CN_601919/dataset-availability",
+        params={
+            "start_year": 2025,
+            "end_year": 2024,
+            "profile": "turtle_core",
+            "required_metric_id": ["revenue"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "start_year must be <= end_year"
+
+
 def test_storage_backed_routes_return_404_for_missing_objects(tmp_path: Path) -> None:
     client = TestClient(create_app(storage_db_path=tmp_path / "runtime.db"))
 

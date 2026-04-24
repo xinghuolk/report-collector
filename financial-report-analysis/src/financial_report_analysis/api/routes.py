@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from financial_report_analysis.adapters.report_adapter import ReportAdapter
 from financial_report_analysis.api.extract_write_service import (
@@ -10,6 +10,11 @@ from financial_report_analysis.api.extract_write_service import (
     persist_analysis_extract_result,
 )
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
+from financial_report_analysis.p5.availability import (
+    MultiYearAvailabilityRequest,
+    MultiYearAvailabilityView,
+    build_multi_year_availability_view,
+)
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
     P5DatasetRow,
@@ -38,6 +43,7 @@ from financial_report_analysis.api.schemas import (
     HealthResponse,
     IssuerReportsResponse,
     ManifestEntryResponse,
+    MultiYearAvailabilityResponse,
     RecomputeDiffSummaryResponse,
     RecomputeResultResponse,
     ReportCoverageResponse,
@@ -70,6 +76,41 @@ def get_issuer_reports(
         for fiscal_year in repository.list_available_fiscal_years(issuer_id)
     ]
     return IssuerReportsResponse(issuer_id=issuer_id, reports=reports)
+
+
+@router.get(
+    "/issuers/{issuer_id}/dataset-availability",
+    response_model=MultiYearAvailabilityResponse,
+)
+def get_dataset_availability(
+    issuer_id: str,
+    start_year: int,
+    end_year: int,
+    profile: str,
+    request: Request,
+    required_metric_id: list[str] | None = Query(default=None),
+    report_type: str = "annual",
+) -> MultiYearAvailabilityResponse:
+    repository = _require_storage_repository(request)
+    try:
+        availability_request = MultiYearAvailabilityRequest(
+            issuer_id=issuer_id,
+            start_year=start_year,
+            end_year=end_year,
+            metric_profile=profile,
+            required_metric_ids=tuple(required_metric_id or ()),
+            report_type=report_type,
+        )
+        availability_view = build_multi_year_availability_view(
+            repository=repository,
+            request=availability_request,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return _availability_to_response(availability_view)
 
 
 @router.get(
@@ -368,6 +409,54 @@ def _dataset_artifact_to_response(
         quality_summary=dataset.quality_summary,
         source_artifacts=list(dataset.source_artifacts),
     )
+
+
+def _availability_to_response(
+    availability: MultiYearAvailabilityView,
+) -> MultiYearAvailabilityResponse:
+    return MultiYearAvailabilityResponse(
+        issuer_id=availability.issuer_id,
+        report_type=availability.report_type,
+        start_year=availability.start_year,
+        end_year=availability.end_year,
+        metric_profile=availability.metric_profile,
+        years=[
+            {
+                "fiscal_year": year.fiscal_year,
+                "report_status": year.report_status,
+                "artifact_status": year.artifact_status,
+                "report_id": year.report_id,
+                "pdf_path": year.pdf_path,
+                "source_artifact_ids": list(year.source_artifact_ids),
+                "metrics": [
+                    {
+                        "metric_id": metric.metric_id,
+                        "status": metric.status,
+                        "value": metric.value,
+                        "currency": metric.currency,
+                        "unit": metric.unit,
+                        "quality_status": metric.quality_status,
+                        "source_artifact_id": metric.source_artifact_id,
+                        "source_fact_id": metric.source_fact_id,
+                        "evidence_bundle_id": metric.evidence_bundle_id,
+                    }
+                    for metric in year.metrics
+                ],
+            }
+            for year in availability.years
+        ],
+        coverage_summary=availability.coverage_summary,
+        recommended_next_actions=[
+            _availability_action_to_response(action)
+            for action in availability.recommended_next_actions
+        ],
+    )
+
+
+def _availability_action_to_response(action: str) -> str:
+    if action == "run_existing_report_extraction":
+        return "extract_missing_artifacts"
+    return action
 
 
 def _extracted_review_surface_to_response(
