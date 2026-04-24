@@ -70,17 +70,27 @@ def test_semantic_fallback_package_exports_public_entry_points() -> None:
 
 def test_p5_public_exports_are_available() -> None:
     from financial_report_analysis.p5 import (
+        AvailabilityMetric,
+        AvailabilityYear,
+        MultiYearAvailabilityRequest,
+        MultiYearAvailabilityView,
         P5DatasetArtifact,
         P5ExtractedArtifact,
         P5Manifest,
         P5ManifestEntry,
+        build_multi_year_availability_view,
         load_manifest,
     )
 
+    assert AvailabilityMetric is not None
+    assert AvailabilityYear is not None
+    assert MultiYearAvailabilityRequest is not None
+    assert MultiYearAvailabilityView is not None
     assert P5DatasetArtifact is not None
     assert P5ExtractedArtifact is not None
     assert P5Manifest is not None
     assert P5ManifestEntry is not None
+    assert callable(build_multi_year_availability_view)
     assert callable(load_manifest)
 
 
@@ -114,3 +124,15 @@ def test_post_p5_public_exports_are_available() -> None:
     assert callable(build_dataset_lineage)
     assert callable(build_recompute_plan)
     assert callable(execute_recompute_plan)
+
+
+def test_p5_availability_public_exports() -> None:
+    from financial_report_analysis.p5.availability import (
+        MultiYearAvailabilityRequest,
+        build_multi_year_availability_view,
+    )
+
+    assert MultiYearAvailabilityRequest.__name__ == "MultiYearAvailabilityRequest"
+    assert build_multi_year_availability_view.__name__ == (
+        "build_multi_year_availability_view"
+    )

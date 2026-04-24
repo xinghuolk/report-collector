@@ -367,6 +367,34 @@ def test_availability_uses_missing_status_from_artifact() -> None:
     }
 
 
+def test_availability_service_does_not_require_write_build_or_extract_methods() -> None:
+    artifact = _artifact(fiscal_year=2024)
+    repository = FakeReadRepository(
+        coverages={
+            ("HK_09987", 2024, "annual"): _coverage(
+                fiscal_year=2024,
+                artifact_ids=("HK_09987_2024",),
+            )
+        },
+        artifacts={"HK_09987_2024": artifact},
+        loaded_artifact_ids=[],
+    )
+
+    view = build_multi_year_availability_view(
+        repository=repository,
+        request=MultiYearAvailabilityRequest(
+            issuer_id="HK_09987",
+            start_year=2024,
+            end_year=2024,
+            metric_profile="turtle_core",
+            required_metric_ids=("revenue",),
+        ),
+    )
+
+    assert view.coverage_summary["covered_year_count"] == 1
+    assert repository.loaded_artifact_ids == ["HK_09987_2024"]
+
+
 def test_availability_models_reserve_unknown_year_status() -> None:
     year = AvailabilityYear(
         fiscal_year=2025,
