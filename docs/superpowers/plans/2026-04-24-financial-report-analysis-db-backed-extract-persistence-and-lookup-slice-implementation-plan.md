@@ -1,5 +1,7 @@
 # DB-Backed Extract Persistence And Lookup Slice Implementation Plan
 
+> **Closeout status:** Completed. Focused unit, focused integration, and Ruff verification passed. This phase intentionally persists only the extracted artifact and lookup metadata; dataset/Turtle orchestration remains a later phase.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an opt-in DB-backed write slice to `/api/v1/analysis/extract` so an HTTP extract request can persist the extracted artifact and return stable lookup identifiers that existing GET endpoints can read back.
@@ -779,7 +781,7 @@ git commit -m "feat: persist extract route results to storage"
 **Files:**
 - Modify: `financial-report-analysis/tests/integration/test_analysis_api.py`
 
-- [ ] **Step 1: Write the failing readback integration test**
+- [x] **Step 1: Write the failing readback integration test**
 
 Append to `financial-report-analysis/tests/integration/test_analysis_api.py`:
 
@@ -862,7 +864,7 @@ def test_extract_endpoint_persisted_result_is_readable_by_storage_get_routes(
     assert issuer_response.json()["reports"][0]["fiscal_year"] == 2025
 ```
 
-- [ ] **Step 2: Run test to verify it passes or exposes a wiring gap**
+- [x] **Step 2: Run test to verify it passes or exposes a wiring gap**
 
 Run:
 
@@ -872,7 +874,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_pers
 
 Expected: PASS. If it fails, fix only the persistence/readback wiring needed for this contract.
 
-- [ ] **Step 3: Run focused storage API regression**
+- [x] **Step 3: Run focused storage API regression**
 
 Run:
 
@@ -882,7 +884,7 @@ uv run pytest tests/integration/test_api_storage_runtime.py tests/unit/test_api_
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add financial-report-analysis/tests/integration/test_analysis_api.py financial-report-analysis/src/financial_report_analysis/api/routes.py financial-report-analysis/src/financial_report_analysis/api/extract_write_service.py
@@ -894,7 +896,7 @@ git commit -m "test: verify db backed extract readback"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-04-24-financial-report-analysis-db-backed-extract-persistence-and-lookup-slice-implementation-plan.md`
 
-- [ ] **Step 1: Run focused unit tests**
+- [x] **Step 1: Run focused unit tests**
 
 Run:
 
@@ -904,7 +906,7 @@ uv run pytest tests/unit/test_extract_write_service.py tests/unit/test_p5_extrac
 
 Expected: PASS.
 
-- [ ] **Step 2: Run focused integration tests**
+- [x] **Step 2: Run focused integration tests**
 
 Run:
 
@@ -914,7 +916,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_requ
 
 Expected: PASS.
 
-- [ ] **Step 3: Run Ruff**
+- [x] **Step 3: Run Ruff**
 
 Run:
 
@@ -924,7 +926,7 @@ uv run ruff check src tests
 
 Expected: PASS.
 
-- [ ] **Step 4: Add closeout note**
+- [x] **Step 4: Add closeout note**
 
 At the top of this plan, below the header, add:
 
