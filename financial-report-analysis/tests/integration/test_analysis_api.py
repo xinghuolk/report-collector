@@ -223,6 +223,107 @@ def test_extract_endpoint_rejects_whitespace_only_persistence_identity() -> None
     assert "issuer_id" in response.text
 
 
+def test_extract_endpoint_returns_503_when_persistence_requested_without_storage(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [],
+        },
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "persist_to_storage": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "storage repository is not configured"
+
+
+def test_extract_endpoint_persists_to_storage_when_requested(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": "yuan",
+                    "normalized_unit": "currency_amount",
+                    "precision": 0,
+                    "confidence": 0.99,
+                    "document_id": str(pdf_path),
+                    "block_id": "block-1",
+                    "page_index": 0,
+                    "evidence_bundle_id": "bundle-1",
+                }
+            ],
+        },
+    )
+
+    client = TestClient(create_app(storage_db_path=tmp_path / "storage.db"))
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "min_confidence": 0.8,
+            "persist_to_storage": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "company_name": "COSCO SHIPPING Holdings",
+            "report_language": "zh",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["storage"]["persisted"] is True
+    assert payload["storage"]["artifact_id"] == "CN_601919_2025"
+    assert payload["storage"]["artifact_lookup_path"] == "/artifacts/CN_601919_2025"
+    assert (
+        payload["storage"]["report_lookup_path"] == "/reports/CN_601919/2025/annual"
+    )
+
+
 def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     monkeypatch,
     tmp_path: Path,

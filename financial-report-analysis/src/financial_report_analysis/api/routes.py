@@ -5,6 +5,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 
 from financial_report_analysis.adapters.report_adapter import ReportAdapter
+from financial_report_analysis.api.extract_write_service import (
+    persist_analysis_extract_result,
+)
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
@@ -145,7 +148,7 @@ def extract_analysis(
     request: AnalysisExtractRequest,
     http_request: Request,
 ) -> dict[str, Any]:
-    get_runtime(http_request)
+    runtime = get_runtime(http_request)
     pdf_path = _normalize_optional_text(request.pdf_path)
     pdf_url = _normalize_optional_text(request.pdf_url)
 
@@ -189,10 +192,34 @@ def extract_analysis(
         document_ref=document,
         extracted_payload=extracted_payload,
     )
-    return ReportAdapter().build_analysis_result(
+    analysis_result = ReportAdapter().build_analysis_result(
         document=document,
         pipeline_result=pipeline_result,
     )
+    if request.persist_to_storage:
+        if (
+            runtime.storage_repository is None
+            or runtime.historical_ingestion_service is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="storage repository is not configured",
+            )
+        try:
+            storage_result = persist_analysis_extract_result(
+                runtime=runtime,
+                request=request,
+                document=document,
+                extracted_payload=extracted_payload,
+                pipeline_result=pipeline_result,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        analysis_result["storage"] = storage_result.to_response_dict()
+    return analysis_result
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
