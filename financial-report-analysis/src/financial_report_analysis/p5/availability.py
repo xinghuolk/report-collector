@@ -164,11 +164,16 @@ def _availability_metrics(
     required_metric_ids: tuple[str, ...],
 ) -> tuple[AvailabilityMetric, ...]:
     metrics_by_id: dict[str, AvailabilityMetric] = {}
+    required_metric_id_set = set(required_metric_ids)
 
     for artifact in artifacts:
         for fact in artifact.canonical_facts:
             metric_id = fact.get("metric_id")
-            if not isinstance(metric_id, str) or metric_id in metrics_by_id:
+            if (
+                not isinstance(metric_id, str)
+                or metric_id not in required_metric_id_set
+                or metric_id in metrics_by_id
+            ):
                 continue
             metrics_by_id[metric_id] = _present_metric(artifact.artifact_id, fact)
 
@@ -180,7 +185,7 @@ def _availability_metrics(
             status=_missing_metric_status(metric_id, artifacts),
         )
 
-    return tuple(metrics_by_id[metric_id] for metric_id in sorted(metrics_by_id))
+    return tuple(metrics_by_id[metric_id] for metric_id in required_metric_ids)
 
 
 def _present_metric(artifact_id: str, fact: dict[str, Any]) -> AvailabilityMetric:
@@ -205,13 +210,16 @@ def _missing_metric_status(
     metric_id: str,
     artifacts: tuple[P5ExtractedArtifact, ...],
 ) -> MetricAvailabilityStatus:
+    has_missing_status_entry = False
     for artifact in artifacts:
         for missing_group in artifact.missing_status.values():
             status = missing_group.get(metric_id)
             if status == "out_of_scope":
                 return "out_of_scope"
             if status is not None:
-                return "unknown"
+                has_missing_status_entry = True
+    if has_missing_status_entry:
+        return "unknown"
     return "missing_metric"
 
 

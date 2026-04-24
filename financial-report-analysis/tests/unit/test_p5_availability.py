@@ -223,6 +223,104 @@ def test_availability_metric_unit_falls_back_to_raw_unit() -> None:
     assert view.years[0].metrics[0].unit == "RMB millions"
 
 
+def test_availability_only_returns_required_metric_projection() -> None:
+    artifact = _artifact(fiscal_year=2024, metric_id="cash")
+    repository = FakeReadRepository(
+        coverages={
+            ("HK_09987", 2024, "annual"): _coverage(
+                fiscal_year=2024,
+                artifact_ids=("HK_09987_2024",),
+            )
+        },
+        artifacts={"HK_09987_2024": artifact},
+        loaded_artifact_ids=[],
+    )
+
+    view = build_multi_year_availability_view(
+        repository=repository,
+        request=MultiYearAvailabilityRequest(
+            issuer_id="HK_09987",
+            start_year=2024,
+            end_year=2024,
+            metric_profile="turtle_core",
+            required_metric_ids=("revenue",),
+        ),
+    )
+
+    assert {metric.metric_id: metric.status for metric in view.years[0].metrics} == {
+        "revenue": "missing_metric",
+    }
+
+
+def test_availability_returns_no_metrics_when_projection_is_empty() -> None:
+    artifact = _artifact(fiscal_year=2024, metric_id="cash")
+    repository = FakeReadRepository(
+        coverages={
+            ("HK_09987", 2024, "annual"): _coverage(
+                fiscal_year=2024,
+                artifact_ids=("HK_09987_2024",),
+            )
+        },
+        artifacts={"HK_09987_2024": artifact},
+        loaded_artifact_ids=[],
+    )
+
+    view = build_multi_year_availability_view(
+        repository=repository,
+        request=MultiYearAvailabilityRequest(
+            issuer_id="HK_09987",
+            start_year=2024,
+            end_year=2024,
+            metric_profile="turtle_core",
+            required_metric_ids=(),
+        ),
+    )
+
+    assert view.years[0].metrics == ()
+
+
+@pytest.mark.parametrize(
+    "missing_status",
+    [
+        {
+            "first_group": {"st_borr": "absent"},
+            "second_group": {"st_borr": "out_of_scope"},
+        },
+        {
+            "first_group": {"st_borr": "out_of_scope"},
+            "second_group": {"st_borr": "not_surfaced"},
+        },
+    ],
+)
+def test_availability_missing_status_prefers_out_of_scope_over_unknown(
+    missing_status: dict[str, dict[str, str]],
+) -> None:
+    artifact = _artifact(fiscal_year=2024, missing_status=missing_status)
+    repository = FakeReadRepository(
+        coverages={
+            ("HK_09987", 2024, "annual"): _coverage(
+                fiscal_year=2024,
+                artifact_ids=("HK_09987_2024",),
+            )
+        },
+        artifacts={"HK_09987_2024": artifact},
+        loaded_artifact_ids=[],
+    )
+
+    view = build_multi_year_availability_view(
+        repository=repository,
+        request=MultiYearAvailabilityRequest(
+            issuer_id="HK_09987",
+            start_year=2024,
+            end_year=2024,
+            metric_profile="turtle_core",
+            required_metric_ids=("st_borr",),
+        ),
+    )
+
+    assert view.years[0].metrics[0].status == "out_of_scope"
+
+
 def test_availability_uses_missing_status_from_artifact() -> None:
     artifact = _artifact(
         fiscal_year=2025,
