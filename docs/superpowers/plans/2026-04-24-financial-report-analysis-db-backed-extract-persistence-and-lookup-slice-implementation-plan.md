@@ -46,7 +46,7 @@
 - Modify: `financial-report-analysis/src/financial_report_analysis/api/schemas.py`
 - Test: `financial-report-analysis/tests/integration/test_analysis_api.py`
 
-- [ ] **Step 1: Write the failing API contract tests**
+- [x] **Step 1: Write the failing API contract tests**
 
 Append these tests to `financial-report-analysis/tests/integration/test_analysis_api.py`:
 
@@ -90,7 +90,7 @@ def test_extract_endpoint_rejects_non_annual_persisted_report_type() -> None:
     assert "report_type" in response.text
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run from `financial-report-analysis/`:
 
@@ -100,7 +100,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_requ
 
 Expected: FAIL because `AnalysisExtractRequest` currently forbids the new fields.
 
-- [ ] **Step 3: Add schema fields and validation**
+- [x] **Step 3: Add schema fields and validation**
 
 Update `financial-report-analysis/src/financial_report_analysis/api/schemas.py`:
 
@@ -169,7 +169,7 @@ Add this field to `AnalysisExtractResponse`:
     storage: AnalysisStorageResult | None = None
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -179,7 +179,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_requ
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add financial-report-analysis/src/financial_report_analysis/api/schemas.py financial-report-analysis/tests/integration/test_analysis_api.py
@@ -192,7 +192,7 @@ git commit -m "feat: add extract persistence request contract"
 - Modify: `financial-report-analysis/src/financial_report_analysis/p5/extraction.py`
 - Test: `financial-report-analysis/tests/unit/test_p5_extraction.py`
 
-- [ ] **Step 1: Write the failing helper test**
+- [x] **Step 1: Write the failing helper test**
 
 Append to `financial-report-analysis/tests/unit/test_p5_extraction.py`:
 
@@ -263,7 +263,7 @@ def test_build_extracted_artifact_from_result_reuses_existing_payload(tmp_path):
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -273,7 +273,7 @@ uv run pytest tests/unit/test_p5_extraction.py::test_build_extracted_artifact_fr
 
 Expected: FAIL with missing `build_extracted_artifact_from_result`.
 
-- [ ] **Step 3: Implement the helper**
+- [x] **Step 3: Implement the helper**
 
 In `financial-report-analysis/src/financial_report_analysis/p5/extraction.py`, add this function above `build_extracted_artifact`:
 
@@ -329,7 +329,7 @@ Refactor `build_extracted_artifact()` to call this helper instead of duplicating
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -339,7 +339,7 @@ uv run pytest tests/unit/test_p5_extraction.py::test_build_extracted_artifact_fr
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add financial-report-analysis/src/financial_report_analysis/p5/extraction.py financial-report-analysis/tests/unit/test_p5_extraction.py
@@ -352,7 +352,7 @@ git commit -m "feat: build p5 artifact from extract result"
 - Create: `financial-report-analysis/src/financial_report_analysis/api/extract_write_service.py`
 - Test: `financial-report-analysis/tests/unit/test_extract_write_service.py`
 
-- [ ] **Step 1: Write the failing service test**
+- [x] **Step 1: Write the failing service test**
 
 Create `financial-report-analysis/tests/unit/test_extract_write_service.py`:
 
@@ -436,7 +436,7 @@ def test_persist_analysis_extract_result_writes_report_artifact_and_review_surfa
     assert coverage.extracted_artifact_ids == ("CN_601919_2025",)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -446,7 +446,7 @@ uv run pytest tests/unit/test_extract_write_service.py::test_persist_analysis_ex
 
 Expected: FAIL with missing `financial_report_analysis.api.extract_write_service`.
 
-- [ ] **Step 3: Implement the write service**
+- [x] **Step 3: Implement the write service**
 
 Create `financial-report-analysis/src/financial_report_analysis/api/extract_write_service.py`:
 
@@ -578,7 +578,7 @@ def _manifest_entry_from_request(request: AnalysisExtractRequest) -> P5ManifestE
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -588,7 +588,7 @@ uv run pytest tests/unit/test_extract_write_service.py -q -o addopts=
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add financial-report-analysis/src/financial_report_analysis/api/extract_write_service.py financial-report-analysis/tests/unit/test_extract_write_service.py
@@ -769,7 +769,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_retu
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add financial-report-analysis/src/financial_report_analysis/api/routes.py financial-report-analysis/tests/integration/test_analysis_api.py
@@ -934,7 +934,7 @@ At the top of this plan, below the header, add:
 > **Closeout status:** Completed. Focused unit, focused integration, and Ruff verification passed. This phase intentionally persists only the extracted artifact and lookup metadata; dataset/Turtle orchestration remains a later phase.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-04-24-financial-report-analysis-db-backed-extract-persistence-and-lookup-slice-implementation-plan.md
