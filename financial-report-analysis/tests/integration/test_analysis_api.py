@@ -324,6 +324,91 @@ def test_extract_endpoint_persists_to_storage_when_requested(
     )
 
 
+def test_extract_endpoint_persisted_result_is_readable_by_storage_get_routes(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from financial_report_analysis.ingestion.pdf_ingestion import PdfIngestionAdapter
+
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        lambda self, **kwargs: {
+            "document_metadata": {
+                "language": "zh",
+                "cash_health_missing_status": {"restricted_cash": "not_surfaced"},
+            },
+            "candidate_facts": [
+                {
+                    "fact_id": "candidate-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Revenue",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "100",
+                    "numeric_value": 100.0,
+                    "raw_unit": "yuan",
+                    "normalized_unit": "currency_amount",
+                    "precision": 0,
+                    "confidence": 0.99,
+                    "document_id": str(pdf_path),
+                    "block_id": "block-1",
+                    "page_index": 0,
+                    "evidence_bundle_id": "bundle-1",
+                }
+            ],
+        },
+    )
+
+    client = TestClient(create_app(storage_db_path=tmp_path / "storage.db"))
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "min_confidence": 0.8,
+            "persist_to_storage": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "company_name": "COSCO SHIPPING Holdings",
+            "report_language": "zh",
+        },
+    )
+
+    assert response.status_code == 200
+    storage = response.json()["storage"]
+
+    artifact_response = client.get(storage["artifact_lookup_path"])
+    report_response = client.get(storage["report_lookup_path"])
+    issuer_response = client.get("/issuers/CN_601919/reports")
+
+    assert artifact_response.status_code == 200
+    artifact = artifact_response.json()
+    assert artifact["artifact_id"] == "CN_601919_2025"
+    assert artifact["manifest_entry"]["issuer_id"] == "CN_601919"
+    assert artifact["quality_gate"] in {"pass", "review", "fail"}
+    assert artifact["missing_status"]["cash_health_missing_status"] == {
+        "restricted_cash": "not_surfaced"
+    }
+
+    assert report_response.status_code == 200
+    report = report_response.json()
+    assert report["report_registered"] is True
+    assert report["extracted_artifact_available"] is True
+    assert report["extracted_artifact_ids"] == ["CN_601919_2025"]
+
+    assert issuer_response.status_code == 200
+    assert issuer_response.json()["reports"][0]["fiscal_year"] == 2025
+
+
 def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     monkeypatch,
     tmp_path: Path,
