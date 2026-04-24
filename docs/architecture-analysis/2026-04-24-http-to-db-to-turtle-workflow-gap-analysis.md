@@ -16,11 +16,12 @@
 
 因此，本文中的 “HTTP write path 仍不是 DB-backed” 和 “缺少统一 ingest/build orchestration boundary” 已不再准确。当前剩余 gap 应收窄为：
 
-1. 3-5 年 Turtle workflow orchestration 还没有成为独立服务。
-2. 当前 build 是单次 extract 后的 opt-in synchronous path，不是 issuer/year-range workflow。
-3. `p5/runner.py` 仍保留 JSON-first runner，尚未完全收编为 DB-first workflow runner。
+1. 3-5 年 persisted dataset availability view 还没有成为独立只读数据视图。
+2. 当前 build 是单次 extract 后的 opt-in synchronous path，不是 issuer/year-range availability query。
+3. `p5/runner.py` 仍保留 JSON-first runner，但不应作为 availability view 的运行时主路径。
 4. upload/url acquisition、async job handle、retry/rebuild policy、approval workflow 尚未产品化。
 5. dataset coverage explanation 仍需要更明确回答“哪些年份已覆盖、哪些缺失、哪些需要重算”。
+6. 下一步已收窄为只读 `3-5Y persisted dataset availability view`，而不是完整 workflow orchestration。
 
 ## 1. Executive Summary
 
@@ -31,7 +32,7 @@
 
 这意味着系统已经从“只能在本地 JSON / 内部模块里跑”推进到了“数据库可承接核心 artifact，HTTP 已能稳定从数据库读关键对象”。
 
-当前系统又进一步补齐了 opt-in **DB-backed write/build slice**。但距离用户想要的目标状态，仍缺一条真正的 **3-5Y workflow orchestration**：
+当前系统又进一步补齐了 opt-in **DB-backed write/build slice**。但距离用户想要的数据消费目标，仍缺一条真正的 **3-5Y persisted dataset availability view**：
 
 ```text
 HTTP PDF ingress
@@ -42,7 +43,7 @@ HTTP PDF ingress
 -> DB persistence of dataset/review/lineage/recompute
 -> synchronous or handled response
 -> follow-up API lookup
--> issuer/year-range 3-5Y orchestration
+-> issuer/year-range 3-5Y availability query
 ```
 
 **结论：**
@@ -50,7 +51,7 @@ HTTP PDF ingress
 - 下一步不应继续优先扩 read-only API。
 - 下一步也不应直接跳到完整 workflow/approval 产品化。
 - DB-backed ingest/build 的最小 slice 已经完成。
-- 下一步最合理的路线是新增一个 **3-5Y Turtle workflow orchestration phase**，不要继续把多年份编排塞进单次 extract route。
+- 下一步最合理的路线是新增一个 **3-5Y persisted dataset availability view phase**，不要继续把多年份数据查询塞进单次 extract route，也不要把数据提取服务扩成投资 workflow 引擎。
 
 这条路线既能最快让系统“真的跑通”，又不会破坏路线图已经建立的 storage / document-ledger / review-lineage-recompute contract。
 
@@ -162,7 +163,7 @@ HTTP PDF ingress
 
 - **read from DB: yes**
 - **single-report write/build slice: yes**
-- **3-5Y workflow orchestration: not yet**
+- **3-5Y persisted dataset availability view: not yet**
 
 ### 4.2 P5 runner 仍是 JSON-first
 
@@ -175,7 +176,7 @@ HTTP PDF ingress
 - dataset/turtle 的正式组装主路径还没有切到 DB repository
 - 即使数据库可以存这些对象，也还没有一个正式的 DB-backed runner 把它们串起来
 
-### 4.3 缺少 3-5Y workflow orchestration boundary
+### 4.3 缺少 3-5Y persisted availability view boundary
 
 当前系统已经有单次 extract/write/build 的零件：
 
@@ -186,31 +187,33 @@ HTTP PDF ingress
 - dataset assembly
 - review/lineage/recompute persistence
 
-但缺一个面向投资数据集的 workflow 层，负责：
+但缺一个面向多年份数据消费的只读 availability view 层，负责：
 
 - 接收 issuer / year range / report type
 - 查询已有 report/artifact/dataset coverage
 - 判断缺失年份、缺失 artifact、需要重算的年份
-- 调用现有 extract/build path 或拒绝并返回缺口状态
-- 输出 3-5Y Turtle dataset / export / audit summary
+- 返回缺口状态、可用 facts 和 lineage
+- 不调用现有 extract/build path
+- 不输出 Turtle 策略对象，只输出通用数据视图
 
 这就是当前最真实的缺口。
 
-### 4.4 3-5 年龟龟流程还缺 dataset orchestration layer
+### 4.4 3-5 年数据消费还缺 availability view layer
 
 当前已经有：
 
 - P5 dataset artifact
 - Turtle export artifact
 
-但还没有一个“按 issuer / 3-5 fiscal years / required metric coverage”去驱动的服务层，负责：
+但还没有一个“按 issuer / 3-5 fiscal years / required metric coverage”去查询的服务层，负责：
 
-- 选哪些 report
-- 缺哪些年份
-- 哪些年份需要重算
-- 如何合并成一个 3-5Y Turtle dataset request
+- 哪些 report 已登记
+- 哪些年份缺失
+- 哪些 artifact 已持久化
+- 哪些 metric present / missing / out_of_scope
+- 如何把已持久化数据组织成通用 3-5Y 数据视图
 
-这层如果不先定义，就很容易把“P5 artifact persistence”误当成“3-5 年流程已完成”。
+这层如果不先定义，就很容易把“P5 artifact persistence”误当成“3-5 年数据视图已完成”。
 
 ## 5. 可选路线
 
@@ -339,18 +342,18 @@ HTTP -> DB write -> API read back
 - 保留 artifact contract，不重写 dataset logic
 - 让 dataset/turtle build 成为正式 service，不再只是脚本式 runner
 
-### Phase 3: 3-5Y Turtle Workflow Orchestration
+### Phase 3: 3-5Y Persisted Dataset Availability View
 
 目标：
 
-- 面向 issuer + year range 提供真正的多年份编排
+- 面向 issuer + year range 提供只读、多年份、可追溯的数据可用性视图
 
 最小职责：
 
-- 选择已有 report / artifact / dataset coverage
-- 对缺失年份给出清晰状态
-- 必要时触发补算
-- 返回 3-5 年 Turtle dataset / export / audit summary
+- 查询已有 report / extracted artifact / canonical facts coverage
+- 对缺失年份和缺失指标给出清晰状态
+- 返回 3-5 年 facts / missing states / lineage summary
+- 不触发 extract / recompute / Turtle build
 
 ### Phase 4: Workflow / Review Enrichment
 
@@ -407,22 +410,22 @@ HTTP -> DB write -> API read back
 
 如果按当前代码状态继续往下做，最合理的下一份正式 spec 应该是：
 
-`financial-report-analysis-3-5y-turtle-workflow-orchestration-design`
+`financial-report-analysis-3-5y-persisted-dataset-availability-view-design`
 
 它应明确：
 
-- issuer/year-range workflow service 边界
+- issuer/year-range availability view service 边界
 - 如何复用现有 storage-backed read/write/build path
 - coverage / missing / stale / recompute-needed 状态
-- dataset build 与 Turtle export 的多年份 contract
-- 同步 summary vs run handle 的第一版选择
-- 与 upload/url acquisition 和 approval workflow 的边界
+- persisted facts 与 lineage 的多年份 response contract
+- 查询接口只读，不触发 extract/recompute/build
+- 与 upload/url acquisition、approval workflow、Turtle 策略编排的边界
 
 ## 11. Final Recommendation
 
 **下一步应该做：**
 
-- `3-5Y Turtle workflow orchestration`
+- `3-5Y persisted dataset availability view`
 
 **下一步不应该做：**
 
@@ -435,6 +438,77 @@ HTTP -> DB write -> API read back
 
 ```text
 existing DB-backed single-report write/build slice
--> 3-5Y Turtle workflow orchestration
+-> 3-5Y persisted dataset availability view
 -> richer workflow/review API
 ```
+
+## 12. 最小全流程验证还缺什么
+
+当前单报告竖切已经可以证明：
+
+```text
+HTTP extract
+-> DB-backed extracted artifact persistence
+-> optional dataset / Turtle build
+-> persisted dataset / turtle / review / lineage readback
+```
+
+因此，最小全流程验证不应该继续只验证“单个 PDF 能写入并读回”。真正缺少的是一条面向数据消费的多年份只读闭环：
+
+```text
+issuer + fiscal-year range
+-> availability planning
+-> reuse existing persisted extracted artifacts
+-> identify missing / stale / recompute-needed years
+-> assemble available 3-5Y data view
+-> return coverage explanation, audit, lineage
+-> read back through stable API
+```
+
+最小闭环还缺 6 类能力：
+
+1. **Availability view service boundary**
+   - 需要一个独立的 3-5Y availability view service，输入为 `issuer_id / market / stock_code / fiscal_year_range / required_profile`。
+   - 不应继续把多年份编排塞进 `/api/v1/analysis/extract`。
+
+2. **Availability planner**
+   - 需要在返回数据视图前明确每个年份的状态。
+   - 最小状态集合应覆盖：`covered`、`missing_report`、`missing_extracted_artifact`、`stale_or_recompute_needed`、`out_of_scope`。
+   - 这一步的输出必须可进入 response / audit，不允许静默忽略缺失年份。
+
+3. **DB-first multi-year view assembly**
+   - 需要从已持久化的 extracted artifacts / canonical facts 组装多年份数据视图。
+   - JSON runner 可以继续作为兼容或离线工具，但不应作为 3-5Y availability view 的运行时主路径。
+
+4. **Reuse / missing policy**
+   - 需要定义什么时候复用已有 artifact，什么时候只返回缺口。
+   - 第一版不触发 rebuild，但必须让 response 明确说明缺口原因。
+
+5. **Stable availability result and readback**
+   - availability 返回值至少应包含：`issuer_id`、`year_range`、`metric_profile`、`coverage_summary`、`missing_items`、`source_artifact_ids`。
+   - source artifact / dataset audit 信息必须能通过现有 storage-backed API/read surface 查回。
+
+6. **Focused verification matrix**
+   - 默认验证应使用 seed DB / mocked extracted artifact，而不是每次跑完整 real-PDF matrix。
+   - 最小测试应覆盖：
+     - 一个 issuer 的 3 个年份中 2 年已覆盖、1 年缺失。
+     - availability view 能复用已有 extracted artifacts。
+     - 缺失年份进入 coverage explanation，而不是被忽略。
+     - artifact / audit / lineage 可读回。
+     - `/api/v1/analysis/extract` 默认行为不被多年份 workflow 污染。
+
+这意味着下一份正式 spec 不应再定义“单报告写入 DB”能力，而应定义：
+
+`financial-report-analysis-3-5y-persisted-dataset-availability-view-design`
+
+它的验收目标应该是：
+
+```text
+seeded DB artifacts
+-> 3-5Y availability request
+-> explicit availability plan
+-> facts / missing states / lineage from persisted data
+-> stable readback
+```
+
+真实 PDF 验证可以作为该 availability view 的 seed smoke test，但不应作为第一层 correctness 测试的默认前提。

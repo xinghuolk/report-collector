@@ -68,7 +68,7 @@
 
 这两项截至当前分支也已经完成。因此，新的下一步应从下面这些仍开放的方向中选择一个最小切片，而不是恢复旧 plan：
 
-- 3-5 年 dataset/workflow orchestration：围绕多年份缺口识别、批量 build、缺失年份状态、dataset 覆盖解释做新的 focused spec。
+- 3-5 年 persisted dataset availability view：围绕多年份缺口识别、持久化 facts 查询、缺失年份状态、数据覆盖解释做新的 focused spec。
 - API/write workflow 产品化：在现有 opt-in extract + build 路径上，设计更明确的 ingest/build workflow boundary，但不做 full approval system。
 - Metric governance 与 custom/provisional lifecycle：把 registry 状态、review decision、canonical promotion 的长期方向拆成小的可验证 slice。
 - Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
@@ -544,3 +544,34 @@ pick one active phase
 ```
 
 最重要的纪律是：不要把“下一个字段族”误认为“下一步最合理的工程动作”。只有当 extraction foundation、governance、fallback controls 与 review surfaces 足够稳时，字段覆盖才应该快速推进。
+
+## 12. 当前最小全流程验证定义
+
+截至 2026-04-24，单报告级的 `HTTP -> DB -> dataset/turtle -> readback` 竖切已经不再是主要缺口。后续最小全流程验证应升级为 3-5 年 persisted dataset availability view，而不是继续扩大 `/api/v1/analysis/extract` 的职责。
+
+新的最小全流程应验证：
+
+```text
+issuer + fiscal-year range
+-> availability planning
+-> reuse existing persisted extracted artifacts
+-> identify missing / stale / recompute-needed years
+-> assemble available 3-5Y data view
+-> return facts, missing states, audit, lineage
+-> read back through storage-backed API/read surface
+```
+
+该验证的核心不是“所有年份都必须已经可抽取”，而是系统必须清楚说明：
+
+- 哪些年份已经覆盖。
+- 哪些年份缺少 report 或 extracted artifact。
+- 哪些年份需要 recompute。
+- 哪些 source artifact / audit / lineage 对象已经持久化并可查回。
+
+这一轮真实 PDF 仍然重要，但只作为 seed 输入。推荐 anchor 是 `01810`、`09987` 和 `601919`：先从这些 PDF 预提取并写入持久化层，再用 availability view 查询已持久化数据。
+
+因此，下一份 active spec 应优先围绕：
+
+`financial-report-analysis-3-5y-persisted-dataset-availability-view-design`
+
+这条线展开。真实 PDF 可作为 seed smoke test，但 availability correctness 的第一层验证应使用 seeded DB / mocked extracted artifacts，避免每次收口都被完整 real-PDF matrix 和 Ollama fallback 成本拖住。
