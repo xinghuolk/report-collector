@@ -164,6 +164,45 @@ def test_extract_endpoint_rejects_missing_pdf_path() -> None:
     assert response.json()["detail"] == "pdf_path does not exist"
 
 
+def test_extract_endpoint_requires_identity_when_persistence_is_requested() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": "ignored.pdf",
+            "market": "CN",
+            "persist_to_storage": True,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "issuer_id" in response.text
+    assert "fiscal_year" in response.text
+    assert "stock_code" in response.text
+    assert "report_type" in response.text
+
+
+def test_extract_endpoint_rejects_non_annual_persisted_report_type() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": "ignored.pdf",
+            "market": "CN",
+            "persist_to_storage": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "quarterly",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "report_type" in response.text
+
+
 def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     monkeypatch,
     tmp_path: Path,

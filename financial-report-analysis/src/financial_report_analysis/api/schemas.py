@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AnalysisExtractRequest(BaseModel):
@@ -12,6 +12,48 @@ class AnalysisExtractRequest(BaseModel):
     pdf_url: str | None = None
     market: str | None = None
     min_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    persist_to_storage: bool = False
+    issuer_id: str | None = None
+    stock_code: str | None = None
+    fiscal_year: int | None = Field(default=None, ge=1900, le=2200)
+    report_type: str | None = None
+    company_name: str | None = None
+    report_language: str | None = None
+    source: str = "api"
+
+    @model_validator(mode="after")
+    def validate_persistence_identity(self) -> "AnalysisExtractRequest":
+        if not self.persist_to_storage:
+            return self
+
+        missing_fields = [
+            field_name
+            for field_name in ("issuer_id", "stock_code", "fiscal_year", "report_type")
+            if getattr(self, field_name) in (None, "")
+        ]
+        if missing_fields:
+            raise ValueError(
+                "persist_to_storage requires explicit report identity fields: "
+                + ", ".join(missing_fields)
+            )
+        if self.report_type != "annual":
+            raise ValueError(
+                "persist_to_storage currently supports report_type='annual' only"
+            )
+        return self
+
+
+class AnalysisStorageResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    persisted: bool
+    artifact_id: str | None = None
+    report_id: int | None = None
+    document_id: str | None = None
+    document_version_id: str | None = None
+    extraction_run_id: str | None = None
+    artifact_lookup_path: str | None = None
+    report_lookup_path: str | None = None
 
 
 class AnalysisExtractResponse(BaseModel):
@@ -26,6 +68,7 @@ class AnalysisExtractResponse(BaseModel):
     ttm_facts: list[dict[str, Any]]
     analysis_snapshot: dict[str, Any]
     blocked_items: list[dict[str, Any]]
+    storage: AnalysisStorageResult | None = None
 
 
 class HealthResponse(BaseModel):
