@@ -1,4 +1,5 @@
 from financial_report_analysis import models
+from financial_report_analysis import p5
 from financial_report_analysis.ingestion import normalize_table_semantics
 from financial_report_analysis.models import (
     NormalizedTableCellValue,
@@ -92,6 +93,13 @@ def test_p5_public_exports_are_available() -> None:
     assert P5ManifestEntry is not None
     assert callable(build_multi_year_availability_view)
     assert callable(load_manifest)
+
+
+def test_p5_all_exports_exist_on_package_root() -> None:
+    for export_name in p5.__all__:
+        exported_package = __import__("financial_report_analysis.p5", fromlist=[export_name])
+        assert hasattr(exported_package, export_name)
+        assert getattr(exported_package, export_name) is getattr(p5, export_name)
 
 
 def test_post_p5_public_exports_are_available() -> None:
