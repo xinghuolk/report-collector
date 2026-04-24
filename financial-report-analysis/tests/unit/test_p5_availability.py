@@ -60,9 +60,26 @@ def _artifact(
     fiscal_year: int,
     metric_id: str = "revenue",
     numeric_value: float = 100.0,
+    normalized_unit: str | None = "currency_amount",
+    raw_unit: str | None = None,
     missing_status: dict[str, dict[str, str]] | None = None,
 ) -> P5ExtractedArtifact:
     entry = _entry(fiscal_year=fiscal_year)
+    canonical_fact = {
+        "fact_id": f"fact-{metric_id}-{fiscal_year}",
+        "metric_id": metric_id,
+        "statement_type": "income_statement",
+        "entity_scope": "consolidated",
+        "numeric_value": numeric_value,
+        "currency": "USD",
+        "quality_status": "ok",
+        "evidence_bundle_id": f"bundle-{metric_id}-{fiscal_year}",
+        "extensions": {"period_scope": "fy"},
+    }
+    if normalized_unit is not None:
+        canonical_fact["normalized_unit"] = normalized_unit
+    if raw_unit is not None:
+        canonical_fact["raw_unit"] = raw_unit
     return P5ExtractedArtifact(
         artifact_id=entry.artifact_id,
         artifact_version="1.0",
@@ -72,20 +89,7 @@ def _artifact(
         document={"document_id": str(entry.pdf_path), "pdf_path": str(entry.pdf_path)},
         document_metadata={"language": "en"},
         candidate_facts=(),
-        canonical_facts=(
-            {
-                "fact_id": f"fact-{metric_id}-{fiscal_year}",
-                "metric_id": metric_id,
-                "statement_type": "income_statement",
-                "entity_scope": "consolidated",
-                "numeric_value": numeric_value,
-                "currency": "USD",
-                "normalized_unit": "currency_amount",
-                "quality_status": "ok",
-                "evidence_bundle_id": f"bundle-{metric_id}-{fiscal_year}",
-                "extensions": {"period_scope": "fy"},
-            },
-        ),
+        canonical_facts=(canonical_fact,),
         derived_facts=(),
         validation_report={"overall_status": "ok", "issues": []},
         review_packets=(),
@@ -186,6 +190,37 @@ def test_availability_returns_present_and_missing_years() -> None:
     assert view.coverage_summary["present_metric_count"] == 1
     assert view.coverage_summary["missing_metric_count"] == 1
     assert repository.loaded_artifact_ids == ["HK_09987_2024"]
+
+
+def test_availability_metric_unit_falls_back_to_raw_unit() -> None:
+    artifact = _artifact(
+        fiscal_year=2024,
+        normalized_unit=None,
+        raw_unit="RMB millions",
+    )
+    repository = FakeReadRepository(
+        coverages={
+            ("HK_09987", 2024, "annual"): _coverage(
+                fiscal_year=2024,
+                artifact_ids=("HK_09987_2024",),
+            )
+        },
+        artifacts={"HK_09987_2024": artifact},
+        loaded_artifact_ids=[],
+    )
+
+    view = build_multi_year_availability_view(
+        repository=repository,
+        request=MultiYearAvailabilityRequest(
+            issuer_id="HK_09987",
+            start_year=2024,
+            end_year=2024,
+            metric_profile="turtle_core",
+            required_metric_ids=("revenue",),
+        ),
+    )
+
+    assert view.years[0].metrics[0].unit == "RMB millions"
 
 
 def test_availability_uses_missing_status_from_artifact() -> None:

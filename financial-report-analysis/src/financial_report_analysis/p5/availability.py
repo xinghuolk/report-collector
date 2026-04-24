@@ -192,7 +192,8 @@ def _present_metric(artifact_id: str, fact: dict[str, Any]) -> AvailabilityMetri
         status="present",
         value=value,
         currency=_optional_str(fact.get("currency")),
-        unit=_optional_str(fact.get("normalized_unit")),
+        unit=_optional_str(fact.get("normalized_unit"))
+        or _optional_str(fact.get("raw_unit")),
         quality_status=_optional_str(fact.get("quality_status")),
         source_artifact_id=artifact_id,
         source_fact_id=_optional_str(fact.get("fact_id")),
