@@ -50,6 +50,7 @@ def build_extracted_artifact(
     return build_extracted_artifact_from_result(
         entry=entry,
         document=document_ref,
+        document_metadata=document_metadata,
         extracted_payload=extracted_payload,
         pipeline_result=pipeline_result,
         now_func=now_func,
@@ -62,10 +63,13 @@ def build_extracted_artifact_from_result(
     document: dict[str, Any],
     extracted_payload: dict[str, Any],
     pipeline_result: Any,
+    document_metadata: dict[str, Any] | None = None,
     now_func: Callable[[], str] | None = None,
 ) -> P5ExtractedArtifact:
     document_metadata = _json_object(
-        extracted_payload.get("document_metadata", {}),
+        document_metadata
+        if document_metadata is not None
+        else extracted_payload.get("document_metadata", {}),
         field_name="document_metadata",
     )
     missing_status = _missing_status_from_metadata(document_metadata)

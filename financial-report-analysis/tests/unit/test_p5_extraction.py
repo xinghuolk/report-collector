@@ -219,6 +219,60 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
     assert artifact.created_at == "2026-04-23T12:00:00"
 
 
+def test_build_extracted_artifact_preserves_metadata_snapshot_after_pipeline_mutation(
+    tmp_path: Path,
+) -> None:
+    entry = _entry(tmp_path)
+    ingestion = FakeIngestionAdapter(
+        {
+            "candidate_facts": [],
+            "document_metadata": {
+                "language": "zh",
+                "cash_health_missing_status": {
+                    "restricted_cash": "not_surfaced",
+                },
+            },
+        }
+    )
+
+    def fake_analyze_report(
+        document_ref: dict[str, Any],
+        extracted_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        extracted_payload["document_metadata"]["language"] = "en"
+        extracted_payload["document_metadata"]["cash_health_missing_status"][
+            "restricted_cash"
+        ] = "unknown"
+        return {
+            "quality_gate": "review",
+            "canonical_facts": [],
+            "derived_facts": [],
+            "validation_report": {"overall_status": "review_required"},
+            "review_packets": [],
+        }
+
+    artifact = build_extracted_artifact(
+        entry,
+        ingestion_adapter=ingestion,
+        analyze_report_func=fake_analyze_report,
+        now_func=lambda: "2026-04-23T12:00:00",
+    )
+
+    assert artifact.document["language"] == "zh"
+    assert artifact.document_metadata == {
+        "language": "zh",
+        "cash_health_missing_status": {
+            "restricted_cash": "not_surfaced",
+        },
+    }
+    assert artifact.missing_status == {
+        "working_capital_missing_status": {},
+        "debt_missing_status": {},
+        "asset_missing_status": {},
+        "cash_health_missing_status": {"restricted_cash": "not_surfaced"},
+    }
+
+
 def test_build_extracted_artifact_from_result_reuses_existing_payload(tmp_path):
     from financial_report_analysis.p5.extraction import (
         build_extracted_artifact_from_result,
