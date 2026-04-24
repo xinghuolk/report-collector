@@ -599,7 +599,7 @@ git commit -m "feat: add db backed extract write service"
 - Modify: `financial-report-analysis/src/financial_report_analysis/api/routes.py`
 - Test: `financial-report-analysis/tests/integration/test_analysis_api.py`
 
-- [ ] **Step 1: Write the failing route tests**
+- [x] **Step 1: Write the failing route tests**
 
 Append to `financial-report-analysis/tests/integration/test_analysis_api.py`:
 
@@ -697,7 +697,7 @@ def test_extract_endpoint_persists_to_storage_when_requested(
     assert payload["storage"]["report_lookup_path"] == "/reports/CN_601919/2025/annual"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -707,7 +707,7 @@ uv run pytest tests/integration/test_analysis_api.py::test_extract_endpoint_retu
 
 Expected: FAIL because the route does not call the write service and does not include `storage` in the response.
 
-- [ ] **Step 3: Wire the route**
+- [x] **Step 3: Wire the route**
 
 In `financial-report-analysis/src/financial_report_analysis/api/routes.py`, add imports:
 
@@ -757,7 +757,7 @@ After `analysis_result = ReportAdapter().build_analysis_result(...)`, add:
 
 Remove the old direct `return ReportAdapter().build_analysis_result(...)` block.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
