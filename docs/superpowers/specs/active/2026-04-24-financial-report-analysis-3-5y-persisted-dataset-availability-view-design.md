@@ -291,3 +291,13 @@ query -> build dataset artifact -> build Turtle export
 ```
 
 后续如果需要完整 workflow，应另开新阶段，并建立在本轮只读数据视图之上。
+
+## 14. Implementation Closeout Notes
+
+Implementation should be considered complete only when:
+
+- `MultiYearDatasetAvailabilityService` or equivalent read-only service exists.
+- `GET /issuers/{issuer_id}/dataset-availability` returns persisted facts, missing states, and lineage.
+- Tests prove missing report, missing artifact, present metric, and missing metric states.
+- Tests prove the availability path does not trigger extract, recompute, dataset build, or Turtle build.
+- Anchor seed fixture paths for `01810`, `09987`, and `601919` are checked by a cheap integration test.
