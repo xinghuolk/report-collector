@@ -44,9 +44,32 @@ def build_extracted_artifact(
         extracted_payload.get("document_metadata", {}),
         field_name="document_metadata",
     )
-    missing_status = _missing_status_from_metadata(document_metadata)
     document_ref = _build_document_ref(entry, document_metadata=document_metadata)
     pipeline_result = analyze_report_func(document_ref, extracted_payload)
+
+    return build_extracted_artifact_from_result(
+        entry=entry,
+        document=document_ref,
+        extracted_payload=extracted_payload,
+        pipeline_result=pipeline_result,
+        now_func=now_func,
+    )
+
+
+def build_extracted_artifact_from_result(
+    *,
+    entry: P5ManifestEntry,
+    document: dict[str, Any],
+    extracted_payload: dict[str, Any],
+    pipeline_result: Any,
+    now_func: Callable[[], str] | None = None,
+) -> P5ExtractedArtifact:
+    document_metadata = _json_object(
+        extracted_payload.get("document_metadata", {}),
+        field_name="document_metadata",
+    )
+    missing_status = _missing_status_from_metadata(document_metadata)
+    document_ref = _json_object(document, field_name="document")
 
     return P5ExtractedArtifact(
         artifact_id=entry.artifact_id,

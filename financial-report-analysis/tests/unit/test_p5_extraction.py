@@ -219,6 +219,72 @@ def test_build_extracted_artifact_runs_ingestion_and_pipeline(
     assert artifact.created_at == "2026-04-23T12:00:00"
 
 
+def test_build_extracted_artifact_from_result_reuses_existing_payload(tmp_path):
+    from financial_report_analysis.p5.extraction import (
+        build_extracted_artifact_from_result,
+    )
+    from financial_report_analysis.p5.models import P5ManifestEntry
+
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    entry = P5ManifestEntry(
+        issuer_id="CN_601919",
+        market="CN",
+        stock_code="601919",
+        fiscal_year=2025,
+        report_type="annual",
+        pdf_path=pdf_path,
+        source="api",
+        company_name="COSCO SHIPPING Holdings",
+        report_language="zh",
+    )
+    document = {
+        "document_id": str(pdf_path),
+        "pdf_path": str(pdf_path),
+        "market": "CN",
+        "metadata": {"source": "api"},
+    }
+    extracted_payload = {
+        "document_metadata": {
+            "language": "zh",
+            "cash_health_missing_status": {"restricted_cash": "not_surfaced"},
+        },
+        "candidate_facts": [{"fact_id": "candidate-1", "metric_id": "revenue"}],
+    }
+    pipeline_result = {
+        "canonical_facts": [{"fact_id": "canonical-1", "metric_id": "revenue"}],
+        "derived_facts": [],
+        "validation_report": {"overall_status": "ok", "issues": []},
+        "review_packets": [],
+        "quality_gate": "pass",
+    }
+
+    artifact = build_extracted_artifact_from_result(
+        entry=entry,
+        document=document,
+        extracted_payload=extracted_payload,
+        pipeline_result=pipeline_result,
+        now_func=lambda: "2026-04-24T00:00:00+00:00",
+    )
+
+    assert artifact.artifact_id == "CN_601919_2025"
+    assert artifact.manifest_entry == entry
+    assert artifact.document is not document
+    assert artifact.document["document_id"] == str(pdf_path)
+    assert artifact.candidate_facts == (
+        {"fact_id": "candidate-1", "metric_id": "revenue"},
+    )
+    assert artifact.canonical_facts == (
+        {"fact_id": "canonical-1", "metric_id": "revenue"},
+    )
+    assert artifact.missing_status == {
+        "working_capital_missing_status": {},
+        "debt_missing_status": {},
+        "asset_missing_status": {},
+        "cash_health_missing_status": {"restricted_cash": "not_surfaced"},
+    }
+
+
 def test_build_extracted_artifact_defaults_missing_status_groups(
     tmp_path: Path,
 ) -> None:
