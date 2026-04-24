@@ -870,6 +870,13 @@ class SqlAlchemyP5ArtifactRepository:
                         turtle_record.dataset_version = turtle_export.dataset_version
                         turtle_record.payload_json = turtle_payload_json
                         turtle_record.created_at = turtle_export.created_at
+                else:
+                    turtle_record = session.get(
+                        TurtleExportArtifactRecord,
+                        dataset.dataset_id,
+                    )
+                    if turtle_record is not None:
+                        session.delete(turtle_record)
 
                 if turtle_export_review_surface is not None:
                     turtle_surface_payload_json = json.dumps(
@@ -891,6 +898,13 @@ class SqlAlchemyP5ArtifactRepository:
                         session.add(turtle_surface_record)
                     else:
                         turtle_surface_record.payload_json = turtle_surface_payload_json
+                else:
+                    turtle_surface_record = session.get(
+                        TurtleExportReviewSurfaceRecord,
+                        dataset.dataset_id,
+                    )
+                    if turtle_surface_record is not None:
+                        session.delete(turtle_surface_record)
 
                 session.query(DatasetLineageRecord).filter(
                     DatasetLineageRecord.dataset_id == dataset.dataset_id

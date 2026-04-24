@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from financial_report_analysis.api.runtime import build_api_runtime
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.db_assembly_service import (
     DbP5AssemblyRequest,
     build_db_p5_outputs_for_artifact,
@@ -120,3 +123,53 @@ def test_build_db_p5_outputs_for_artifact_persists_turtle_export(
     )
     assert turtle.dataset_id == "custom_dataset"
     assert turtle_surface.dataset_id == "custom_dataset"
+
+
+def test_build_db_p5_outputs_for_artifact_clears_stale_turtle_on_dataset_rebuild(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    assert runtime.storage_repository is not None
+    entry = P5ManifestEntry(
+        issuer_id="CN_601919",
+        market="CN",
+        stock_code="601919",
+        fiscal_year=2025,
+        report_type="annual",
+        pdf_path=tmp_path / "report.pdf",
+        source="test",
+    )
+    runtime.storage_repository.save_extracted_artifact(_artifact(entry))
+
+    build_db_p5_outputs_for_artifact(
+        repository=runtime.storage_repository,
+        request=DbP5AssemblyRequest(
+            artifact_id="CN_601919_2025",
+            dataset_id="custom_dataset",
+            dataset_version="v1",
+            build_turtle=True,
+        ),
+        now_func=lambda: "2026-04-24T00:00:00+00:00",
+    )
+
+    result = build_db_p5_outputs_for_artifact(
+        repository=runtime.storage_repository,
+        request=DbP5AssemblyRequest(
+            artifact_id="CN_601919_2025",
+            dataset_id="custom_dataset",
+            dataset_version="v2",
+            build_turtle=False,
+        ),
+        now_func=lambda: "2026-04-24T00:01:00+00:00",
+    )
+
+    audit_view = runtime.storage_repository.load_dataset_audit_view("custom_dataset")
+    dataset = runtime.storage_repository.load_dataset_artifact("custom_dataset")
+    lineage = runtime.storage_repository.list_lineage_records(dataset_id="custom_dataset")
+
+    assert result.dataset_version == "v2"
+    assert dataset.dataset_version == "v2"
+    assert lineage
+    assert audit_view.turtle_export_review_surface is None
+    with pytest.raises(P5ArtifactRepositoryError, match="missing turtle export"):
+        runtime.storage_repository.load_turtle_export("custom_dataset")

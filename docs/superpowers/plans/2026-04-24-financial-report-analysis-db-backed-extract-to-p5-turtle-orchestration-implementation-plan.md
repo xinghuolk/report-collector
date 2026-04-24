@@ -564,7 +564,7 @@ def test_build_p5_outputs_for_persisted_extract_returns_response_payload(
     assert payload["dataset_id"] == "single_report_CN_601919_2025_annual_CN_601919_2025"
     assert payload["turtle_export_id"] == payload["dataset_id"]
     assert payload["dataset_lookup_path"] == f"/datasets/{payload['dataset_id']}"
-    assert payload["turtle_export_lookup_path"] == f"/datasets/{payload['dataset_id']}"
+    assert payload["turtle_export_lookup_path"] is None
     assert payload["source_artifact_ids"] == ("CN_601919_2025",)
     assert payload["lineage_record_count"] >= 1
 ```
@@ -864,7 +864,7 @@ def test_extract_endpoint_persists_turtle_when_build_turtle_requested(
     assert build["dataset_id"] == "api_single_report_dataset"
     assert build["dataset_version"] == "api-test"
     assert build["turtle_export_id"] == "api_single_report_dataset"
-    assert build["turtle_export_lookup_path"] == "/datasets/api_single_report_dataset"
+    assert build["turtle_export_lookup_path"] is None
     audit_response = client.get("/datasets/api_single_report_dataset/audit")
     assert audit_response.status_code == 200
     assert audit_response.json()["turtle_export_review_surface"] is not None
@@ -916,14 +916,14 @@ Replace the `if request.persist_to_storage:` block in `extract_analysis(...)` wi
                 request=request,
                 storage_result=storage_result,
             )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
         except P5ArtifactRepositoryError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
         except RuntimeError as exc:
