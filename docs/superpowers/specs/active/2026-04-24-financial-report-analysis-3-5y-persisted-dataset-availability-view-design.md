@@ -159,10 +159,10 @@ recommended_next_actions[]
 
 ## 7. 服务边界
 
-建议新增内部 service：
+建议新增内部 read-only view builder：
 
 ```text
-MultiYearDatasetAvailabilityService
+build_multi_year_availability_view
 ```
 
 它依赖 storage repository 的只读能力：
@@ -296,7 +296,7 @@ query -> build dataset artifact -> build Turtle export
 
 Implementation should be considered complete only when:
 
-- `MultiYearDatasetAvailabilityService` or equivalent read-only service exists.
+- `build_multi_year_availability_view`, `MultiYearAvailabilityRequest`, and `MultiYearAvailabilityView` provide the read-only surface.
 - `GET /issuers/{issuer_id}/dataset-availability` returns persisted facts, missing states, and lineage.
 - Tests prove missing report, missing artifact, present metric, and missing metric states.
 - Tests prove the availability path does not trigger extract, recompute, dataset build, or Turtle build.
