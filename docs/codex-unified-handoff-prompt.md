@@ -29,8 +29,10 @@
    - 除非最新 spec / plan 明确要求，否则不要主动把新逻辑耦合进 `report/`
 
 3. 识别当前最新文档
-   - 查看 `docs/superpowers/specs/`
-   - 查看 `docs/superpowers/plans/`
+   - 先查看 `docs/superpowers/specs/active/`
+   - 再查看 `docs/superpowers/plans/active/`
+   - 如需仍有效的路线/架构背景，再进入 `docs/superpowers/specs/reference/` 或 `docs/superpowers/plans/reference/`
+   - 如需历史执行细节，再进入 `docs/superpowers/specs/archived/` 或 `docs/superpowers/plans/archived/`
    - 以“最新日期、且与当前分支改动最相关”的 spec / plan 为主
    - 不要默认只看一个文档；如果有“总纲 + 当前阶段 plan”，要一起读
 
@@ -123,10 +125,17 @@
 
 1. [AGENTS.md](F:/source/git/report-collector/AGENTS.md)
 2. 本文件 [codex-unified-handoff-prompt.md](F:/source/git/report-collector/docs/codex-unified-handoff-prompt.md)
-3. `docs/superpowers/specs/` 中最新且与当前代码最相关的 spec
-4. `docs/superpowers/plans/` 中与该 spec 配套的最新 plan
+3. `docs/superpowers/specs/active/` 中最新且与当前代码最相关的 spec
+4. `docs/superpowers/plans/active/` 中与该 spec 配套的最新 plan
 5. 如存在“总纲 / master plan”，再补读总纲
 6. 最后回到 `git log` 和代码本身确认进度
+
+当前文档生命周期约定：
+
+- active 目录只保留仍指导下一步工作的 spec / plan。
+- reference 目录保存仍有路线、架构、字段或方法约束参考价值，但不应直接执行的文档。
+- archived 目录保存已完成、已被取代或不再承担当前决策职责的历史文档。
+- 如果 active plan 为空，不要从 archived plan 里机械恢复任务；先依据 active roadmap 与代码实际状态判断是否需要写新的 spec / plan。
 
 ## 推荐执行方式
 

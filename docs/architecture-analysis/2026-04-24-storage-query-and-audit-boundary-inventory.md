@@ -4,6 +4,25 @@
 > **日期:** 2026-04-24
 > **阶段:** Storage-Backed Query And Audit
 
+## 2026-04-24 Closeout Update
+
+本文件原本是 phase-entry boundary inventory。当前 `Storage-Backed Query And Audit` 已完成并收口：
+
+- repository 已提供 issuer/year/report coverage query
+- repository 已提供 extracted / dataset / turtle review surface lookup
+- repository 已提供 lineage / recompute lookup
+- repository 已提供 dataset audit view
+- API runtime 已通过 storage-backed endpoints 暴露 report coverage、artifact、dataset、dataset audit、recompute read path
+
+因此，下文的“本阶段应该统一暴露的问题”应按已完成 baseline 理解，不再是未完成 gap。
+
+当前仍开放的是：
+
+- document-ledger deeper lookup 的更高层 API
+- extraction-run 多版本比较
+- workflow-level coverage summary
+- approval/review decision API
+
 ## 当前 durable records 已经存在什么
 
 当前 durable storage baseline 已经持久化了：

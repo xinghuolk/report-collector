@@ -1,5 +1,29 @@
 # 龟龟投资策略 v0.15 财报字段差距分析
 
+## 0. 2026-04-24 状态更新
+
+本文最初写于 P4C/P4D/P4E/P5 完成之前。下文关于“当前项目还没有正式承接”的部分已经有明显变化。
+
+截至当前分支，以下原先的关键缺口已经完成或显著收窄：
+
+- 主表核心骨架：`revenue`、`operating_cost`、`operating_profit`、`net_profit`、`total_assets`、`total_liabilities`、`equity_attributable_to_owners`、`operating_cash_flow`、`investing_cash_flow`、`financing_cash_flow`、`c_pay_to_staff`、`c_paid_for_taxes`
+- 现金健康度 / bridge baseline：`restricted_cash`、`interest_paid_cash`、`time_deposits_or_wealth_products`
+- 母公司范围 baseline：parent `cash`、`lt_eqt_invest`、parent debt/equity/asset/liability families
+- 经营质量与 capex follow-up baseline：`fix_assets`、`cip`、`rd_exp`、`invest_income`、`asset_disp_income`、`n_recp_disp_fiolta`、`c_recp_return_invest`
+- P5 multi-year investor dataset and Turtle export baseline
+
+因此，本文现在应作为 v0.15 原始需求地图和 post-P5 enhancement backlog 的参考，而不是当前代码覆盖状态的唯一来源。
+
+当前仍开放、且更适合进入后续 focused specs 的差距主要是：
+
+1. 利润增强：`gross_profit`、SG&A 等价口径、`fv_value_chg_gain`、`non_oper_income`、`non_oper_exp`
+2. 资产负债增强：`total_cur_assets`、`other_cur_assets`、`total_cur_liab`、`defer_tax_assets`、`defer_tax_liab`
+3. 现金流增强：`stock_based_compensation`、`change_in_receivables`、`change_in_payables`、`change_in_inventory`、`receiv_tax_refund`
+4. 附注/公告桥接：DPS、分红方案、回购/注销、资本化研发、资本化利息、账龄/坏账、关联方应收应付
+5. 文本型 review artifact：MD&A、审计意见、风险因素、股息政策原文
+
+新阶段不应恢复旧 P4/P5 计划，而应从这些开放方向里挑一个最小字段族，按样本接入流程重新写 focused spec / plan。
+
 ## 1. 目的
 
 这份文档只回答两个问题：

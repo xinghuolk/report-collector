@@ -4,6 +4,24 @@
 > **阶段:** Storage-Backed API Runtime Slice
 > **用途:** Task 0 boundary inventory
 
+## 2026-04-24 Closeout Update
+
+本文件原本是 phase-entry boundary inventory。当前 `Storage-Backed API Runtime Slice` 已完成并收口：
+
+- `create_app(storage_db_path=...)` / runtime override 已落地
+- app state 已提供 `ApiRuntime`
+- read-only storage-backed endpoints 已落地
+- `/api/v1/analysis/extract` 后续也已支持 opt-in DB persistence 与 opt-in dataset/Turtle build
+
+因此，“Phase-Entry Runtime 断点”保留为历史入口状态，不再代表当前 gap。
+
+当前仍开放的是：
+
+- upload/url acquisition API
+- workflow / approval write API
+- document-ledger deeper objects 的 HTTP read surface
+- 3-5 年 Turtle workflow API
+
 ## 当前 API runtime 已有对象
 
 - `create_app()` app factory

@@ -4,6 +4,25 @@
 > **日期:** 2026-04-24
 > **阶段:** Document Ledger And Extraction-Run Persistence
 
+## 2026-04-24 Closeout Update
+
+本文件原本是 phase-entry boundary inventory。当前 `Document Ledger And Extraction-Run Persistence` 已完成最小 durable 接线并收口：
+
+- `report_file / document / document_version / extraction_run` 已有 repository 接线
+- statement table identity / rows / columns / payload baseline 已有 repository 接线
+- fact set / candidate / canonical / derived / fact lineage baseline 已有 repository 接线
+- validation report / validation issue / quality gate baseline 已有 repository 接线
+- integration tests 覆盖 artifact snapshot 与 deeper ledger objects 共存
+
+因此，下文中“尚未真正接线”的表述是阶段入口状态，不再代表当前代码状态。
+
+当前仍开放的是：
+
+- 让主 pipeline 默认把真实 extraction table/fact ledger 全量写入这些 deeper objects
+- 对 document/extraction-run/statement/fact ledger 暴露更高层 read API
+- extraction-run 多版本比较
+- workflow-level lineage / recompute orchestration
+
 ## 当前 schema 已存在、但尚未真正接线的 deeper objects
 
 当前 durable schema 已经包含以下 deeper-ledger 对象：

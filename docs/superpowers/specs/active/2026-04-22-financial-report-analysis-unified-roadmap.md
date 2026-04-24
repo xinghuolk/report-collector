@@ -3,6 +3,7 @@
 > **状态:** 路线图 spec
 > **日期:** 2026-04-22
 > **范围:** 协调 `financial-report-analysis` 的长期演进路线，包括抽取底座、Turtle 输入覆盖、fallback 控制、metric 治理、API surface、storage、lineage 与 recompute。
+> **生命周期:** Active roadmap. Historical specs and plans have been moved under `docs/superpowers/specs/archived/` and `docs/superpowers/plans/archived/`; still-relevant background lives under `docs/superpowers/specs/reference/`.
 
 ## 0. 当前状态快照
 
@@ -18,8 +19,17 @@
 - `Turtle P4D Parent Scope And Notes Follow-up` 已完成并收口。
 - `Turtle P4E Investor Earnings Quality And Capex Follow-up` 已完成并收口。
 - `Turtle P5 Multi-Year Investor Dataset And Minimal Persistence` 已完成并收口。
+- `Storage-Backed Query And Audit` 已完成并收口。
+- `Document Ledger And Extraction-Run Persistence` 已完成并收口。
+- `Storage-Backed API Runtime Slice` 已完成并收口。
+- `DB-Backed Extract Persistence And Lookup Slice` 已完成并收口。
+- `DB-Backed Extract To P5/Turtle Orchestration` 已完成并收口。
+- 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
 - `new-report-sample-onboarding-and-field-variance-process.md` 不再只是补充说明，而应视为后续字段 phase 的正式前置方法约束。
 - `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 仍然是后续 coverage 需求的重要来源，但当前分支已经不再处于 pre-P5 的字段扩张阶段。
+- `docs/superpowers/specs/reference/2026-04-19-financial-report-analysis-phase2-roadmap.md` 仍是抽取底座原则参考，但不是当前执行计划。
+- `docs/superpowers/specs/reference/2026-04-23-financial-report-analysis-core-database-architecture-planning.md` 仍是更长期 fact-ledger / metric-governance / DB 架构方向参考。
+- `docs/superpowers/specs/reference/2026-04-23-financial-report-analysis-turtle-post-p4-coverage-roadmap.md` 仍保留 post-P5 enhancement candidates，但 pre-P5/P4C/P4D/P4E/P5 主线已经完成。
 
 因此，当前推荐的下一步不再是继续新开 `P4x` 或 `P5` coverage phase，而是进入：
 
@@ -55,6 +65,14 @@
 
 - `Storage-Backed Query And Audit`
 - `Document Ledger And Extraction-Run Persistence`
+
+这两项截至当前分支也已经完成。因此，新的下一步应从下面这些仍开放的方向中选择一个最小切片，而不是恢复旧 plan：
+
+- 3-5 年 dataset/workflow orchestration：围绕多年份缺口识别、批量 build、缺失年份状态、dataset 覆盖解释做新的 focused spec。
+- API/write workflow 产品化：在现有 opt-in extract + build 路径上，设计更明确的 ingest/build workflow boundary，但不做 full approval system。
+- Metric governance 与 custom/provisional lifecycle：把 registry 状态、review decision、canonical promotion 的长期方向拆成小的可验证 slice。
+- Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
+- Whole-document LLM assessment / diff review：只作为 review artifact，不进入 canonical facts 或 deterministic recompute 裁决链。
 
 ## 1. 目的
 

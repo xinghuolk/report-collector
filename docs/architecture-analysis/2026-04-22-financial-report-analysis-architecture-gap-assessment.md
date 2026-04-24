@@ -4,6 +4,38 @@
 > **日期:** 2026-04-22
 > **范围:** 对比历史文档意图与当前代码现状，重点覆盖扩展字段、HTTP API、skills/components、存储、血缘与重算。
 
+## 0. 2026-04-24 状态更新
+
+本文最初写于 durable storage / P5 / DB-backed API 主线完成之前。以下旧判断现在已经过时：
+
+- “API 仍然很窄：extract + health”
+- “当前代码仍是 memory-first”
+- “没有 document block / table 关系型索引”
+- “没有 durable fact-set version store”
+- “没有 recompute API 或 stage-level recompute orchestration”
+
+截至当前分支，代码已经完成：
+
+- storage-backed query / audit repository surface
+- document ledger and extraction-run persistence baseline
+- statement table / fact set / validation / quality gate ledger baseline
+- API runtime storage wiring
+- read-only storage-backed API endpoints
+- opt-in `/api/v1/analysis/extract` DB persistence
+- opt-in extract-to-P5/Turtle DB-backed build path
+- persisted review / lineage / recompute baseline
+
+因此，本文现在应作为“历史 gap 盘点 + 仍开放架构问题”的参考，而不是当前执行清单。
+
+当前仍开放、且值得进入新 focused spec 的架构缺口是：
+
+1. `MetricRegistry` / `MetricMappingRegistry` / future custom metric lifecycle registry 的角色边界仍需澄清。
+2. Provisional/custom metric 的 review、approval、mapped/deprecated/blacklisted lifecycle 尚未成为 durable workflow。
+3. Quality gate 尚未系统执行 “provisional custom metrics 不进入自动核心分析” 的 policy。
+4. 3-5 年 Turtle workflow 仍缺面向 issuer/year-range 的 orchestration layer。
+5. Whole-document LLM assessment / diff review 尚未设计为受限 review artifact。
+6. Upload/url acquisition、async job handle、approval workflow 仍未产品化。
+
 ## 1. 目的
 
 本文记录当前对 `financial-report-analysis` 的架构差距盘点。
@@ -91,8 +123,8 @@
 判断：
 
 - service 边界基本按文档落地。
-- API 仍然很窄：extract + health。
-- 还没有面向 facts、validation reports、provisional metrics、analysis snapshots 的独立 read / query / export / review API。
+- 旧判断中的 “extract + health only” 已过时：当前已经有 storage-backed read endpoints 和 opt-in DB-backed extract/write/build path。
+- 仍缺的是面向 provisional/custom metric review、workflow decisions、upload/url acquisition、3-5 年 orchestration 的更高层 API。
 
 ### 3.2 灵活扩展字段
 
@@ -242,12 +274,8 @@ data model design 预期：
 
 判断：
 
-- evidence bundle link-table 概念已有内存态表达。
-- 没有 PostgreSQL schema 或实现。
-- 没有 object-storage 实现。
-- 没有 document block / table 关系型索引。
-- 没有 durable fact-set version store。
-- 没有 recompute API 或 stage-level recompute orchestration。
+- 这一节的原始 gap 已经大幅收窄：SQLite-first durable storage、document/extraction-run ledger、statement table / fact set / validation baseline、review / lineage / recompute persistence 和 storage-backed API 都已经落地。
+- 仍未完成的是 Postgres/service-mode migration、object storage、workflow-level recompute orchestration、custom metric registry persistence，以及真正面向 3-5 年 dataset 的 orchestration layer。
 
 ## 4. 差距总结
 
@@ -256,6 +284,12 @@ data model design 预期：
 - 独立 FastAPI service 边界。
 - `report/` HTTP forwarding 边界。
 - 基础 extract response envelope。
+- Storage-backed read API runtime。
+- Opt-in DB-backed extract persistence。
+- Opt-in DB-backed extract-to-P5/Turtle build path。
+- Document ledger / extraction-run persistence baseline。
+- Statement table / fact set / validation / quality gate ledger baseline。
+- Persisted review / lineage / recompute baseline。
 - Candidate / canonical / derived fact classes。
 - 基础 pipeline flow。
 - 内置 metric mapping registry。
@@ -278,16 +312,17 @@ data model design 预期：
   - 通用 gate 已存在。
   - provisional-metric-specific gate policy 缺失。
 
-### 4.3 尚未实现
+### 4.3 尚未实现或仍未产品化
 
 - Custom metric review/export surface。
 - Durable custom metric registry。
 - Shadow merge scoring and duplicate tracking。
 - Approved / mapped / deprecated / blacklisted registry transitions。
-- 面向 fact sets、validation reports、evidence、custom metric review 的 HTTP query/read endpoints。
-- PostgreSQL-backed fact/evidence/lineage storage。
+- 面向 custom metric review / approval workflow 的 HTTP query/write endpoints。
+- PostgreSQL-backed deployment mode。
 - 面向 PDF、OCR、完整 cell matrix、prompt/completion dump、replay bundle 的 object storage。
-- Selective recompute。
+- Workflow-level selective recompute / async job orchestration。
+- 3-5 年 Turtle dataset workflow orchestration。
 
 ## 5. 具体问题点
 
@@ -324,7 +359,9 @@ data model design 预期：
 
 ### 5.3 API 仍是 Extract-Only
 
-当前 API 是很窄的 extract envelope。它符合早期交付边界，但不支持 custom metric review 或 durable query 用例。
+旧判断已过时。当前 API 不再只是 extract envelope，已经支持 storage-backed read endpoints 和 opt-in DB-backed write/build path。
+
+仍成立的部分是：它还不支持 custom metric review、approval workflow、upload/url acquisition 或 3-5 年 Turtle workflow orchestration。
 
 风险：
 
@@ -342,12 +379,12 @@ data model design 预期：
 
 ### 5.4 Storage 设计领先于代码
 
-文档预期 durable relational/object storage。当前代码仍是 memory-first。
+旧判断已过时。当前代码已经有 SQLite-first durable storage baseline，且 API 可以读写核心 artifact / review / lineage / recompute 对象。
 
 风险：
 
-- lineage、audit、replay、recompute 难以做扎实。
-- custom metric lifecycle 没有 durable registry state 就很难健壮。
+- custom metric lifecycle 没有 durable registry state 仍然难以健壮。
+- Postgres/service-mode、object storage、workflow-level replay/recompute 仍未收口。
 
 建议澄清：
 
@@ -375,7 +412,7 @@ data model design 预期：
   - current maturity
   - known gap
 
-## 6. 推荐后续顺序
+## 6. 推荐后续顺序（2026-04-24 更新）
 
 ### Step 1: 先明确 Registry 角色
 
@@ -419,9 +456,9 @@ data model design 预期：
 2. 持久化 review status 和 mapping decisions。
 3. 再考虑是否外置 deterministic mapping definitions。
 
-### Step 5: 再回到 Storage And Recompute
+### Step 5: 再回到 Workflow And Recompute
 
-等 custom metric governance 有真实使用场景后，再围绕最小对象集引入 durable storage：
+等 custom metric governance 或 3-5Y workflow 有真实使用场景后，再围绕以下对象补 workflow-level 能力：
 
 - registry rows
 - pipeline runs
@@ -429,7 +466,7 @@ data model design 预期：
 - evidence bundle links
 - validation issues
 
-之后再回看 `stage_rerun` 和 `selective_recompute`。
+之后再回看 `stage_rerun`、`selective_recompute`、async job handle 和 approval workflow。
 
 ## 7. 当前最实际的下一步决策
 

@@ -3,6 +3,25 @@
 > **日期:** 2026-04-24
 > **目的:** 对照统一路线图与当前代码现状，判断如何尽快打通一条“HTTP 输入 PDF -> 写入数据库 -> 返回结果 -> 通过 API 读取/编排 3-5 年龟龟投资数据”的最小正确路径，同时避免为了短期可跑而引入后续高返工成本。
 
+## 0. 2026-04-24 状态更新
+
+本文最初写于 DB-backed write/build slice 完成之前。以下 gap 已经关闭：
+
+- `/api/v1/analysis/extract` 可以 opt-in 写入 durable storage。
+- extract write path 会注册 report/document/document_version/extraction_run baseline。
+- 已经有 `extract_write_service.py` 承接 DB-backed extract persistence。
+- 已经有 `p5/db_assembly_service.py` 承接 DB-backed dataset / Turtle build。
+- extract route 已支持 `build_dataset` / `build_turtle` opt-in flags。
+- persisted dataset / turtle / review / lineage 可以通过 storage-backed API/read surface 查回。
+
+因此，本文中的 “HTTP write path 仍不是 DB-backed” 和 “缺少统一 ingest/build orchestration boundary” 已不再准确。当前剩余 gap 应收窄为：
+
+1. 3-5 年 Turtle workflow orchestration 还没有成为独立服务。
+2. 当前 build 是单次 extract 后的 opt-in synchronous path，不是 issuer/year-range workflow。
+3. `p5/runner.py` 仍保留 JSON-first runner，尚未完全收编为 DB-first workflow runner。
+4. upload/url acquisition、async job handle、retry/rebuild policy、approval workflow 尚未产品化。
+5. dataset coverage explanation 仍需要更明确回答“哪些年份已覆盖、哪些缺失、哪些需要重算”。
+
 ## 1. Executive Summary
 
 当前系统已经完成了两块非常关键的基础：
@@ -12,7 +31,7 @@
 
 这意味着系统已经从“只能在本地 JSON / 内部模块里跑”推进到了“数据库可承接核心 artifact，HTTP 已能稳定从数据库读关键对象”。
 
-但距离用户想要的目标状态，仍缺一条真正的 **DB-backed write orchestration**：
+当前系统又进一步补齐了 opt-in **DB-backed write/build slice**。但距离用户想要的目标状态，仍缺一条真正的 **3-5Y workflow orchestration**：
 
 ```text
 HTTP PDF ingress
@@ -22,14 +41,16 @@ HTTP PDF ingress
 -> dataset / turtle export assembly
 -> DB persistence of dataset/review/lineage/recompute
 -> synchronous or handled response
--> follow-up API lookup / 3-5Y orchestration
+-> follow-up API lookup
+-> issuer/year-range 3-5Y orchestration
 ```
 
 **结论：**
 
 - 下一步不应继续优先扩 read-only API。
 - 下一步也不应直接跳到完整 workflow/approval 产品化。
-- 最合理的路线是新增一个 **DB-backed ingest-and-build orchestration phase**，把当前分裂的写路径统一起来。
+- DB-backed ingest/build 的最小 slice 已经完成。
+- 下一步最合理的路线是新增一个 **3-5Y Turtle workflow orchestration phase**，不要继续把多年份编排塞进单次 extract route。
 
 这条路线既能最快让系统“真的跑通”，又不会破坏路线图已经建立的 storage / document-ledger / review-lineage-recompute contract。
 
@@ -117,28 +138,31 @@ HTTP PDF ingress
 - 当前 `p5/runner.py` 仍以 **JSON repository** 为主
 - 这条 runner 还不是 DB-first orchestration
 
-## 4. 当前未完成的关键断点
+## 4. 当前未完成的关键断点（更新后）
 
-### 4.1 HTTP write path 仍不是 DB-backed
+### 4.1 HTTP write/build path 已有最小 DB-backed slice
 
-当前 `/api/v1/analysis/extract` 的行为是：
+当前 `/api/v1/analysis/extract` 已经可以：
 
-- 接收 `pdf_path` / `pdf_url`
-- 即时跑 ingestion + pipeline
-- 返回分析结果
+- opt-in persist extract result to storage
+- 注册 report/document/document_version/extraction_run baseline
+- persist extracted artifact
+- opt-in build dataset / turtle export
+- persist dataset / turtle / review / lineage surfaces
+- 返回 stable lookup IDs
 
-但它 **不会**：
+仍不应该继续在这个 route 上堆：
 
-- 注册 report/document/document_version
-- 创建 extraction_run
-- 写入 extracted artifact 到 DB
-- 触发 dataset/turtle build 并写库
-- 产生可复用的 run/result handle
+- 多 issuer / 多年度 workflow
+- upload/url acquisition governance
+- async job scheduling
+- approval workflow
 
-因此，API 侧现在仍是：
+因此，API 侧现在是：
 
 - **read from DB: yes**
-- **write to DB orchestration: no**
+- **single-report write/build slice: yes**
+- **3-5Y workflow orchestration: not yet**
 
 ### 4.2 P5 runner 仍是 JSON-first
 
@@ -151,9 +175,9 @@ HTTP PDF ingress
 - dataset/turtle 的正式组装主路径还没有切到 DB repository
 - 即使数据库可以存这些对象，也还没有一个正式的 DB-backed runner 把它们串起来
 
-### 4.3 缺少统一的 ingest/build orchestration boundary
+### 4.3 缺少 3-5Y workflow orchestration boundary
 
-当前系统已经有这些零件：
+当前系统已经有单次 extract/write/build 的零件：
 
 - HTTP extract
 - storage repositories
@@ -162,12 +186,13 @@ HTTP PDF ingress
 - dataset assembly
 - review/lineage/recompute persistence
 
-但缺一个居中的编排层，负责：
+但缺一个面向投资数据集的 workflow 层，负责：
 
-- 拿到一个 report source
-- 统一注册 report/document/run
-- 组织 extract -> persist -> dataset build -> persist
-- 给 API 层一个稳定的返回 contract
+- 接收 issuer / year range / report type
+- 查询已有 report/artifact/dataset coverage
+- 判断缺失年份、缺失 artifact、需要重算的年份
+- 调用现有 extract/build path 或拒绝并返回缺口状态
+- 输出 3-5Y Turtle dataset / export / audit summary
 
 这就是当前最真实的缺口。
 
@@ -274,6 +299,10 @@ HTTP PDF ingress
 
 - 把单份 PDF 的 write path 打通
 
+状态：
+
+- 已完成最小 slice。后续不应把它继续扩成多年份 workflow 核心。
+
 最小职责：
 
 - 接受 `report_source`
@@ -298,6 +327,11 @@ HTTP -> DB write -> API read back
 目标：
 
 - 把当前 JSON-first runner 收编到 DB orchestration
+
+状态：
+
+- 已完成 API-triggered DB-backed assembly service。
+- 仍可后续决定是否把 CLI runner 也收编为 DB-first。
 
 最小职责：
 
@@ -369,26 +403,26 @@ HTTP -> DB write -> API read back
 
 这样可以避免把“远端下载治理”混进当前最关键的 DB-backed write path。
 
-## 10. 建议立即产出的文档
+## 10. 建议立即产出的文档（更新后）
 
-如果按这份分析继续往下做，最合理的下一份正式 spec 应该是：
+如果按当前代码状态继续往下做，最合理的下一份正式 spec 应该是：
 
-`financial-report-analysis-db-backed-ingest-and-build-orchestration-design`
+`financial-report-analysis-3-5y-turtle-workflow-orchestration-design`
 
 它应明确：
 
-- orchestration service 边界
-- HTTP write contract
-- DB-backed persistence contract
-- 与现有 `/api/v1/analysis/extract` 的关系
-- 与现有 P5 runner 的收编策略
-- 同步返回 vs run handle 的第一版选择
+- issuer/year-range workflow service 边界
+- 如何复用现有 storage-backed read/write/build path
+- coverage / missing / stale / recompute-needed 状态
+- dataset build 与 Turtle export 的多年份 contract
+- 同步 summary vs run handle 的第一版选择
+- 与 upload/url acquisition 和 approval workflow 的边界
 
 ## 11. Final Recommendation
 
 **下一步应该做：**
 
-- `DB-backed ingest/build orchestration`
+- `3-5Y Turtle workflow orchestration`
 
 **下一步不应该做：**
 
@@ -400,9 +434,7 @@ HTTP -> DB write -> API read back
 最小正确路线是：
 
 ```text
-DB-backed orchestration service
--> minimal write API
--> DB-backed P5/Turtle assembly
+existing DB-backed single-report write/build slice
 -> 3-5Y Turtle workflow orchestration
 -> richer workflow/review API
 ```

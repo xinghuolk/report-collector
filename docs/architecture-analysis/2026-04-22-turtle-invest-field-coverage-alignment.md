@@ -1,5 +1,39 @@
 # 龟龟投资字段覆盖对齐表
 
+## 0. 2026-04-24 状态更新
+
+本文最初写于 P3/P4/P5 主线完成之前。下文中关于 `active_phase`、`future_phase`、P3 后续、P4 现金健康度、母公司范围、P5 多年数据集的判断，有一部分已经被后续实现推进。
+
+截至当前分支，以下路线已经完成并收口：
+
+- P2B Debt Inputs
+- P3 Asset Quality Inputs
+- P4A Parent Scope / Notes Conflict Governance
+- P4B Cash-Health Notes Bridge
+- P4C Investor Core Statement Gaps
+- P4D Parent Scope And Notes Follow-up
+- P4E Investor Earnings Quality And Capex Follow-up
+- P5 Multi-Year Investor Dataset And Minimal Persistence
+- DB-backed extract persistence and opt-in DB-backed P5/Turtle build
+
+因此，本文现在应作为“字段分层与原始 Turtle 需求来源”的参考，而不是当前覆盖状态的唯一真相。
+
+当前仍有参考价值的结论是：
+
+- Turtle 字段必须继续分为原始抽取字段、附注/公告桥接字段、派生分析字段、外部市场字段。
+- 下游派生计算结果仍不应写回 extraction facts。
+- 新 coverage phase 仍应先走样本接入与字段差异处理流程。
+- post-P5 enhancement candidates 应从 `docs/superpowers/specs/reference/2026-04-23-financial-report-analysis-turtle-post-p4-coverage-roadmap.md` 和 `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 中挑最小字段族重开 focused spec。
+
+当前仍开放的字段/能力方向主要是：
+
+- gross profit / SG&A / non-operating income-expense / fair-value gain 等利润增强
+- total/current assets and liabilities、deferred tax、other current assets 等资产负债增强
+- stock-based compensation、working-capital cash-flow change rows 等现金流增强
+- dividend / buyback / cancellation / DPS bridge
+- MD&A、审计意见、风险因素、股息政策原文等文本型 review artifact
+- market / share-count / valuation 输入的下游集成边界
+
 ## 1. 目的
 
 这份文档用于把两侧内容对齐：
