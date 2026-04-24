@@ -203,6 +203,26 @@ def test_extract_endpoint_rejects_non_annual_persisted_report_type() -> None:
     assert "report_type" in response.text
 
 
+def test_extract_endpoint_rejects_whitespace_only_persistence_identity() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": "ignored.pdf",
+            "market": "CN",
+            "persist_to_storage": True,
+            "issuer_id": "   ",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "issuer_id" in response.text
+
+
 def test_extract_endpoint_runs_ingestion_path_for_pdf_input(
     monkeypatch,
     tmp_path: Path,
@@ -362,6 +382,7 @@ def test_extract_endpoint_surfaces_phase1_api_visible_metrics(
 
     assert response.status_code == 200
     payload = response.json()
+    assert "storage" not in payload
     key_fact_ids = [fact["metric_id"] for fact in payload["key_facts"]]
     assert "n_income_attr_p" in key_fact_ids
     assert "basic_eps" in key_fact_ids

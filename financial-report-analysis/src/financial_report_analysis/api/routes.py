@@ -139,6 +139,7 @@ def get_recompute_result(
 @router.post(
     "/api/v1/analysis/extract",
     response_model=AnalysisExtractResponse,
+    response_model_exclude_none=True,
 )
 def extract_analysis(
     request: AnalysisExtractRequest,

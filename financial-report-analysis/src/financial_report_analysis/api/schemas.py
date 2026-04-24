@@ -29,7 +29,7 @@ class AnalysisExtractRequest(BaseModel):
         missing_fields = [
             field_name
             for field_name in ("issuer_id", "stock_code", "fiscal_year", "report_type")
-            if getattr(self, field_name) in (None, "")
+            if _is_missing_identity_value(getattr(self, field_name))
         ]
         if missing_fields:
             raise ValueError(
@@ -41,6 +41,14 @@ class AnalysisExtractRequest(BaseModel):
                 "persist_to_storage currently supports report_type='annual' only"
             )
         return self
+
+
+def _is_missing_identity_value(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
 
 
 class AnalysisStorageResult(BaseModel):
