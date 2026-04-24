@@ -204,6 +204,15 @@ def extract_analysis(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="pdf_path or pdf_url is required",
         )
+    if request.persist_to_storage or request.build_dataset or request.build_turtle:
+        if (
+            runtime.storage_repository is None
+            or runtime.historical_ingestion_service is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="storage repository is not configured",
+            )
 
     document_id = pdf_path or pdf_url
     document = {
@@ -239,14 +248,6 @@ def extract_analysis(
         pipeline_result=pipeline_result,
     )
     if request.persist_to_storage or request.build_dataset or request.build_turtle:
-        if (
-            runtime.storage_repository is None
-            or runtime.historical_ingestion_service is None
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="storage repository is not configured",
-            )
         try:
             storage_result = persist_analysis_extract_result(
                 runtime=runtime,

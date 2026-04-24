@@ -258,6 +258,48 @@ def test_extract_endpoint_returns_503_when_persistence_requested_without_storage
     assert response.json()["detail"] == "storage repository is not configured"
 
 
+def test_extract_endpoint_checks_storage_before_ingestion_when_persisting(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    pdf_path = tmp_path / "report.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    ingestion_was_called = False
+
+    def record_ingestion_call(self, **kwargs):
+        nonlocal ingestion_was_called
+        del self, kwargs
+        ingestion_was_called = True
+        return {
+            "document_metadata": {"language": "zh"},
+            "candidate_facts": [],
+        }
+
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "extract_candidate_facts",
+        record_ingestion_call,
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/analysis/extract",
+        json={
+            "pdf_path": str(pdf_path),
+            "market": "CN",
+            "persist_to_storage": True,
+            "issuer_id": "CN_601919",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "storage repository is not configured"
+    assert ingestion_was_called is False
+
+
 def test_extract_endpoint_persists_to_storage_when_requested(
     monkeypatch,
     tmp_path,
