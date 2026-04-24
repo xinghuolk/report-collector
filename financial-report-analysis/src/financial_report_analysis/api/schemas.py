@@ -13,6 +13,10 @@ class AnalysisExtractRequest(BaseModel):
     market: str | None = None
     min_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     persist_to_storage: bool = False
+    build_dataset: bool = False
+    build_turtle: bool = False
+    dataset_id: str | None = None
+    dataset_version: str | None = None
     issuer_id: str | None = None
     stock_code: str | None = None
     fiscal_year: int | None = Field(default=None, ge=1900, le=2200)
@@ -23,6 +27,10 @@ class AnalysisExtractRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_persistence_identity(self) -> "AnalysisExtractRequest":
+        if (self.build_dataset or self.build_turtle) and not self.persist_to_storage:
+            field_name = "build_turtle" if self.build_turtle else "build_dataset"
+            raise ValueError(f"{field_name} requires persist_to_storage=true")
+
         if not self.persist_to_storage:
             return self
 
@@ -51,6 +59,19 @@ def _is_missing_identity_value(value: object) -> bool:
     return False
 
 
+class AnalysisBuildResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str | None = None
+    dataset_version: str | None = None
+    turtle_export_id: str | None = None
+    dataset_lookup_path: str | None = None
+    turtle_export_lookup_path: str | None = None
+    source_artifact_ids: tuple[str, ...] = ()
+    lineage_record_count: int = 0
+    build_warnings: tuple[str, ...] = ()
+
+
 class AnalysisStorageResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,6 +83,7 @@ class AnalysisStorageResult(BaseModel):
     extraction_run_id: str | None = None
     artifact_lookup_path: str | None = None
     report_lookup_path: str | None = None
+    build: AnalysisBuildResult | None = None
 
 
 class AnalysisExtractResponse(BaseModel):
