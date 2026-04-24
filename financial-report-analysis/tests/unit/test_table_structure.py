@@ -67,6 +67,104 @@ def test_build_parsed_table_preserves_local_context_in_source_block() -> None:
     assert "Three months ended 30 September 2025" in table.source_blocks[0].raw_text
 
 
+def test_hk_income_statement_header_only_block_recovers_rows_from_page_text() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:153:table:1",
+        page_index=153,
+        page_range=(153, 153),
+        rows=[["2025", "2024", "2023"]],
+        page_text="\n".join(
+            [
+                "Consolidated Statements of Income",
+                "Years ended December 31, 2025, 2024 and 2023",
+                "(in US$ millions, except per share data)",
+                "2025 2024 2023",
+                "Total revenues 11,797 11,303 10,978",
+                "Operating Profit 1,290 1,162 1,106",
+                "Net Income - Yum China Holdings, Inc. $ 929 $ 911 $ 827",
+                "Basic Earnings Per Common Share $ 2.52 $ 2.34 $ 1.99",
+                "See accompanying Notes to Consolidated Financial Statements.",
+            ]
+        ),
+        local_context="2025 2024 2023",
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.table_kind == "income_statement"
+    assert [
+        (column.column_index, column.period_id) for column in table.period_columns
+    ] == [
+        (1, "2025FY"),
+        (2, "2024FY"),
+        (3, "2023FY"),
+    ]
+    assert [row.label_raw for row in table.body_rows] == [
+        "Total revenues",
+        "Operating Profit",
+        "Net Income - Yum China Holdings, Inc.",
+        "Basic Earnings Per Common Share",
+    ]
+    assert table.table_currency == "USD"
+    assert table.table_unit == "US$ millions"
+
+
+def test_hk_balance_sheet_header_only_block_recovers_point_rows_from_page_text() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:156:table:1",
+        page_index=156,
+        page_range=(156, 156),
+        rows=[["2025", "2024"]],
+        page_text="\n".join(
+            [
+                "Consolidated Balance Sheets",
+                "December 31, 2025 and 2024",
+                "(in US$ millions)",
+                "2025 2024",
+                "Cash and cash equivalents $ 506 $ 723",
+                "Total Assets 10,783 11,121",
+                "Short-term borrowings 30 127",
+                "Total Liabilities 4,684 4,694",
+                "Total Equity 6,099 6,414",
+                "See accompanying Notes to Consolidated Financial Statements.",
+            ]
+        ),
+        local_context="2025 2024",
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.table_kind == "balance_sheet"
+    assert [
+        (column.column_index, column.period_id, column.value_time_shape)
+        for column in table.period_columns
+    ] == [
+        (1, "2025FY", "point"),
+        (2, "2024FY", "point"),
+    ]
+    assert [row.label_raw for row in table.body_rows] == [
+        "Cash and cash equivalents",
+        "Total Assets",
+        "Short-term borrowings",
+        "Total Liabilities",
+        "Total Equity",
+    ]
+
+
 def test_infer_table_title_prefers_title_row_over_full_page_text() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(

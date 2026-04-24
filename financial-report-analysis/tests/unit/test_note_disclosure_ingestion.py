@@ -130,6 +130,122 @@ def test_build_working_capital_note_candidate_facts_extracts_hk_09987_candidates
     assert missing_status["contract_liab"] == "present"
 
 
+def test_working_capital_note_skips_title_years_for_accounts_receivable() -> None:
+    pages = [
+        (
+            179,
+            "\n".join(
+                [
+                    "Note 6 - Supplemental Balance Sheet Information",
+                    "Accounts Receivable, net 2025 2024",
+                    "Accounts receivable, gross $ 97 $ 80",
+                    "Allowance for doubtful accounts (2) (1)",
+                    "Accounts receivable, net $ 95 $ 79",
+                ]
+            ),
+        )
+    ]
+
+    candidates, missing = build_working_capital_note_candidate_facts(
+        pages=pages,
+        document_id="doc",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+    )
+
+    accounts = [
+        candidate
+        for candidate in candidates
+        if candidate["metric_id"] == "accounts_receiv"
+    ]
+    assert missing["accounts_receiv"] == "present"
+    assert accounts[0]["numeric_value"] == 95.0
+    assert accounts[0]["raw_value"] == "95"
+
+
+def test_note_disclosure_candidate_ids_are_unique_across_builders() -> None:
+    pages = [
+        (
+            1,
+            "\n".join(
+                [
+                    "Accounts Receivable, net 2025 2024",
+                    "Accounts receivable, net $ 95 $ 79",
+                    "Accounts payable and other current liabilities 2025 2024",
+                    "Accounts payable $ 793 $ 801",
+                    "Contract liabilities 205 192",
+                    "Borrowings 2025 2024",
+                    "Short-term borrowings 30 127",
+                    "Cash, Cash Equivalents and Restricted Cash - End of Year $ 506 $ 723",
+                    "Cash paid for interest 4 3",
+                    "Long-term bank deposits and notes 678 1,088",
+                ]
+            ),
+        )
+    ]
+    existing: set[str] = set()
+    working, _ = build_working_capital_note_candidate_facts(
+        pages=pages,
+        document_id="doc",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=existing,
+        semantic_fallback_service=None,
+    )
+    existing.update(str(candidate["metric_id"]) for candidate in working)
+    debt, _ = build_debt_note_candidate_facts(
+        pages=pages,
+        document_id="doc",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=existing,
+    )
+    existing.update(str(candidate["metric_id"]) for candidate in debt)
+    cash, _ = note_disclosure_module.build_cash_health_note_candidate_facts(
+        pages=pages,
+        document_id="doc",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=existing,
+        semantic_fallback_service=None,
+    )
+    fact_ids = [candidate["fact_id"] for candidate in [*working, *debt, *cash]]
+
+    assert len(fact_ids) == len(set(fact_ids))
+
+
+def test_note_candidate_payload_uses_report_currency_and_unit() -> None:
+    pages = [
+        (
+            179,
+            "\n".join(
+                [
+                    "Note 6 - Supplemental Balance Sheet Information",
+                    "(in US$ millions)",
+                    "Accounts Receivable, net 2025 2024",
+                    "Accounts receivable, net $ 95 $ 79",
+                ]
+            ),
+        )
+    ]
+
+    candidates, _ = build_working_capital_note_candidate_facts(
+        pages=pages,
+        document_id="doc",
+        period_id="2025FY",
+        market="HK",
+        existing_metric_ids=set(),
+        semantic_fallback_service=None,
+        report_currency="USD",
+        report_unit="US$ millions",
+    )
+
+    assert candidates[0]["currency"] == "USD"
+    assert candidates[0]["raw_unit"] == "US$ millions"
+
+
 def test_build_working_capital_note_candidate_facts_does_not_create_notes_candidates() -> None:
     candidates, _ = build_working_capital_note_candidate_facts(
         pages=[_PAYABLE_NOTE_PAGE],

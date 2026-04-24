@@ -232,6 +232,8 @@ def build_asset_note_candidate_facts(
     market: str,
     existing_metric_ids: set[str],
     semantic_fallback_service: SemanticFallbackService | None,
+    report_currency: str = "HKD",
+    report_unit: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     del semantic_fallback_service
     if market.upper() != "HK" or period_id is None:
@@ -244,6 +246,9 @@ def build_asset_note_candidate_facts(
         market=market,
         existing_metric_ids=existing_metric_ids,
         note_definitions=_ASSET_NOTE_DEFINITIONS,
+        source_prefix="asset-note",
+        report_currency=report_currency,
+        report_unit=report_unit,
     )
     return candidates, missing_status
 
@@ -256,6 +261,8 @@ def build_working_capital_note_candidate_facts(
     market: str,
     existing_metric_ids: set[str],
     semantic_fallback_service: SemanticFallbackService | None,
+    report_currency: str = "HKD",
+    report_unit: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     if market.upper() != "HK" or period_id is None:
         return ([], {})
@@ -269,6 +276,9 @@ def build_working_capital_note_candidate_facts(
             market=market,
             existing_metric_ids=existing_metric_ids,
             note_definitions=_NOTE_DEFINITIONS,
+            source_prefix="working-capital-note",
+            report_currency=report_currency,
+            report_unit=report_unit,
         )
     )
     locator_call_count = 0
@@ -338,6 +348,9 @@ def build_working_capital_note_candidate_facts(
                     semantic_source=result.semantic_source,
                     semantic_confidence=result.semantic_confidence,
                     fallback_reason=result.fallback_reason,
+                    source_prefix="working-capital-note",
+                    report_currency=report_currency,
+                    report_unit=report_unit,
                 )
             )
 
@@ -351,6 +364,8 @@ def build_debt_note_candidate_facts(
     period_id: str | None,
     market: str,
     existing_metric_ids: set[str],
+    report_currency: str = "HKD",
+    report_unit: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     if market.upper() != "HK" or period_id is None:
         return ([], {})
@@ -363,6 +378,9 @@ def build_debt_note_candidate_facts(
         market=market,
         existing_metric_ids=existing_metric_ids,
         note_definitions=_DEBT_NOTE_DEFINITIONS,
+        source_prefix="debt-note",
+        report_currency=report_currency,
+        report_unit=report_unit,
     )
     return (candidates, missing_status)
 
@@ -375,6 +393,8 @@ def build_cash_health_note_candidate_facts(
     market: str,
     existing_metric_ids: set[str],
     semantic_fallback_service: SemanticFallbackService | None,
+    report_currency: str = "HKD",
+    report_unit: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     del semantic_fallback_service
     if period_id is None:
@@ -420,6 +440,9 @@ def build_cash_health_note_candidate_facts(
                         semantic_source="deterministic",
                         semantic_confidence=None,
                         fallback_reason=None,
+                        source_prefix="cash-health-note",
+                        report_currency=report_currency,
+                        report_unit=report_unit,
                     )
                 )
 
@@ -446,6 +469,9 @@ def build_cash_health_note_candidate_facts(
                         semantic_source="deterministic",
                         semantic_confidence=None,
                         fallback_reason=None,
+                        source_prefix="cash-health-note",
+                        report_currency=report_currency,
+                        report_unit=report_unit,
                         statement_type="cash_flow_statement",
                         period_scope="duration",
                     )
@@ -478,6 +504,9 @@ def build_cash_health_note_candidate_facts(
                         semantic_source="deterministic",
                         semantic_confidence=None,
                         fallback_reason=None,
+                        source_prefix="cash-health-note",
+                        report_currency=report_currency,
+                        report_unit=report_unit,
                     )
                 )
 
@@ -497,6 +526,9 @@ def _build_note_candidate_facts(
     market: str,
     existing_metric_ids: set[str],
     note_definitions: tuple[dict[str, Any], ...],
+    source_prefix: str = "note-disclosure",
+    report_currency: str = "HKD",
+    report_unit: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], int, set[str]]:
     candidates: list[dict[str, Any]] = []
     missing_status: dict[str, str] = {}
@@ -545,6 +577,9 @@ def _build_note_candidate_facts(
                     semantic_source="deterministic",
                     semantic_confidence=None,
                     fallback_reason=None,
+                    source_prefix=source_prefix,
+                    report_currency=report_currency,
+                    report_unit=report_unit,
                 )
             )
 
@@ -656,7 +691,7 @@ def _match_metric_in_text(
     for line in _iter_candidate_lines(text):
         match = pattern.search(line)
         if match is not None:
-            if _is_year_header_line(line):
+            if _is_year_header_line(line) or _is_note_title_year_line(line):
                 continue
             return (line, match)
     return None
@@ -802,11 +837,28 @@ def _label_from_line(line: str) -> str:
 
 
 def _is_year_header_line(line: str) -> bool:
-    if re.search(r"[$(),]", line) is not None:
+    if re.search(r"[$()]", line) is not None:
         return False
     numbers = re.findall(r"\b\d+\b", line)
     return len(numbers) >= 2 and all(
         len(number) == 4 and number.startswith("20") for number in numbers
+    )
+
+
+def _is_note_title_year_line(line: str) -> bool:
+    if re.search(r"[$()]", line) is not None:
+        return False
+    numbers = re.findall(r"\b\d+\b", line)
+    if len(numbers) < 2:
+        return False
+    if not all(len(number) == 4 and number.startswith("20") for number in numbers):
+        return False
+    return (
+        re.search(
+            r"(?i)\b(accounts receivable|accounts payable|contract liabilities|borrowings|assets)\b",
+            line,
+        )
+        is not None
     )
 
 
@@ -823,6 +875,9 @@ def _build_candidate_payload(
     semantic_source: str,
     semantic_confidence: float | None,
     fallback_reason: str | None,
+    source_prefix: str = "note-disclosure",
+    report_currency: str = "HKD",
+    report_unit: str | None = None,
     statement_type: str = "balance_sheet",
     period_scope: str = "point_in_time",
 ) -> dict[str, Any]:
@@ -832,7 +887,7 @@ def _build_candidate_payload(
         else "deterministic_note_disclosure"
     )
     return {
-        "fact_id": f"{document_id}:note-disclosure:candidate:{candidate_index}",
+        "fact_id": f"{document_id}:{source_prefix}:candidate:{candidate_index}",
         "fact_kind": "candidate",
         "metric_id": metric_id,
         "metric_label_raw": label,
@@ -841,10 +896,10 @@ def _build_candidate_payload(
         "comparison_axis": "current",
         "adjustment_basis": "reported",
         "period_id": period_id,
-        "currency": "HKD",
+        "currency": report_currency,
         "raw_value": raw_value,
         "numeric_value": _parse_number(raw_value),
-        "raw_unit": None,
+        "raw_unit": report_unit,
         "normalized_unit": None,
         "precision": _precision(raw_value),
         "confidence": 0.9,

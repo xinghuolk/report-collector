@@ -17,7 +17,7 @@ from financial_report_analysis.models import PageTextBlock, ParsedTable
 from financial_report_analysis.models.table import ParsedColumn
 
 _NUMERIC_CELL_PATTERN = re.compile(
-    r"(?<![\w.])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+    r"(?<![\w.])(?:-?\d{1,3}(?:,\d{3})+|-?\d+)(?:\.\d+)?"
 )
 _HK_ANNUAL_DATE_PATTERN = re.compile(
     r"\d{1,2}\s+[A-Za-z]+\s+20\d{2}",
@@ -132,9 +132,18 @@ class PdfTableStructureAdapter:
         title_text: str,
         table_kind: str,
     ) -> tuple[list[list[str]], str | None]:
-        if not self._looks_like_numeric_only_statement_block(block.rows):
-            return block.rows, None
         if table_kind not in {"income_statement", "balance_sheet", "cash_flow_statement"}:
+            return block.rows, None
+
+        if self._looks_like_header_only_statement_block(block.rows):
+            recovered_rows = self._recover_rows_from_page_text(
+                page_text=block.page_text,
+                title_text=title_text,
+            )
+            if recovered_rows:
+                return recovered_rows, "header_only_statement_block"
+
+        if not self._looks_like_numeric_only_statement_block(block.rows):
             return block.rows, None
 
         recovered_rows = self._recover_rows_from_page_text(
@@ -201,6 +210,16 @@ class PdfTableStructureAdapter:
         return numeric_like_count >= min(len(non_empty_rows[:12]), 3)
 
     @staticmethod
+    def _looks_like_header_only_statement_block(rows: list[list[str]]) -> bool:
+        non_empty_rows = [row for row in rows if any(cell.strip() for cell in row)]
+        if len(non_empty_rows) != 1:
+            return False
+        non_empty_cells = [cell.strip() for cell in non_empty_rows[0] if cell.strip()]
+        if len(non_empty_cells) < 2:
+            return False
+        return all(re.fullmatch(r"20\d{2}", cell) for cell in non_empty_cells)
+
+    @staticmethod
     def _recover_rows_from_page_text(*, page_text: str, title_text: str) -> list[list[str]]:
         lines = [line.strip() for line in page_text.splitlines() if line.strip()]
         if not lines:
@@ -218,18 +237,42 @@ class PdfTableStructureAdapter:
 
         rows: list[list[str]] = []
         footer_pattern = re.compile(r"^\d+$")
+        saw_header = False
         for line in lines[start_index:]:
             lowered = line.casefold()
             if footer_pattern.fullmatch(line):
                 break
             if "annual report" in lowered and not any(char.isdigit() for char in line):
                 break
+            if line.startswith("See accompanying Notes"):
+                break
             if line.startswith("Prepared by:") or line.startswith("Unit:") or line == title_text:
+                continue
+            if line.startswith("(in ") or line.startswith("(In "):
                 continue
             if line.startswith("II. ") or line.startswith("I. "):
                 continue
+            header_row = PdfTableStructureAdapter._recover_bare_year_header_row(line)
+            if header_row is not None:
+                rows.append(header_row)
+                saw_header = True
+                continue
+            if not saw_header and PdfTableStructureAdapter._looks_like_statement_period_context(
+                line
+            ):
+                continue
             recovered_row = PdfTableStructureAdapter._recover_structured_row(line)
-            if recovered_row:
+            if (
+                not saw_header
+                and len(recovered_row) >= 2
+                and any(_HK_ANNUAL_DATE_PATTERN.search(cell) for cell in recovered_row[1:])
+            ):
+                rows.append(recovered_row)
+                saw_header = True
+                continue
+            if recovered_row and (
+                saw_header or PdfTableStructureAdapter._row_has_numeric_value(recovered_row)
+            ):
                 rows.append(recovered_row)
         return rows
 
@@ -241,14 +284,47 @@ class PdfTableStructureAdapter:
             if prefix:
                 return [prefix, *annual_dates]
 
-        matches = list(_NUMERIC_CELL_PATTERN.finditer(line))
+        normalized_line = re.sub(r"\$\s*", "", line)
+        normalized_line = re.sub(
+            r"\((\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\)",
+            lambda match: f"-{match.group(1)}"
+            + (f".{match.group(2)}" if match.group(2) else ""),
+            normalized_line,
+        )
+        matches = list(_NUMERIC_CELL_PATTERN.finditer(normalized_line))
         if not matches:
             return [line]
 
-        label_raw = line[: matches[0].start()].strip()
+        label_raw = normalized_line[: matches[0].start()].strip()
         if not label_raw:
             return [line]
         return [label_raw, *(match.group(0) for match in matches)]
+
+    @staticmethod
+    def _recover_bare_year_header_row(line: str) -> list[str] | None:
+        cells = re.findall(r"\b20\d{2}\b", line)
+        if len(cells) < 2:
+            return None
+        without_years = re.sub(r"\b20\d{2}\b", "", line)
+        if without_years.strip():
+            return None
+        return ["", *cells]
+
+    @staticmethod
+    def _looks_like_statement_period_context(line: str) -> bool:
+        lowered = line.casefold()
+        return (
+            "years ended" in lowered
+            or "year ended" in lowered
+            or re.match(r"^december\s+31,\s+20\d{2}", lowered) is not None
+        )
+
+    @staticmethod
+    def _row_has_numeric_value(row: list[str]) -> bool:
+        return any(
+            re.fullmatch(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", cell)
+            for cell in row[1:]
+        )
 
     @staticmethod
     def _table_local_context(
@@ -270,6 +346,10 @@ class PdfTableStructureAdapter:
 
         for line in block.local_context.splitlines():
             add_segment(line)
+        for line in block.page_text.splitlines():
+            stripped_line = line.strip()
+            if stripped_line.startswith("(in ") or stripped_line.startswith("(In "):
+                add_segment(stripped_line)
         add_segment(title_text)
         for row in header_rows:
             add_segment(" ".join(cell for cell in row if cell).strip())

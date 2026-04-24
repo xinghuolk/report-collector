@@ -56,6 +56,20 @@ def test_metric_mapping_registry_matches_revenue_from_income_statement_semantics
     assert definition.statement_type == "income_statement"
 
 
+def test_metric_mapping_registry_matches_hk_total_revenues_label() -> None:
+    registry = load_metric_registry()
+    definition = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="total revenues",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert definition is not None
+    assert definition.metric_id == "revenue"
+
+
 def test_metric_mapping_registry_rejects_deferred_revenue_false_positive() -> None:
     registry = load_metric_registry()
 

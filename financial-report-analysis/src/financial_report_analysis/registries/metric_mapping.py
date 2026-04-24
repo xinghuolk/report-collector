@@ -110,7 +110,10 @@ _DEFAULT_DEFINITIONS = (
         value_type="amount",
         unit_expectation="currency_amount",
         sign_rule="allow_negative",
-        aliases_by_market={"CN": ("营业收入", "营业总收入"), "HK": ("revenue", "turnover")},
+        aliases_by_market={
+            "CN": ("营业收入", "营业总收入"),
+            "HK": ("revenue", "turnover", "total revenues"),
+        },
     ),
     MetricMappingDefinition(
         metric_id="operating_cost",

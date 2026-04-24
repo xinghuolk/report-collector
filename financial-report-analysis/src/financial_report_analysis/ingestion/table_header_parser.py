@@ -15,6 +15,7 @@ _HK_ANNUAL_HEADER_RE = re.compile(
     r"(\d{1,2})\s+([a-z]+)\s+(20\d{2})",
     re.IGNORECASE,
 )
+_HK_BARE_YEAR_HEADER_RE = re.compile(r"^(20\d{2})$")
 _CURRENCY_PATTERN = re.compile(r"币种[:：]\s*(\S+)")
 _UNIT_PATTERN = re.compile(r"单位[:：]\s*(\S+)")
 
@@ -111,6 +112,10 @@ def detect_table_unit(local_context: str) -> str | None:
         return "千元"
     if "百万元" in text:
         return "百万元"
+    if re.search(r"\bin\s+US\$\s+millions\b", text, re.IGNORECASE):
+        return "US$ millions"
+    if re.search(r"\bin\s+HK\$\s+millions\b", text, re.IGNORECASE):
+        return "HK$ millions"
     if "亿元" in text:
         return "亿元"
     return None
@@ -152,11 +157,38 @@ def _parse_period_from_header(
                 )
                 return f"{year}FY", value_time_shape
 
+        bare_year_match = _HK_BARE_YEAR_HEADER_RE.search(header_text)
+        if bare_year_match is not None and _looks_like_hk_annual_statement_title(
+            title_text
+        ):
+            value_time_shape = (
+                "point"
+                if "balance sheet" in title_text.casefold()
+                or "financial position" in title_text.casefold()
+                else "duration"
+            )
+            return f"{bare_year_match.group(1)}FY", value_time_shape
+
     return None, None
 
 
 def _normalize_header_text(raw_text: str) -> str:
     return re.sub(r"\s+", " ", raw_text).strip()
+
+
+def _looks_like_hk_annual_statement_title(title_text: str) -> bool:
+    normalized = title_text.casefold()
+    return any(
+        token in normalized
+        for token in (
+            "statement of income",
+            "statements of income",
+            "statement of cash flows",
+            "statements of cash flows",
+            "balance sheet",
+            "financial position",
+        )
+    )
 
 
 def _hk_quarter_from_end_date(day: int, month: str) -> str | None:

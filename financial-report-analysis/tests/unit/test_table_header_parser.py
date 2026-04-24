@@ -125,6 +125,39 @@ def test_parse_header_rows_parses_hk_annual_balance_sheet_header_as_point_in_tim
     ]
 
 
+def test_parse_hk_bare_year_income_statement_headers_as_duration() -> None:
+    columns = parse_header_rows(
+        title_text="Consolidated Statements of Income",
+        header_rows=[["2025", "2024", "2023"]],
+        market="HK",
+    )
+
+    assert [
+        (column.column_index, column.period_id, column.value_time_shape)
+        for column in columns
+    ] == [
+        (0, "2025FY", "duration"),
+        (1, "2024FY", "duration"),
+        (2, "2023FY", "duration"),
+    ]
+
+
+def test_parse_hk_bare_year_balance_sheet_headers_as_point() -> None:
+    columns = parse_header_rows(
+        title_text="Consolidated Balance Sheets",
+        header_rows=[["2025", "2024"]],
+        market="HK",
+    )
+
+    assert [
+        (column.column_index, column.period_id, column.value_time_shape)
+        for column in columns
+    ] == [
+        (0, "2025FY", "point"),
+        (1, "2024FY", "point"),
+    ]
+
+
 def test_detect_table_currency_uses_local_chinese_context() -> None:
     assert detect_table_currency("单位：万元 币种：人民币", market="CN") == "CNY"
 

@@ -123,6 +123,29 @@ def _normalized_table_semantics(
     )
 
 
+def test_pdf_ingestion_detects_hk_english_dominant_report_with_small_chinese_name() -> None:
+    text = (
+        "Yum China Holdings, Inc.\n"
+        "百勝中國控股有限公司\n"
+        "2025 Annual Report\n"
+        + ("Consolidated Statements of Income Revenue Operating Profit " * 200)
+    )
+
+    assert PdfIngestionAdapter._detect_language(text, "HK") == "en"
+
+
+def test_pdf_ingestion_keeps_hk_chinese_dominant_report_as_traditional_chinese() -> (
+    None
+):
+    text = (
+        "2025 年年度報告\n"
+        + ("合併財務報表 營業收入 淨利潤 資產總計 " * 200)
+        + "Annual Report"
+    )
+
+    assert PdfIngestionAdapter._detect_language(text, "HK") == "zh-Hant"
+
+
 def test_fact_pipeline_normalizes_metric_and_unit() -> None:
     normalizer = FactNormalizer()
 

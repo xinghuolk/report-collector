@@ -205,6 +205,69 @@ def _real_ollama_fallback_service():
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
+def test_hk_09987_2025_annual_en_recovers_statement_and_note_facts() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
+
+    payload = PdfIngestionAdapter().extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market="HK",
+        min_confidence=0.8,
+    )
+
+    metadata = payload["document_metadata"]
+    candidates = [
+        candidate
+        for candidate in payload["candidate_facts"]
+        if isinstance(candidate, dict)
+    ]
+    accounts_receiv_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.get("metric_id") == "accounts_receiv"
+    ]
+
+    assert metadata["language"] == "en"
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="revenue",
+        statement_type="income_statement",
+        table_kind="income_statement",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="cash",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="total_assets",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="total_liabilities",
+        statement_type="balance_sheet",
+        table_kind="balance_sheet",
+    )
+    assert accounts_receiv_candidates
+    assert any(
+        candidate["numeric_value"] == 95.0
+        and candidate["currency"] == "USD"
+        and candidate["raw_unit"] == "US$ millions"
+        for candidate in accounts_receiv_candidates
+    )
+    assert all(
+        candidate["numeric_value"] != 2025.0
+        for candidate in accounts_receiv_candidates
+    )
+    assert len({candidate["fact_id"] for candidate in candidates}) == len(candidates)
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_annual_semantics_preserve_statement_scope_and_ambiguity() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
     tables = PdfTableStructureAdapter().extract_tables(

@@ -204,6 +204,8 @@ class PdfIngestionAdapter:
             market=market or "CN",
         )
         candidate_facts = self._prefer_main_income_statement_facts(candidate_facts)
+        report_currency = self._first_known_table_currency(normalized_tables, market)
+        report_unit = self._first_known_table_unit(normalized_tables)
         existing_metric_ids = {
             str(candidate.get("metric_id"))
             for candidate in candidate_facts
@@ -217,6 +219,8 @@ class PdfIngestionAdapter:
                 market=market or "CN",
                 existing_metric_ids=existing_metric_ids,
                 semantic_fallback_service=self._semantic_fallback_service,
+                report_currency=report_currency,
+                report_unit=report_unit,
             )
         )
         candidate_facts.extend(note_candidates)
@@ -231,6 +235,8 @@ class PdfIngestionAdapter:
             period_id=period_id,
             market=market or "CN",
             existing_metric_ids=existing_metric_ids,
+            report_currency=report_currency,
+            report_unit=report_unit,
         )
         candidate_facts.extend(debt_note_candidates)
         existing_metric_ids.update(
@@ -245,6 +251,8 @@ class PdfIngestionAdapter:
             market=market or "CN",
             existing_metric_ids=existing_metric_ids,
             semantic_fallback_service=self._semantic_fallback_service,
+            report_currency=report_currency,
+            report_unit=report_unit,
         )
         candidate_facts.extend(asset_note_candidates)
         existing_metric_ids.update(
@@ -262,6 +270,8 @@ class PdfIngestionAdapter:
             market=market or "CN",
             existing_metric_ids=existing_metric_ids,
             semantic_fallback_service=self._semantic_fallback_service,
+            report_currency=report_currency,
+            report_unit=report_unit,
         )
         candidate_facts.extend(cash_health_note_candidates)
         if not candidate_facts:
@@ -353,6 +363,29 @@ class PdfIngestionAdapter:
             )
         except (OSError, ValueError, TypeError):
             return []
+
+    @staticmethod
+    def _first_known_table_currency(
+        tables: list[NormalizedTableSemantics],
+        market: str | None,
+    ) -> str:
+        for table in tables:
+            if table.table_currency:
+                return table.table_currency
+        if market == "HK":
+            return "HKD"
+        if market == "US":
+            return "USD"
+        return "CNY"
+
+    @staticmethod
+    def _first_known_table_unit(
+        tables: list[NormalizedTableSemantics],
+    ) -> str | None:
+        for table in tables:
+            if table.table_unit:
+                return table.table_unit
+        return None
 
     def _extract_revenue_fact_from_tables(
         self,
@@ -636,9 +669,21 @@ class PdfIngestionAdapter:
 
     @staticmethod
     def _detect_language(text: str, market: str | None) -> str:
-        if re.search(r"[\u4e00-\u9fff]", text):
-            return "zh-Hant" if market == "HK" else "zh-Hans"
-        return "en"
+        cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+        ascii_letter_count = len(re.findall(r"[A-Za-z]", text))
+        english_report_signal = re.search(
+            r"\b(?:annual report|consolidated statements?|financial statements?)\b",
+            text,
+            re.IGNORECASE,
+        ) is not None
+
+        if cjk_count == 0:
+            return "en"
+        if market == "HK":
+            if english_report_signal and ascii_letter_count >= cjk_count * 20:
+                return "en"
+            return "zh-Hant"
+        return "zh-Hans"
 
     def _detect_period_id_from_tables(
         self, parsed_tables: list[ParsedTable]
