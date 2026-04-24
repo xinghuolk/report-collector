@@ -77,6 +77,8 @@ from .models import (
     FactLineageRecord,
     FactSetRecord,
     IssuerRecord,
+    ManifestEntryRecord,
+    ManifestRecord,
     QualityGateResultRecord,
     RecomputeRunRecord,
     ReportFileRecord,
@@ -144,6 +146,14 @@ class ExtractionRunIdentity:
     document_version_id: str
     pipeline_version: str
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedExtractBundleIdentity:
+    report_id: int
+    document_id: str
+    document_version_id: str
+    extraction_run_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,6 +434,186 @@ class SqlAlchemyP5ArtifactRepository:
             document_version_id=document_version_id,
             pipeline_version=pipeline_version,
             status=status,
+        )
+
+    def save_api_extract_bundle(
+        self,
+        *,
+        artifact: P5ExtractedArtifact,
+        review_surface: P5ExtractedReviewSurface,
+        document_payload: dict[str, object],
+        manifest_id: str,
+        document_version_label: str,
+        report_file_payload: dict[str, object] | None = None,
+        document_version_payload: dict[str, object] | None = None,
+        extraction_run_payload: dict[str, object] | None = None,
+    ) -> PersistedExtractBundleIdentity:
+        entry = artifact.manifest_entry
+        artifact_payload_json = json.dumps(
+            extracted_artifact_to_payload(artifact),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        report_file_payload_json = (
+            json.dumps(report_file_payload, ensure_ascii=False, sort_keys=True)
+            if report_file_payload is not None
+            else None
+        )
+        document_payload_json = json.dumps(
+            document_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        document_version_payload_json = (
+            json.dumps(document_version_payload, ensure_ascii=False, sort_keys=True)
+            if document_version_payload is not None
+            else None
+        )
+        extraction_run_payload_json = (
+            json.dumps(extraction_run_payload, ensure_ascii=False, sort_keys=True)
+            if extraction_run_payload is not None
+            else None
+        )
+
+        report_id: int
+        document_id: str
+        document_version_id: str
+        extraction_run_id: str
+        with Session(self.engine) as session:
+            with session.begin():
+                self._upsert_issuer(session, artifact)
+                report = self._upsert_report(session, artifact)
+                report_id = report.report_id
+                self._upsert_manifest_entry(
+                    session,
+                    manifest_id=manifest_id,
+                    manifest_version="1.0",
+                    artifact=artifact,
+                )
+
+                report_file_id = build_report_file_id(
+                    report_id,
+                    str(entry.pdf_path),
+                )
+                document_id = build_document_id(report_file_id)
+                document_version_id = build_document_version_id(
+                    document_id,
+                    version_label=document_version_label,
+                )
+                extraction_run_id = build_extraction_run_id(
+                    document_version_id,
+                    pipeline_version=artifact.pipeline_version,
+                )
+
+                report_file = session.get(ReportFileRecord, report_file_id)
+                if report_file is None:
+                    report_file = ReportFileRecord(
+                        report_file_id=report_file_id,
+                        report_id=report_id,
+                        file_path=str(entry.pdf_path),
+                        payload_json=report_file_payload_json,
+                    )
+                    session.add(report_file)
+                else:
+                    report_file.report_id = report_id
+                    report_file.file_path = str(entry.pdf_path)
+                    report_file.payload_json = report_file_payload_json
+
+                document = session.get(DocumentRecord, document_id)
+                if document is None:
+                    document = DocumentRecord(
+                        document_id=document_id,
+                        report_file_id=report_file_id,
+                        payload_json=document_payload_json,
+                    )
+                    session.add(document)
+                else:
+                    document.report_file_id = report_file_id
+                    document.payload_json = document_payload_json
+
+                document_version = session.get(
+                    DocumentVersionRecord,
+                    document_version_id,
+                )
+                if document_version is None:
+                    document_version = DocumentVersionRecord(
+                        document_version_id=document_version_id,
+                        document_id=document_id,
+                        version_label=document_version_label,
+                        payload_json=document_version_payload_json,
+                    )
+                    session.add(document_version)
+                else:
+                    document_version.document_id = document_id
+                    document_version.version_label = document_version_label
+                    document_version.payload_json = document_version_payload_json
+
+                extraction_run = session.get(ExtractionRunRecord, extraction_run_id)
+                if extraction_run is None:
+                    extraction_run = ExtractionRunRecord(
+                        extraction_run_id=extraction_run_id,
+                        document_version_id=document_version_id,
+                        pipeline_version=artifact.pipeline_version,
+                        status=artifact.quality_gate,
+                        payload_json=extraction_run_payload_json,
+                    )
+                    session.add(extraction_run)
+                else:
+                    extraction_run.document_version_id = document_version_id
+                    extraction_run.pipeline_version = artifact.pipeline_version
+                    extraction_run.status = artifact.quality_gate
+                    extraction_run.payload_json = extraction_run_payload_json
+
+                artifact_record = session.get(
+                    ExtractedArtifactRecord,
+                    artifact.artifact_id,
+                )
+                if artifact_record is None:
+                    artifact_record = ExtractedArtifactRecord(
+                        artifact_id=artifact.artifact_id,
+                        report_id=report_id,
+                        issuer_id=entry.issuer_id,
+                        fiscal_year=entry.fiscal_year,
+                        report_type=entry.report_type,
+                        artifact_version=artifact.artifact_version,
+                        pipeline_version=artifact.pipeline_version,
+                        payload_json=artifact_payload_json,
+                        created_at=artifact.created_at,
+                    )
+                    session.add(artifact_record)
+                else:
+                    artifact_record.report_id = report_id
+                    artifact_record.issuer_id = entry.issuer_id
+                    artifact_record.fiscal_year = entry.fiscal_year
+                    artifact_record.report_type = entry.report_type
+                    artifact_record.artifact_version = artifact.artifact_version
+                    artifact_record.pipeline_version = artifact.pipeline_version
+                    artifact_record.payload_json = artifact_payload_json
+                    artifact_record.created_at = artifact.created_at
+
+                review_surface_payload_json = json.dumps(
+                    extracted_review_surface_to_payload(review_surface),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                review_surface_record = session.get(
+                    ExtractedReviewSurfaceRecord,
+                    review_surface.artifact_id,
+                )
+                if review_surface_record is None:
+                    review_surface_record = ExtractedReviewSurfaceRecord(
+                        artifact_id=review_surface.artifact_id,
+                        payload_json=review_surface_payload_json,
+                    )
+                    session.add(review_surface_record)
+                else:
+                    review_surface_record.payload_json = review_surface_payload_json
+
+        return PersistedExtractBundleIdentity(
+            report_id=report_id,
+            document_id=document_id,
+            document_version_id=document_version_id,
+            extraction_run_id=extraction_run_id,
         )
 
     def list_available_fiscal_years(self, issuer_id: str) -> tuple[int, ...]:
@@ -1428,3 +1618,41 @@ class SqlAlchemyP5ArtifactRepository:
         report.pdf_path = str(entry.pdf_path)
         session.flush()
         return report
+
+    @staticmethod
+    def _upsert_manifest_entry(
+        session: Session,
+        *,
+        manifest_id: str,
+        manifest_version: str,
+        artifact: P5ExtractedArtifact,
+    ) -> None:
+        entry = artifact.manifest_entry
+        manifest = session.get(ManifestRecord, manifest_id)
+        if manifest is None:
+            manifest = ManifestRecord(
+                manifest_id=manifest_id,
+                manifest_version=manifest_version,
+            )
+            session.add(manifest)
+        else:
+            manifest.manifest_version = manifest_version
+
+        statement = select(ManifestEntryRecord).where(
+            ManifestEntryRecord.manifest_id == manifest_id,
+            ManifestEntryRecord.issuer_id == entry.issuer_id,
+            ManifestEntryRecord.fiscal_year == entry.fiscal_year,
+            ManifestEntryRecord.report_type == entry.report_type,
+        )
+        manifest_entry = session.scalar(statement)
+        if manifest_entry is None:
+            manifest_entry = ManifestEntryRecord(
+                manifest_id=manifest_id,
+                issuer_id=entry.issuer_id,
+                fiscal_year=entry.fiscal_year,
+                report_type=entry.report_type,
+                artifact_id=artifact.artifact_id,
+            )
+            session.add(manifest_entry)
+            return
+        manifest_entry.artifact_id = artifact.artifact_id
