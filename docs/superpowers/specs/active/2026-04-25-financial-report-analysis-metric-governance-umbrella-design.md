@@ -446,7 +446,7 @@ This umbrella spec does not require immediate implementation of:
 
 ## 14. Recommended Next Step
 
-The Phase 1 implementation plan is docs/superpowers/plans/active/2026-04-25-financial-report-analysis-metric-governance-phase1-implementation-plan.md.
+The Phase 1 implementation plan is `docs/superpowers/plans/active/2026-04-25-financial-report-analysis-metric-governance-phase1-implementation-plan.md`.
 
 Write and execute a Phase 1 implementation plan:
 
