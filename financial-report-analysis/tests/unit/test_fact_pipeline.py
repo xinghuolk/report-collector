@@ -24,6 +24,9 @@ from financial_report_analysis.registries.metric_mapping import (
     MetricMappingDefinition,
     MetricMappingRegistry,
 )
+from financial_report_analysis.registries.metric_governance import (
+    METRIC_GOVERNANCE_EXTENSION_KEY,
+)
 from financial_report_analysis.services.conflict_resolver import ConflictResolver
 from financial_report_analysis.services.derivation_service import DerivationService
 from financial_report_analysis.services.fact_normalizer import FactNormalizer
@@ -186,6 +189,84 @@ def test_fact_pipeline_normalizes_chinese_revenue_label() -> None:
     normalized = normalizer.normalize_candidates([chinese_candidate])
 
     assert normalized[0].metric_id == "revenue"
+
+
+def test_fact_normalizer_adds_standard_metric_governance_metadata() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-governance-standard",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=2.0,
+                metric_label_raw="Revenue",
+            )
+        ]
+    )
+
+    assert normalized[0].metric_id == "revenue"
+    assert normalized[0].extensions[METRIC_GOVERNANCE_EXTENSION_KEY] == {
+        "registry_status": "standard",
+        "metric_namespace": "standard",
+        "review_required": False,
+        "auto_analysis_allowed": True,
+        "governance_reason": "standard_metric",
+    }
+
+
+def test_fact_normalizer_adds_provisional_custom_metric_governance_metadata() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-governance-custom",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=2.0,
+                metric_id="unknown",
+                metric_label_raw="Issuer-specific operating sparkle",
+            )
+        ]
+    )
+
+    assert normalized[0].metric_id.startswith("custom::")
+    assert normalized[0].extensions[METRIC_GOVERNANCE_EXTENSION_KEY] == {
+        "registry_status": "provisional",
+        "metric_namespace": "custom",
+        "review_required": True,
+        "auto_analysis_allowed": False,
+        "governance_reason": "provisional_custom_metric",
+    }
+
+
+def test_fact_normalizer_keeps_supported_mapped_metric_governance_standard() -> None:
+    normalizer = FactNormalizer()
+
+    normalized = normalizer.normalize_candidates(
+        [
+            _candidate(
+                fact_id="candidate-governance-mapped",
+                period_id="2024Q1",
+                source_rank_hint=1,
+                numeric_value=2.0,
+                metric_id="total_assets",
+                metric_label_raw="Assets, totally weird issuer label",
+                statement_type="balance_sheet",
+            )
+        ]
+    )
+
+    assert normalized[0].metric_id == "total_assets"
+    assert normalized[0].extensions[METRIC_GOVERNANCE_EXTENSION_KEY] == {
+        "registry_status": "standard",
+        "metric_namespace": "standard",
+        "review_required": False,
+        "auto_analysis_allowed": True,
+        "governance_reason": "supported_metric_mapping",
+    }
 
 
 @pytest.mark.parametrize(

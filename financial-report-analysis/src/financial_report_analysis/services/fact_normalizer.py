@@ -4,7 +4,15 @@ from dataclasses import replace
 from typing import Iterable
 
 from financial_report_analysis.models.facts import CandidateFact
-from financial_report_analysis.registries.metric_registry import MetricRegistry
+from financial_report_analysis.registries.metric_governance import (
+    METRIC_GOVERNANCE_EXTENSION_KEY,
+    governance_metadata_from_registry_entry,
+    standard_governance_metadata,
+)
+from financial_report_analysis.registries.metric_registry import (
+    MetricRegistry,
+    MetricRegistryEntry,
+)
 from financial_report_analysis.unit_policy import UnitPolicy
 
 _PER_SHARE_METRIC_IDS = {"basic_eps"}
@@ -172,6 +180,15 @@ class FactNormalizer:
                 metric_id=resolved_metric_id,
             )
             normalized_extensions = dict(candidate.extensions)
+            normalized_extensions.setdefault(
+                METRIC_GOVERNANCE_EXTENSION_KEY,
+                self._governance_metadata(
+                    candidate=candidate,
+                    resolved_metric_id=resolved_metric_id,
+                    registry_metric_id=metric_entry.metric_id,
+                    metric_entry=metric_entry,
+                ),
+            )
             if resolved_metric_id in _PER_SHARE_METRIC_IDS:
                 normalized_extensions.setdefault("value_type", "per_share")
                 normalized_extensions.setdefault("unit_expectation", _PER_SHARE_UNIT)
@@ -228,14 +245,36 @@ class FactNormalizer:
     @staticmethod
     def _resolved_metric_id(*, candidate: CandidateFact, resolved_metric_id: str) -> str:
         candidate_metric_id = str(candidate.metric_id or "").strip()
-        if (
-            candidate_metric_id
-            and candidate_metric_id != "unknown"
-            and not candidate_metric_id.startswith("custom::")
-            and not candidate_metric_id.startswith("raw_")
-        ):
+        if FactNormalizer._is_supported_metric_id(candidate_metric_id):
             return candidate_metric_id
         return resolved_metric_id
+
+    @staticmethod
+    def _governance_metadata(
+        *,
+        candidate: CandidateFact,
+        resolved_metric_id: str,
+        registry_metric_id: str,
+        metric_entry: MetricRegistryEntry,
+    ) -> dict[str, object]:
+        candidate_metric_id = str(candidate.metric_id or "").strip()
+        if (
+            candidate_metric_id == resolved_metric_id
+            and registry_metric_id != resolved_metric_id
+            and FactNormalizer._is_supported_metric_id(candidate_metric_id)
+        ):
+            return standard_governance_metadata(reason="supported_metric_mapping")
+
+        return governance_metadata_from_registry_entry(metric_entry)
+
+    @staticmethod
+    def _is_supported_metric_id(metric_id: str) -> bool:
+        return (
+            bool(metric_id)
+            and metric_id != "unknown"
+            and not metric_id.startswith("custom::")
+            and not metric_id.startswith("raw_")
+        )
 
     @staticmethod
     def _normalize_per_share_numeric_value(
