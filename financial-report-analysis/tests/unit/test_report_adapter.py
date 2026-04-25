@@ -139,6 +139,62 @@ def test_report_adapter_prioritizes_api_visible_metrics_without_mutating_canonic
     ]
 
 
+def test_report_adapter_excludes_non_auto_analysis_facts_from_key_facts() -> None:
+    adapter = ReportAdapter()
+    result = adapter.build_analysis_result(
+        document={"document_id": "doc-3c", "market": "HK"},
+        pipeline_result={
+            "canonical_fact_set_id": "doc-3c:canonical:v1",
+            "derived_fact_set_id": "doc-3c:derived:v1",
+            "validation_report_id": "doc-3c:validation:v1",
+            "quality_gate": "pass",
+            "canonical_facts": [
+                {
+                    "metric_id": "n_income_attr_p",
+                    "numeric_value": 123.0,
+                    "quality_status": "ok",
+                    "validation_flags": [],
+                    "extensions": {
+                        "metric_governance": {"auto_analysis_allowed": False}
+                    },
+                }
+            ],
+            "derived_facts": [],
+            "validation_report": {"overall_status": "ok", "issues": []},
+        },
+    )
+
+    assert result["key_facts"] == []
+
+
+def test_report_adapter_does_not_expose_extensions_in_ttm_facts() -> None:
+    adapter = ReportAdapter()
+    result = adapter.build_analysis_result(
+        document={"document_id": "doc-3d", "market": "HK"},
+        pipeline_result={
+            "canonical_fact_set_id": "doc-3d:canonical:v1",
+            "derived_fact_set_id": "doc-3d:derived:v1",
+            "validation_report_id": "doc-3d:validation:v1",
+            "quality_gate": "pass",
+            "canonical_facts": [],
+            "derived_facts": [
+                {
+                    "fact_id": "derived::ttm::governed",
+                    "metric_id": "n_income_attr_p",
+                    "derivation_type": "ttm",
+                    "extensions": {
+                        "metric_governance": {"auto_analysis_allowed": False}
+                    },
+                }
+            ],
+            "validation_report": {"overall_status": "ok", "issues": []},
+        },
+    )
+
+    assert result["ttm_facts"]
+    assert "extensions" not in result["ttm_facts"][0]
+
+
 def test_report_adapter_preserves_pipeline_quality_gate() -> None:
     adapter = ReportAdapter()
 

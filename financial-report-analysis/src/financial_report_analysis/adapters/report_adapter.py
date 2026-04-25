@@ -48,10 +48,6 @@ class ReportAdapter:
             self._coerce_fact(fact)
             for fact in pipeline_data.get("canonical_facts", [])
         ]
-        canonical_facts = [
-            self._sanitize_fact(fact, allowed_fields=_KEY_FACT_FIELDS)
-            for fact in canonical_fact_items
-        ]
         derived_facts = [
             self._sanitize_fact(self._coerce_fact(fact), allowed_fields=_TTM_FACT_FIELDS)
             for fact in pipeline_data.get("derived_facts", [])
@@ -73,7 +69,7 @@ class ReportAdapter:
             "derived_fact_set_id": pipeline_data["derived_fact_set_id"],
             "validation_report_id": pipeline_data["validation_report_id"],
             "quality_gate": quality_gate,
-            "key_facts": self._select_key_facts(canonical_facts),
+            "key_facts": self._select_key_facts(canonical_fact_items),
             "ttm_facts": [
                 fact for fact in derived_facts if fact.get("derivation_type") == "ttm"
             ],
@@ -156,6 +152,16 @@ class ReportAdapter:
         }
 
     @staticmethod
+    def _fact_allows_auto_analysis(fact: Mapping[str, Any]) -> bool:
+        extensions = fact.get("extensions")
+        if not isinstance(extensions, Mapping):
+            return True
+        governance = extensions.get("metric_governance")
+        if not isinstance(governance, Mapping):
+            return True
+        return governance.get("auto_analysis_allowed") is not False
+
+    @staticmethod
     def _select_key_facts(canonical_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         consumable = [
             fact
@@ -163,6 +169,7 @@ class ReportAdapter:
             if fact.get("quality_status") in {None, "ok"}
             and not fact.get("validation_flags")
             and fact.get("entity_scope") not in {"unknown", "review_required"}
+            and ReportAdapter._fact_allows_auto_analysis(fact)
         ]
         prioritized = [
             fact for fact in consumable if fact.get("metric_id") in _API_VISIBLE_METRICS
@@ -170,7 +177,10 @@ class ReportAdapter:
         remainder = [
             fact for fact in consumable if fact.get("metric_id") not in _API_VISIBLE_METRICS
         ]
-        return [*prioritized, *remainder][:10]
+        return [
+            ReportAdapter._sanitize_fact(fact, allowed_fields=_KEY_FACT_FIELDS)
+            for fact in [*prioritized, *remainder][:10]
+        ]
 
     @staticmethod
     def _quality_gate_from_validation_report(validation_report: Any) -> str:
