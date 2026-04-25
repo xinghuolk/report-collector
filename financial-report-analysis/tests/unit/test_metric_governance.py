@@ -5,6 +5,7 @@ from financial_report_analysis.registries import (
     STANDARD_NAMESPACE,
     STANDARD_STATUS,
     MetricRegistry,
+    MetricRegistryEntry,
     automatic_governance_metadata,
     governance_metadata_from_registry_entry,
     is_auto_analysis_allowed,
@@ -44,6 +45,31 @@ def test_custom_registry_entry_metadata_is_provisional_and_blocks_auto_analysis(
         accounting_standard="HKFRS",
         industry_slug="consumer",
         parent_metric_id="revenue",
+    )
+    metadata = governance_metadata_from_registry_entry(entry)
+    extensions = {METRIC_GOVERNANCE_EXTENSION_KEY: metadata}
+
+    assert metadata == {
+        "registry_status": PROVISIONAL_STATUS,
+        "metric_namespace": CUSTOM_NAMESPACE,
+        "review_required": True,
+        "auto_analysis_allowed": False,
+        "governance_reason": "provisional_custom_metric",
+    }
+    assert is_auto_analysis_allowed(extensions) is False
+    assert is_provisional_custom_metric(extensions) is True
+
+
+def test_provisional_registry_entry_metadata_is_custom_review_only() -> None:
+    entry = MetricRegistryEntry(
+        metric_id="revenue",
+        raw_label="Revenue",
+        statement_type="income_statement",
+        accounting_standard="HKFRS",
+        industry_slug="consumer",
+        parent_metric_id=None,
+        is_custom=False,
+        registry_status=PROVISIONAL_STATUS,
     )
     metadata = governance_metadata_from_registry_entry(entry)
     extensions = {METRIC_GOVERNANCE_EXTENSION_KEY: metadata}
