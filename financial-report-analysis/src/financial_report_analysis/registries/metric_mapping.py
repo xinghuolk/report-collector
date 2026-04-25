@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
-import re
+"""Deterministic table-semantics-to-supported-metric mapping.
+
+This module maps normalized table semantics to supported metric ids. It does not
+generate provisional custom metric identities and does not store custom metric
+review lifecycle decisions.
+"""
+
+from collections.abc import Iterable, Mapping  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+import re  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)

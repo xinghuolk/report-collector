@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import re
-from collections.abc import Iterable, Mapping
+"""Metric identity resolution.
+
+This module owns standard-vs-custom metric identity resolution. It can generate
+stable provisional custom metric ids for unknown raw labels, but it does not own
+deterministic table-semantics mapping or durable review lifecycle decisions.
+"""
+
+from dataclasses import dataclass  # noqa: E402
+import re  # noqa: E402
+from collections.abc import Iterable, Mapping  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)
