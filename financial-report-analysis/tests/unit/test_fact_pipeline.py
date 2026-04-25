@@ -1709,6 +1709,51 @@ def test_analyze_report_blocks_provisional_custom_metric_from_canonical_facts() 
     )
 
 
+def test_validation_reports_provisional_metric_review_issue() -> None:
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-custom-1",
+                    "metric_id": "unknown",
+                    "metric_label_raw": "Customer loyalty liabilities",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1000",
+                    "numeric_value": 1000.0,
+                    "raw_unit": "CNY",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "Customer loyalty liabilities 1000",
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    assert (
+        result.validation_report.issues.count(
+            "provisional_metric_review_required"
+        )
+        == 1
+    )
+
+
 def test_pipeline_rejects_mismatched_candidate_document_id() -> None:
     try:
         analyze_report(
