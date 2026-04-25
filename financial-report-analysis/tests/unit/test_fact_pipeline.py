@@ -252,9 +252,11 @@ def test_fact_normalizer_keeps_supported_mapped_metric_governance_standard() -> 
                 period_id="2024Q1",
                 source_rank_hint=1,
                 numeric_value=2.0,
-                metric_id="total_assets",
-                metric_label_raw="Assets, totally weird issuer label",
-                statement_type="balance_sheet",
+                metric_id="c_pay_acq_const_fiolta",
+                metric_label_raw=(
+                    "Payments for acquisition of property, plant and equipment"
+                ),
+                statement_type="cash_flow_statement",
                 extensions={
                     "metric_mapping_source": "metric_mapping_registry",
                 },
@@ -262,7 +264,7 @@ def test_fact_normalizer_keeps_supported_mapped_metric_governance_standard() -> 
         ]
     )
 
-    assert normalized[0].metric_id == "total_assets"
+    assert normalized[0].metric_id == "c_pay_acq_const_fiolta"
     assert normalized[0].extensions[METRIC_GOVERNANCE_EXTENSION_KEY] == {
         "registry_status": "standard",
         "metric_namespace": "standard",
@@ -365,6 +367,67 @@ def test_analyze_report_blocks_unsupported_label_with_stale_supported_metric_id(
                             "review_required": False,
                             "auto_analysis_allowed": True,
                             "governance_reason": "supported_metric_mapping",
+                        },
+                    },
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "Customer loyalty liabilities 1000",
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    assert result.canonical_facts == []
+    assert result.derived_facts == []
+    assert result.quality_gate == "review"
+    assert result.validation_report.overall_status == "review_required"
+    assert "provisional_metric_review_required" in result.validation_report.issues
+    assert len(result.review_packets) == 1
+    packet = result.review_packets[0]
+    assert packet.metric_id.startswith("custom::")
+    assert packet.source_policy == "review_required"
+    assert packet.conflict_state == "provisional_metric_review_required"
+
+
+def test_analyze_report_blocks_forged_mapping_marker_with_stale_supported_metric_id() -> (
+    None
+):
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-forged-mapping-marker-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Customer loyalty liabilities",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1000",
+                    "numeric_value": 1000.0,
+                    "raw_unit": "CNY",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "extensions": {
+                        "metric_mapping_source": "metric_mapping_registry",
+                        METRIC_GOVERNANCE_EXTENSION_KEY: {
+                            "registry_status": "standard",
+                            "metric_namespace": "standard",
+                            "review_required": False,
+                            "auto_analysis_allowed": True,
+                            "governance_reason": "standard_metric",
                         },
                     },
                     "document_id": "doc-1",

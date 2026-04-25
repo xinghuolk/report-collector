@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import re
 from typing import Iterable
 
 from financial_report_analysis.models.facts import CandidateFact
@@ -156,7 +157,26 @@ def _supported_metric_ids() -> set[str]:
     }
 
 
+def _metric_mapping_labels_by_metric_id() -> dict[str, set[str]]:
+    labels_by_metric_id: dict[str, set[str]] = {}
+    for definition in iter_metric_definitions():
+        labels = labels_by_metric_id.setdefault(definition.metric_id, set())
+        labels.update(
+            _normalize_mapping_label(label)
+            for label in definition.normalized_row_labels
+        )
+        for aliases in definition.aliases_by_market.values():
+            labels.update(_normalize_mapping_label(alias) for alias in aliases)
+    return labels_by_metric_id
+
+
+def _normalize_mapping_label(value: str) -> str:
+    normalized = value.replace("_", " ")
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
 _SUPPORTED_METRIC_IDS = _supported_metric_ids()
+_MAPPING_LABELS_BY_METRIC_ID = _metric_mapping_labels_by_metric_id()
 
 
 class FactNormalizer:
@@ -294,6 +314,10 @@ class FactNormalizer:
             FactNormalizer._is_supported_metric_id(metric_id)
             and candidate.extensions.get(_METRIC_MAPPING_SOURCE_EXTENSION_KEY)
             == _METRIC_MAPPING_REGISTRY_SOURCE
+            and FactNormalizer._matches_metric_mapping_label(
+                metric_id=metric_id,
+                raw_label=candidate.metric_label_raw,
+            )
         )
 
     @staticmethod
@@ -302,6 +326,13 @@ class FactNormalizer:
             metric_id in _SUPPORTED_METRIC_IDS
             and not metric_id.startswith("custom::")
             and not metric_id.startswith("raw_")
+        )
+
+    @staticmethod
+    def _matches_metric_mapping_label(*, metric_id: str, raw_label: str) -> bool:
+        return (
+            _normalize_mapping_label(raw_label)
+            in _MAPPING_LABELS_BY_METRIC_ID.get(metric_id, set())
         )
 
     @staticmethod
