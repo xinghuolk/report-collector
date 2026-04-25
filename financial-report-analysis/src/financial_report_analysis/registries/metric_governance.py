@@ -25,16 +25,16 @@ def standard_governance_metadata(reason: str = "standard_metric") -> dict[str, o
 def governance_metadata_from_registry_entry(
     entry: MetricRegistryEntry,
 ) -> dict[str, object]:
-    if entry.is_custom or entry.registry_status == PROVISIONAL_STATUS:
-        return {
-            "registry_status": PROVISIONAL_STATUS,
-            "metric_namespace": CUSTOM_NAMESPACE,
-            "review_required": True,
-            "auto_analysis_allowed": False,
-            "governance_reason": "provisional_custom_metric",
-        }
+    if not entry.is_custom and entry.registry_status == STANDARD_STATUS:
+        return standard_governance_metadata()
 
-    return standard_governance_metadata()
+    return {
+        "registry_status": PROVISIONAL_STATUS,
+        "metric_namespace": CUSTOM_NAMESPACE,
+        "review_required": True,
+        "auto_analysis_allowed": False,
+        "governance_reason": "provisional_custom_metric",
+    }
 
 
 def automatic_governance_metadata(
