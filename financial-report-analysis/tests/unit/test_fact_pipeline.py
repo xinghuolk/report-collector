@@ -1709,6 +1709,59 @@ def test_analyze_report_blocks_provisional_custom_metric_from_canonical_facts() 
     )
 
 
+def test_provisional_custom_quarterly_candidates_do_not_produce_ttm_facts() -> (
+    None
+):
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "US"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": f"cand-custom-{quarter}",
+                    "metric_id": "unknown",
+                    "metric_label_raw": "Customer loyalty liabilities",
+                    "statement_type": "income_statement",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": f"2025Q{quarter}",
+                    "currency": "USD",
+                    "raw_value": str(quarter * 100),
+                    "numeric_value": float(quarter * 100),
+                    "raw_unit": "USD million",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "extensions": {
+                        "period_type": "DURATION",
+                        "fiscal_year": 2025,
+                        "reporting_scope": f"Q{quarter}",
+                    },
+                    "document_id": "doc-1",
+                    "block_id": f"block-{quarter}",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": f"A{quarter}",
+                    "evidence_bundle_id": f"bundle-{quarter}",
+                    "evidence_span": (
+                        f"Customer loyalty liabilities {quarter * 100}"
+                    ),
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": quarter,
+                }
+                for quarter in range(1, 5)
+            ]
+        },
+    )
+
+    assert result.canonical_facts == []
+    assert result.derived_facts == []
+    assert result.quality_gate == "review"
+    assert "provisional_metric_review_required" in result.validation_report.issues
+
+
 def test_validation_reports_provisional_metric_review_issue() -> None:
     result = analyze_report(
         document_ref={"document_id": "doc-1", "market": "CN"},
