@@ -3043,6 +3043,13 @@ def test_extract_endpoint_promotes_table_semantic_candidates_to_canonical_facts(
         "_extract_text",
         lambda self, **kwargs: "2023 Annual Report Revenue 9,999 RMB'000",
     )
+    monkeypatch.setattr(
+        PdfIngestionAdapter,
+        "_extract_text_pages",
+        lambda self, *, pdf_path, pdf_url: [
+            (1, "2023 Annual Report Revenue 9,999 RMB'000")
+        ],
+    )
 
     pdf_path = tmp_path / "table-mock.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n%mock\n")
