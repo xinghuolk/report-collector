@@ -5,6 +5,9 @@ from typing import Any
 from financial_report_analysis.models import NormalizedTableSemantics
 from financial_report_analysis.registries import MetricMappingRegistry
 
+_METRIC_MAPPING_SOURCE_EXTENSION_KEY = "metric_mapping_source"
+_METRIC_MAPPING_REGISTRY_SOURCE = "metric_mapping_registry"
+
 
 def build_table_candidate_facts(
     semantics_tables: list[NormalizedTableSemantics],
@@ -81,6 +84,7 @@ def _build_candidate_payload(
             "source_policy": "supplement_only",
             "statement_scope_guess": table.statement_scope_guess,
             "period_scope": definition.period_scope,
+            _METRIC_MAPPING_SOURCE_EXTENSION_KEY: _METRIC_MAPPING_REGISTRY_SOURCE,
             "value_type": definition.value_type,
             "unit_expectation": definition.unit_expectation,
             "sign_rule": definition.sign_rule,

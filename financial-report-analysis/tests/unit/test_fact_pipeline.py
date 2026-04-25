@@ -255,6 +255,9 @@ def test_fact_normalizer_keeps_supported_mapped_metric_governance_standard() -> 
                 metric_id="total_assets",
                 metric_label_raw="Assets, totally weird issuer label",
                 statement_type="balance_sheet",
+                extensions={
+                    "metric_mapping_source": "metric_mapping_registry",
+                },
             )
         ]
     )
@@ -330,6 +333,66 @@ def test_fact_normalizer_recomputes_stale_standard_governance_metadata() -> None
         "auto_analysis_allowed": False,
         "governance_reason": "provisional_custom_metric",
     }
+
+
+def test_analyze_report_blocks_unsupported_label_with_stale_supported_metric_id() -> (
+    None
+):
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-stale-supported-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Customer loyalty liabilities",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1000",
+                    "numeric_value": 1000.0,
+                    "raw_unit": "CNY",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "extensions": {
+                        METRIC_GOVERNANCE_EXTENSION_KEY: {
+                            "registry_status": "standard",
+                            "metric_namespace": "standard",
+                            "review_required": False,
+                            "auto_analysis_allowed": True,
+                            "governance_reason": "supported_metric_mapping",
+                        },
+                    },
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "Customer loyalty liabilities 1000",
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    assert result.canonical_facts == []
+    assert result.derived_facts == []
+    assert result.quality_gate == "review"
+    assert result.validation_report.overall_status == "review_required"
+    assert "provisional_metric_review_required" in result.validation_report.issues
+    assert len(result.review_packets) == 1
+    packet = result.review_packets[0]
+    assert packet.metric_id.startswith("custom::")
+    assert packet.source_policy == "review_required"
+    assert packet.conflict_state == "provisional_metric_review_required"
 
 
 @pytest.mark.parametrize(
@@ -450,6 +513,7 @@ def test_build_table_candidate_facts_carries_phase1_eps_metadata_and_provenance(
     assert candidate["metric_id"] == "basic_eps"
     assert candidate["extensions"]["value_type"] == "per_share"
     assert candidate["extensions"]["unit_expectation"] == "per_share_amount"
+    assert candidate["extensions"]["metric_mapping_source"] == "metric_mapping_registry"
     assert candidate["extensions"]["semantic_source"] == "llm_fallback"
     assert candidate["extensions"]["semantic_confidence"] == 0.61
     assert candidate["extensions"]["fallback_reason"] == "eps_block_disambiguation"
@@ -733,6 +797,7 @@ def test_fact_pipeline_preserves_deterministic_metric_id_when_label_alias_is_not
                 currency="HKD",
                 raw_unit="million",
                 extensions={
+                    "metric_mapping_source": "metric_mapping_registry",
                     "value_type": "amount",
                     "unit_expectation": "currency_amount",
                 },
@@ -1047,8 +1112,8 @@ def test_pipeline_carries_p4a_review_packets_and_sets_review_quality_gate() -> N
             "candidate_facts": [
                 {
                     "fact_id": "candidate-statement",
-                    "metric_id": "cash",
-                    "metric_label_raw": "Cash",
+                    "metric_id": "total_assets",
+                    "metric_label_raw": "Total assets",
                     "statement_type": "balance_sheet",
                     "entity_scope": "consolidated",
                     "comparison_axis": "current",
@@ -1075,8 +1140,8 @@ def test_pipeline_carries_p4a_review_packets_and_sets_review_quality_gate() -> N
                 },
                 {
                     "fact_id": "candidate-note",
-                    "metric_id": "cash",
-                    "metric_label_raw": "Cash note",
+                    "metric_id": "total_assets",
+                    "metric_label_raw": "Total assets",
                     "statement_type": "balance_sheet",
                     "entity_scope": "consolidated",
                     "comparison_axis": "current",
@@ -1108,7 +1173,7 @@ def test_pipeline_carries_p4a_review_packets_and_sets_review_quality_gate() -> N
     assert result.quality_gate == "review"
     assert result.validation_report.issues == ("source_conflict",)
     assert len(result.review_packets) == 1
-    assert result.review_packets[0].to_dict()["metric_id"] == "cash"
+    assert result.review_packets[0].to_dict()["metric_id"] == "total_assets"
 
 
 def test_analyze_report_promotes_phase1_metrics_to_canonical_with_stable_provenance() -> (

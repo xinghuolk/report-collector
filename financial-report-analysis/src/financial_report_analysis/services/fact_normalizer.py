@@ -18,6 +18,8 @@ from financial_report_analysis.unit_policy import UnitPolicy
 
 _PER_SHARE_METRIC_IDS = {"basic_eps"}
 _PER_SHARE_UNIT = "per_share_amount"
+_METRIC_MAPPING_SOURCE_EXTENSION_KEY = "metric_mapping_source"
+_METRIC_MAPPING_REGISTRY_SOURCE = "metric_mapping_registry"
 
 _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
     "revenue": ["Revenue", "营业收入", "turnover"],
@@ -254,7 +256,10 @@ class FactNormalizer:
     @staticmethod
     def _resolved_metric_id(*, candidate: CandidateFact, resolved_metric_id: str) -> str:
         candidate_metric_id = str(candidate.metric_id or "").strip()
-        if FactNormalizer._is_supported_metric_id(candidate_metric_id):
+        if FactNormalizer._is_supported_mapped_candidate(
+            candidate=candidate,
+            metric_id=candidate_metric_id,
+        ):
             return candidate_metric_id
         return resolved_metric_id
 
@@ -270,11 +275,26 @@ class FactNormalizer:
         if (
             candidate_metric_id == resolved_metric_id
             and registry_metric_id != resolved_metric_id
-            and FactNormalizer._is_supported_metric_id(candidate_metric_id)
+            and FactNormalizer._is_supported_mapped_candidate(
+                candidate=candidate,
+                metric_id=candidate_metric_id,
+            )
         ):
             return standard_governance_metadata(reason="supported_metric_mapping")
 
         return governance_metadata_from_registry_entry(metric_entry)
+
+    @staticmethod
+    def _is_supported_mapped_candidate(
+        *,
+        candidate: CandidateFact,
+        metric_id: str,
+    ) -> bool:
+        return (
+            FactNormalizer._is_supported_metric_id(metric_id)
+            and candidate.extensions.get(_METRIC_MAPPING_SOURCE_EXTENSION_KEY)
+            == _METRIC_MAPPING_REGISTRY_SOURCE
+        )
 
     @staticmethod
     def _is_supported_metric_id(metric_id: str) -> bool:
