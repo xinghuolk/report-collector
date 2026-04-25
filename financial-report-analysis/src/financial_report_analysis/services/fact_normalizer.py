@@ -9,6 +9,7 @@ from financial_report_analysis.registries.metric_governance import (
     governance_metadata_from_registry_entry,
     standard_governance_metadata,
 )
+from financial_report_analysis.registries.metric_mapping import iter_metric_definitions
 from financial_report_analysis.registries.metric_registry import (
     MetricRegistry,
     MetricRegistryEntry,
@@ -147,6 +148,15 @@ _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
 }
 
 
+def _supported_metric_ids() -> set[str]:
+    return set(_DEFAULT_STANDARD_METRICS) | {
+        definition.metric_id for definition in iter_metric_definitions()
+    }
+
+
+_SUPPORTED_METRIC_IDS = _supported_metric_ids()
+
+
 class FactNormalizer:
     def __init__(
         self,
@@ -180,14 +190,13 @@ class FactNormalizer:
                 metric_id=resolved_metric_id,
             )
             normalized_extensions = dict(candidate.extensions)
-            normalized_extensions.setdefault(
-                METRIC_GOVERNANCE_EXTENSION_KEY,
+            normalized_extensions[METRIC_GOVERNANCE_EXTENSION_KEY] = (
                 self._governance_metadata(
                     candidate=candidate,
                     resolved_metric_id=resolved_metric_id,
                     registry_metric_id=metric_entry.metric_id,
                     metric_entry=metric_entry,
-                ),
+                )
             )
             if resolved_metric_id in _PER_SHARE_METRIC_IDS:
                 normalized_extensions.setdefault("value_type", "per_share")
@@ -270,8 +279,7 @@ class FactNormalizer:
     @staticmethod
     def _is_supported_metric_id(metric_id: str) -> bool:
         return (
-            bool(metric_id)
-            and metric_id != "unknown"
+            metric_id in _SUPPORTED_METRIC_IDS
             and not metric_id.startswith("custom::")
             and not metric_id.startswith("raw_")
         )
