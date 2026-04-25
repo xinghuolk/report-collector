@@ -19,6 +19,12 @@ from financial_report_analysis.models import (
     ParsedRow,
     ParsedTable,
 )
+from financial_report_analysis.p5.metric_availability_report import (
+    build_metric_availability_report,
+)
+from financial_report_analysis.p5.ollama_fallback_e2e import (
+    selected_ollama_fallback_e2e_case,
+)
 from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.semantic_fallback import (
     SemanticFallbackSettings,
@@ -435,6 +441,63 @@ def test_hk_09987_q3_real_pdf_keeps_row_label_fallback_bounded() -> None:
         is False
     )
     assert len(ingestion_payload["candidate_facts"]) >= 1
+
+
+@pytest.mark.real_pdf
+@pytest.mark.ollama
+@pytest.mark.external
+@pytest.mark.slow
+def test_ollama_fallback_e2e_supports_replaceable_real_pdf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = selected_ollama_fallback_e2e_case()
+    pdf_path = _resolve_sample(*case.relative_pdf_parts)
+    monkeypatch.setenv("FRA_SEMANTIC_FALLBACK_ENABLED", "true")
+
+    fallback_service = _real_ollama_fallback_service()
+    ingestion_payload = PdfIngestionAdapter(
+        semantic_fallback_service=fallback_service,
+    ).extract_candidate_facts(
+        pdf_path=str(pdf_path),
+        pdf_url=None,
+        market=case.market,
+        min_confidence=0.8,
+    )
+
+    metadata = ingestion_payload["document_metadata"]
+    counts = metadata["semantic_fallback_call_counts"]
+    assert metadata["semantic_fallback_enabled"] is True
+    assert sum(counts.values()) > 0
+    assert len(ingestion_payload["candidate_facts"]) >= 1
+
+    expected_metric_ids = (
+        case.expected_metric_ids or case.expected_fallback_metric_ids
+    )
+    if expected_metric_ids:
+        availability = build_metric_availability_report(
+            payload=ingestion_payload,
+            expected_metric_ids=expected_metric_ids,
+            metric_profile="ollama_fallback_e2e",
+            pdf_path=str(pdf_path),
+            market=case.market,
+        )
+        metrics = {metric.metric_id: metric for metric in availability.metrics}
+        missing = [
+            metric_id
+            for metric_id in expected_metric_ids
+            if metrics[metric_id].status != "present"
+        ]
+        assert not missing, f"missing expected metrics: {missing}"
+
+        fallback_missing = [
+            metric_id
+            for metric_id in case.expected_fallback_metric_ids
+            if not metrics[metric_id].recovered_by_fallback
+        ]
+        assert not fallback_missing, (
+            "expected fallback-recovered metrics were not recovered by fallback: "
+            f"{fallback_missing}"
+        )
 
 
 @pytest.mark.real_pdf

@@ -302,6 +302,9 @@ class PdfIngestionAdapter:
                 "semantic_fallback_call_counts": dict(
                     self._semantic_fallback_call_counts
                 ),
+                "semantic_fallback_enabled": (
+                    self._semantic_fallback_service is not None
+                ),
                 "semantic_fallback_budget_exhausted": (
                     self._semantic_fallback_budget_exhausted
                 ),
