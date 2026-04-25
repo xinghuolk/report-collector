@@ -26,10 +26,11 @@ def test_standard_registry_entry_metadata_allows_auto_analysis() -> None:
     metadata = governance_metadata_from_registry_entry(entry)
 
     assert metadata == {
-        "namespace": STANDARD_NAMESPACE,
-        "status": STANDARD_STATUS,
-        "reason": "standard_metric",
+        "registry_status": STANDARD_STATUS,
+        "metric_namespace": STANDARD_NAMESPACE,
+        "review_required": False,
         "auto_analysis_allowed": True,
+        "governance_reason": "standard_metric",
     }
     assert is_auto_analysis_allowed({METRIC_GOVERNANCE_EXTENSION_KEY: metadata}) is True
 
@@ -48,10 +49,11 @@ def test_custom_registry_entry_metadata_is_provisional_and_blocks_auto_analysis(
     extensions = {METRIC_GOVERNANCE_EXTENSION_KEY: metadata}
 
     assert metadata == {
-        "namespace": CUSTOM_NAMESPACE,
-        "status": PROVISIONAL_STATUS,
-        "reason": "custom_metric",
+        "registry_status": PROVISIONAL_STATUS,
+        "metric_namespace": CUSTOM_NAMESPACE,
+        "review_required": True,
         "auto_analysis_allowed": False,
+        "governance_reason": "provisional_custom_metric",
     }
     assert is_auto_analysis_allowed(extensions) is False
     assert is_provisional_custom_metric(extensions) is True
@@ -61,10 +63,11 @@ def test_supported_metric_mapping_metadata_is_standard_and_allows_auto_analysis(
     metadata = standard_governance_metadata(reason="supported_metric_mapping")
 
     assert metadata == {
-        "namespace": STANDARD_NAMESPACE,
-        "status": STANDARD_STATUS,
-        "reason": "supported_metric_mapping",
+        "registry_status": STANDARD_STATUS,
+        "metric_namespace": STANDARD_NAMESPACE,
+        "review_required": False,
         "auto_analysis_allowed": True,
+        "governance_reason": "supported_metric_mapping",
     }
     assert is_auto_analysis_allowed({METRIC_GOVERNANCE_EXTENSION_KEY: metadata}) is True
 

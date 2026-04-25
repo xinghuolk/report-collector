@@ -14,10 +14,11 @@ METRIC_GOVERNANCE_EXTENSION_KEY = "metric_governance"
 
 def standard_governance_metadata(reason: str = "standard_metric") -> dict[str, object]:
     return {
-        "namespace": STANDARD_NAMESPACE,
-        "status": STANDARD_STATUS,
-        "reason": reason,
+        "registry_status": STANDARD_STATUS,
+        "metric_namespace": STANDARD_NAMESPACE,
+        "review_required": False,
         "auto_analysis_allowed": True,
+        "governance_reason": reason,
     }
 
 
@@ -28,10 +29,13 @@ def governance_metadata_from_registry_entry(
         return standard_governance_metadata()
 
     return {
-        "namespace": CUSTOM_NAMESPACE if entry.is_custom else STANDARD_NAMESPACE,
-        "status": entry.registry_status or PROVISIONAL_STATUS,
-        "reason": "custom_metric" if entry.is_custom else "non_standard_metric",
+        "registry_status": entry.registry_status or PROVISIONAL_STATUS,
+        "metric_namespace": CUSTOM_NAMESPACE if entry.is_custom else STANDARD_NAMESPACE,
+        "review_required": True,
         "auto_analysis_allowed": False,
+        "governance_reason": (
+            "provisional_custom_metric" if entry.is_custom else "non_standard_metric"
+        ),
     }
 
 
@@ -53,6 +57,6 @@ def is_auto_analysis_allowed(extensions: Mapping[str, Any]) -> bool:
 def is_provisional_custom_metric(extensions: Mapping[str, Any]) -> bool:
     metadata = automatic_governance_metadata(extensions)
     return (
-        metadata.get("namespace") == CUSTOM_NAMESPACE
-        and metadata.get("status") == PROVISIONAL_STATUS
+        metadata.get("metric_namespace") == CUSTOM_NAMESPACE
+        and metadata.get("registry_status") == PROVISIONAL_STATUS
     )
