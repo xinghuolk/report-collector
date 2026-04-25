@@ -12,6 +12,9 @@ from financial_report_analysis.models.governance import (
     candidate_source_kind,
     candidate_source_policy,
 )
+from financial_report_analysis.registries.metric_governance import (
+    is_provisional_custom_metric,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,14 +34,33 @@ class ConflictResolver:
         self,
         normalized_candidates: Iterable[CandidateFact],
     ) -> ConflictResolutionResult:
+        eligible_candidates: list[CandidateFact] = []
+        review_packets: list[ReviewPacket] = []
+        for candidate in normalized_candidates:
+            if is_provisional_custom_metric(candidate.extensions):
+                review_packets.extend(
+                    self._build_review_packets(
+                        [candidate],
+                        competing_candidates=[],
+                        conflict_state="provisional_metric_review_required",
+                        resolution_reason="blocked_provisional_metric",
+                        review_reason=(
+                            "provisional custom metric requires review before "
+                            "automatic analysis"
+                        ),
+                        policies={candidate.fact_id: "review_required"},
+                    )
+                )
+            else:
+                eligible_candidates.append(candidate)
+
         grouped_candidates: dict[
             tuple[str, str, str, str, str, str], list[CandidateFact]
         ] = defaultdict(list)
-        for candidate in normalized_candidates:
+        for candidate in eligible_candidates:
             grouped_candidates[self._business_key(candidate)].append(candidate)
 
         canonical_facts: list[CanonicalFact] = []
-        review_packets: list[ReviewPacket] = []
         for business_key in sorted(grouped_candidates):
             winner, resolution_reason, validation_flags, packets = self._resolve_group(
                 grouped_candidates[business_key]

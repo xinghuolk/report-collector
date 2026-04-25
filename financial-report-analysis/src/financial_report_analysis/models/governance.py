@@ -20,6 +20,7 @@ ConflictState = Literal[
     "source_conflict",
     "review_required",
     "blocked",
+    "provisional_metric_review_required",
 ]
 
 _SOURCE_KINDS: set[str] = {
@@ -93,4 +94,3 @@ def candidate_source_policy(candidate: CandidateFact) -> SourcePolicy:
     if isinstance(extension_source_policy, str) and extension_source_policy in _SOURCE_POLICIES:
         return cast(SourcePolicy, extension_source_policy)
     return "supplement_only"
-

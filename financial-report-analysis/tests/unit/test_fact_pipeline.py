@@ -1651,6 +1651,64 @@ def test_pipeline_returns_fact_sets_and_quality_gate() -> None:
     assert result.validation_report.overall_status == "ok"
 
 
+def test_analyze_report_blocks_provisional_custom_metric_from_canonical_facts() -> (
+    None
+):
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-custom-1",
+                    "metric_id": "unknown",
+                    "metric_label_raw": "Customer loyalty liabilities",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1000",
+                    "numeric_value": 1000.0,
+                    "raw_unit": "CNY",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "Customer loyalty liabilities 1000",
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    assert result.canonical_facts == []
+    assert result.derived_facts == []
+    assert result.quality_gate == "review"
+    assert result.validation_report.overall_status == "review_required"
+    assert "provisional_metric_review_required" in result.validation_report.issues
+    assert len(result.review_packets) == 1
+    packet = result.review_packets[0]
+    assert packet.metric_id.startswith("custom::")
+    assert packet.source_policy == "review_required"
+    assert packet.conflict_state == "provisional_metric_review_required"
+    assert packet.competing_candidate_values == ()
+    assert packet.evidence_bundle_id == "bundle-1"
+    assert packet.resolution_reason == "blocked_provisional_metric"
+    assert (
+        packet.review_reason
+        == "provisional custom metric requires review before automatic analysis"
+    )
+
+
 def test_pipeline_rejects_mismatched_candidate_document_id() -> None:
     try:
         analyze_report(
