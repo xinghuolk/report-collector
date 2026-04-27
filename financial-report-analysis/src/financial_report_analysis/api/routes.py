@@ -572,7 +572,9 @@ def _metric_lifecycle_concept_from_review_item(
 
 def _parse_custom_metric_identity(metric_id: str) -> tuple[str, str, str | None]:
     parts = metric_id.split("::")
-    if len(parts) == 6 and parts[0] == "custom":
+    if len(parts) == 6 and parts[0] == "custom" and all(
+        part.strip() for part in parts[1:]
+    ):
         parent_metric_id = parts[4] if parts[4] != "root" else None
         return parts[1], parts[2], parent_metric_id
     return "OTHER", "general", None

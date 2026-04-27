@@ -172,6 +172,7 @@ def test_metric_governance_lifecycle_entry_endpoint_creates_linked_state(
     (
         "custom_accounts_receivable",
         "custom::cn::general::income-statement::root::contract-assets::extra",
+        "custom::::income-statement::root::contract-assets",
     ),
 )
 def test_metric_governance_lifecycle_entry_uses_malformed_custom_defaults(
