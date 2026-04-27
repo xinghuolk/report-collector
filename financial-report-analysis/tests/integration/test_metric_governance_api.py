@@ -155,6 +155,50 @@ def test_metric_governance_review_list_and_write_flow(tmp_path: Path) -> None:
     )
 
 
+def test_metric_governance_phase2_decision_does_not_create_lifecycle_state(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+
+    write_response = client.post(
+        "/api/v1/metric-governance/review-items/decision",
+        json={
+            "review_item_id": review_item_id,
+            "decision_type": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "maps to supported receivables metric",
+            "actor": "reviewer@example.com",
+        },
+    )
+    assert write_response.status_code == 200
+
+    detail_response = client.get(
+        f"/api/v1/metric-governance/review-items/{review_item_id}",
+    )
+
+    assert detail_response.status_code == 200
+    payload = detail_response.json()
+    assert payload["latest_decision"]["target_metric_id"] == "accounts_receiv"
+    assert payload["lifecycle_state"] == {
+        "entry": None,
+        "latest_decision": None,
+        "candidate_link": None,
+        "decision_history": [],
+    }
+
+
 def test_metric_lifecycle_state_response_preserves_non_empty_state() -> None:
     concept = MetricLifecycleConceptIdentity(
         issuer_id="CN_601919",

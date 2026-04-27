@@ -77,6 +77,7 @@ from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.services.metric_governance_review import (
     MetricGovernanceReviewService,
 )
+from financial_report_analysis.services.metric_lifecycle import MetricLifecycleService
 
 router = APIRouter()
 
@@ -218,12 +219,19 @@ def list_metric_governance_review_items(
 ) -> MetricGovernanceReviewListResponse:
     repository = _require_storage_repository(request)
     service = MetricGovernanceReviewService(repository)
+    lifecycle_service = MetricLifecycleService(repository)
     items = service.list_review_items(
         issuer_id=issuer_id,
         fiscal_year=fiscal_year,
     )
     return MetricGovernanceReviewListResponse(
-        items=[_metric_governance_review_item_to_response(item) for item in items],
+        items=[
+            _metric_governance_review_item_to_response(
+                item,
+                lifecycle_service.load_state_by_review_item(item.review_item_id),
+            )
+            for item in items
+        ],
     )
 
 
@@ -237,8 +245,12 @@ def get_metric_governance_review_item(
 ) -> MetricGovernanceReviewItemResponse:
     repository = _require_storage_repository(request)
     service = MetricGovernanceReviewService(repository)
+    lifecycle_service = MetricLifecycleService(repository)
     item = _load_metric_governance_review_item_or_404(service, review_item_id)
-    return _metric_governance_review_item_to_response(item)
+    return _metric_governance_review_item_to_response(
+        item,
+        lifecycle_service.load_state_by_review_item(item.review_item_id),
+    )
 
 
 @router.post(
@@ -251,6 +263,7 @@ def write_metric_governance_decision(
 ) -> MetricGovernanceDecisionWriteResponse:
     repository = _require_storage_repository(request)
     service = MetricGovernanceReviewService(repository)
+    lifecycle_service = MetricLifecycleService(repository)
     if not service.review_item_exists(decision_request.review_item_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -307,7 +320,10 @@ def write_metric_governance_decision(
         decision=_metric_governance_decision_annotation_to_response(
             MetricGovernanceDecisionAnnotation.from_decision(decision)
         ),
-        review_item=_metric_governance_review_item_to_response(refreshed_item),
+        review_item=_metric_governance_review_item_to_response(
+            refreshed_item,
+            lifecycle_service.load_state_by_review_item(refreshed_item.review_item_id),
+        ),
     )
 
 
