@@ -64,7 +64,9 @@ from financial_report_analysis.api.schemas import (
     MetricLifecycleCandidateLinkResponse,
     MetricLifecycleConceptIdentityResponse,
     MetricLifecycleDecisionResponse,
+    MetricLifecycleEntryRequest,
     MetricLifecycleEntryResponse,
+    MetricLifecycleEntryWriteResponse,
     MetricLifecycleStateResponse,
     MultiYearAvailabilityResponse,
     RecomputeDiffSummaryResponse,
@@ -77,7 +79,10 @@ from financial_report_analysis.pipeline import analyze_report
 from financial_report_analysis.services.metric_governance_review import (
     MetricGovernanceReviewService,
 )
-from financial_report_analysis.services.metric_lifecycle import MetricLifecycleService
+from financial_report_analysis.services.metric_lifecycle import (
+    MetricLifecycleError,
+    MetricLifecycleService,
+)
 
 router = APIRouter()
 
@@ -232,6 +237,64 @@ def list_metric_governance_review_items(
             )
             for item in items
         ],
+    )
+
+
+@router.post(
+    "/api/v1/metric-governance/review-items/{review_item_id:path}/lifecycle-entry",
+    response_model=MetricLifecycleEntryWriteResponse,
+)
+def create_metric_governance_lifecycle_entry(
+    review_item_id: str,
+    entry_request: MetricLifecycleEntryRequest,
+    request: Request,
+) -> MetricLifecycleEntryWriteResponse:
+    repository = _require_storage_repository(request)
+    review_service = MetricGovernanceReviewService(repository)
+    if not review_service.review_item_exists(review_item_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"missing metric governance review item: {review_item_id}",
+        )
+    if not review_service.review_item_is_provisional(review_item_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="review item is not provisional",
+        )
+    item = _load_metric_governance_review_item_or_404(review_service, review_item_id)
+    lifecycle_service = MetricLifecycleService(repository)
+    try:
+        entry = lifecycle_service.create_or_load_entry(
+            concept=_metric_lifecycle_concept_from_review_item(item),
+            actor=entry_request.actor,
+        )
+        existing_state = lifecycle_service.load_state_by_review_item(review_item_id)
+        if (
+            existing_state.candidate_link is None
+            or existing_state.candidate_link.lifecycle_entry_id
+            != entry.lifecycle_entry_id
+        ):
+            lifecycle_service.link_candidate(
+                _metric_lifecycle_candidate_link_from_review_item(
+                    item,
+                    entry.lifecycle_entry_id,
+                    actor=entry_request.actor,
+                )
+            )
+    except MetricLifecycleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    refreshed_item = _load_metric_governance_review_item_or_404(
+        review_service,
+        review_item_id,
+    )
+    return MetricLifecycleEntryWriteResponse(
+        review_item=_metric_governance_review_item_to_response(
+            refreshed_item,
+            lifecycle_service.load_state_by_review_item(review_item_id),
+        )
     )
 
 
@@ -487,6 +550,57 @@ def _load_metric_governance_review_item_or_404(
             detail=f"missing metric governance review item: {review_item_id}",
         )
     return item
+
+
+def _metric_lifecycle_concept_from_review_item(
+    item: MetricGovernanceReviewItem,
+) -> MetricLifecycleConceptIdentity:
+    accounting_standard, industry_slug, parent_metric_id = (
+        _parse_custom_metric_identity(item.metric_id)
+    )
+    return MetricLifecycleConceptIdentity(
+        issuer_id=item.issuer_id,
+        metric_id=item.metric_id,
+        raw_label=item.raw_label,
+        normalized_label=item.normalized_label,
+        statement_type=item.statement_type,
+        accounting_standard=accounting_standard,
+        industry_slug=industry_slug,
+        parent_metric_id=parent_metric_id,
+    )
+
+
+def _parse_custom_metric_identity(metric_id: str) -> tuple[str, str, str | None]:
+    parts = metric_id.split("::")
+    if len(parts) >= 6 and parts[0] == "custom":
+        parent_metric_id = parts[4] if parts[4] != "root" else None
+        return parts[1], parts[2], parent_metric_id
+    return "OTHER", "general", None
+
+
+def _metric_lifecycle_candidate_link_from_review_item(
+    item: MetricGovernanceReviewItem,
+    lifecycle_entry_id: str,
+    *,
+    actor: str,
+) -> MetricLifecycleCandidateLink:
+    timestamp = datetime.now(UTC).isoformat()
+    return MetricLifecycleCandidateLink(
+        candidate_link_id=f"metric-lifecycle-candidate-link:{uuid4().hex}",
+        lifecycle_entry_id=lifecycle_entry_id,
+        review_item_id=item.review_item_id,
+        artifact_id=item.artifact_id,
+        issuer_id=item.issuer_id,
+        fiscal_year=item.fiscal_year,
+        report_type=item.report_type,
+        candidate_metric_id=item.metric_id,
+        raw_label=item.raw_label,
+        normalized_label=item.normalized_label,
+        statement_type=item.statement_type,
+        evidence_bundle_id=item.evidence_bundle_id,
+        created_at=timestamp,
+        created_by=actor,
+    )
 
 
 def _coverage_to_response(

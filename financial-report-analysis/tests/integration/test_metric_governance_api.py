@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -97,6 +98,171 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
         missing_status={},
         created_at="2026-04-27T12:00:00+00:00",
     )
+
+
+def _artifact_with_malformed_custom_metric(
+    entry: P5ManifestEntry,
+) -> P5ExtractedArtifact:
+    artifact = _artifact(entry)
+    first_candidate = dict(artifact.candidate_facts[0])
+    first_candidate["metric_id"] = "custom_accounts_receivable"
+    return replace(
+        artifact,
+        candidate_facts=(first_candidate, *artifact.candidate_facts[1:]),
+    )
+
+
+def test_metric_governance_lifecycle_entry_endpoint_creates_linked_state(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+
+    first_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    second_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_state = first_response.json()["review_item"]["lifecycle_state"]
+    second_state = second_response.json()["review_item"]["lifecycle_state"]
+    assert first_state == second_state
+    entry_payload = first_state["entry"]
+    assert entry_payload["lifecycle_entry_id"] == (
+        second_state["entry"]["lifecycle_entry_id"]
+    )
+    assert entry_payload["current_status"] == "provisional"
+    assert entry_payload["concept"]["accounting_standard"] == "cn"
+    assert entry_payload["concept"]["industry_slug"] == "general"
+    assert entry_payload["concept"]["statement_type"] == "income_statement"
+    assert entry_payload["concept"]["parent_metric_id"] is None
+    candidate_link = first_state["candidate_link"]
+    assert candidate_link["review_item_id"] == review_item_id
+    assert candidate_link["evidence_bundle_id"] == "bundle-1"
+
+    detail_response = client.get(
+        f"/api/v1/metric-governance/review-items/{review_item_id}",
+    )
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["lifecycle_state"]["entry"][
+        "lifecycle_entry_id"
+    ] == entry_payload["lifecycle_entry_id"]
+
+
+def test_metric_governance_lifecycle_entry_uses_legacy_custom_defaults(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact_with_malformed_custom_metric(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+
+    assert response.status_code == 200
+    concept = response.json()["review_item"]["lifecycle_state"]["entry"]["concept"]
+    assert concept["accounting_standard"] == "OTHER"
+    assert concept["industry_slug"] == "general"
+    assert concept["parent_metric_id"] is None
+
+
+def test_metric_governance_lifecycle_entry_rejects_missing_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/api/v1/metric-governance/review-items/missing:item/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_metric_governance_lifecycle_entry_rejects_non_provisional_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(artifact.artifact_id, "candidate-2")
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "review item is not provisional"
+
+
+def test_metric_governance_lifecycle_entry_rejects_blank_actor(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "   "},
+    )
+
+    assert response.status_code == 422
+
+
+def test_metric_governance_lifecycle_entry_requires_storage_runtime() -> None:
+    client = TestClient(create_app(runtime=build_api_runtime(None)))
+
+    response = client.post(
+        "/api/v1/metric-governance/review-items/missing:item/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "storage repository is not configured"
 
 
 def test_metric_governance_review_list_and_write_flow(tmp_path: Path) -> None:
