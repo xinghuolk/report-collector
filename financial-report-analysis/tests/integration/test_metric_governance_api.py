@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
@@ -102,10 +103,11 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
 
 def _artifact_with_malformed_custom_metric(
     entry: P5ManifestEntry,
+    metric_id: str = "custom_accounts_receivable",
 ) -> P5ExtractedArtifact:
     artifact = _artifact(entry)
     first_candidate = dict(artifact.candidate_facts[0])
-    first_candidate["metric_id"] = "custom_accounts_receivable"
+    first_candidate["metric_id"] = metric_id
     return replace(
         artifact,
         candidate_facts=(first_candidate, *artifact.candidate_facts[1:]),
@@ -165,12 +167,20 @@ def test_metric_governance_lifecycle_entry_endpoint_creates_linked_state(
     ] == entry_payload["lifecycle_entry_id"]
 
 
-def test_metric_governance_lifecycle_entry_uses_legacy_custom_defaults(
+@pytest.mark.parametrize(
+    "metric_id",
+    (
+        "custom_accounts_receivable",
+        "custom::cn::general::income-statement::root::contract-assets::extra",
+    ),
+)
+def test_metric_governance_lifecycle_entry_uses_malformed_custom_defaults(
     tmp_path: Path,
+    metric_id: str,
 ) -> None:
     runtime = build_api_runtime(tmp_path / "storage.db")
     entry = _entry(tmp_path)
-    artifact = _artifact_with_malformed_custom_metric(entry)
+    artifact = _artifact_with_malformed_custom_metric(entry, metric_id)
     assert runtime.storage_repository is not None
     assert runtime.historical_ingestion_service is not None
     runtime.historical_ingestion_service.register_report(entry)
