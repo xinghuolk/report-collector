@@ -478,6 +478,41 @@ def test_metric_governance_lifecycle_decision_rejects_blank_actor_and_reason(
     assert blank_reason_response.status_code == 422
 
 
+def test_metric_governance_lifecycle_decision_rejects_invalid_effective_at(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Matches the supported receivables metric.",
+            "actor": "reviewer@example.com",
+            "effective_at": "not-a-date",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_metric_governance_lifecycle_decision_requires_storage_runtime() -> None:
     client = TestClient(create_app(runtime=build_api_runtime(None)))
 

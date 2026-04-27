@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -258,6 +259,11 @@ class MetricLifecycleDecisionRequest(BaseModel):
             raise ValueError(
                 "target_metric_id is only allowed for action='map_to_standard'"
             )
+        if self.effective_at is not None:
+            try:
+                datetime.fromisoformat(self.effective_at)
+            except ValueError as exc:
+                raise ValueError("effective_at must be an ISO datetime string") from exc
         return self
 
 
