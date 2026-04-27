@@ -88,6 +88,20 @@ Use stable history ordering:
 effective_at asc, created_at asc, decision_id asc
 ```
 
+Use non-null concept identity keys for storage uniqueness:
+
+```text
+parent_metric_key = parent_metric_id when present, otherwise "root"
+lifecycle_entry_id = "metric-lifecycle:" + deterministic hash of issuer_id,
+metric_id, statement_type, accounting_standard, industry_slug, and
+parent_metric_key
+```
+
+Do not put nullable `parent_metric_id` directly inside the unique concept
+constraint without a non-null companion key. SQL uniqueness treats `NULL`
+values as distinct in common databases, which would allow duplicate root
+concepts.
+
 ## Task 1: Add Lifecycle Domain Contracts
 
 **Files:**
@@ -364,6 +378,8 @@ Create `financial-report-analysis/tests/unit/test_metric_lifecycle_repository.py
 ```python
 from __future__ import annotations
 
+from dataclasses import replace
+
 from financial_report_analysis.models import (
     MetricLifecycleCandidateLink,
     MetricLifecycleConceptIdentity,
@@ -460,6 +476,19 @@ def test_repository_round_trips_lifecycle_entry_by_id_and_concept(tmp_path) -> N
     assert repository.load_metric_lifecycle_entry("missing") is None
 
 
+def test_repository_does_not_duplicate_root_concepts(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    entry = _entry()
+    duplicate = _entry("lifecycle:duplicate")
+
+    assert repository.save_metric_lifecycle_entry(entry) == entry.lifecycle_entry_id
+    assert repository.save_metric_lifecycle_entry(duplicate) == entry.lifecycle_entry_id
+
+    loaded = repository.load_metric_lifecycle_entry_by_concept(_concept())
+    assert loaded is not None
+    assert loaded.lifecycle_entry_id == entry.lifecycle_entry_id
+
+
 def test_repository_round_trips_lifecycle_candidate_link(tmp_path) -> None:
     repository = _repository(tmp_path)
     entry = _entry()
@@ -498,6 +527,39 @@ def test_repository_orders_lifecycle_decisions_deterministically(tmp_path) -> No
         latest_by_id,
     )
     assert repository.load_latest_metric_lifecycle_decision("lifecycle:001") == latest_by_id
+
+
+def test_repository_records_decision_and_entry_state_atomically(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    repository.save_metric_lifecycle_entry(_entry())
+    updated_entry = replace(
+        _entry(),
+        current_status="approved_custom",
+        updated_at="2026-04-27T10:03:00+00:00",
+    )
+    decision = MetricLifecycleDecision(
+        decision_id="decision:atomic",
+        lifecycle_entry_id="lifecycle:001",
+        action="approve_custom",
+        previous_status="provisional",
+        new_status="approved_custom",
+        target_metric_id=None,
+        actor="reviewer@example.com",
+        reason="Valid custom metric.",
+        evidence_bundle_id="bundle:001",
+        source_review_item_id="review:001",
+        source_artifact_id="artifact:001",
+        created_at="2026-04-27T10:03:00+00:00",
+        effective_at="2026-04-27T10:03:00+00:00",
+    )
+
+    assert (
+        repository.record_metric_lifecycle_decision(decision, updated_entry)
+        == decision.decision_id
+    )
+
+    assert repository.load_latest_metric_lifecycle_decision("lifecycle:001") == decision
+    assert repository.load_metric_lifecycle_entry("lifecycle:001") == updated_entry
 ```
 
 - [ ] **Step 2: Run failing repository tests**
@@ -526,7 +588,7 @@ class MetricLifecycleEntryRecord(Base):
             "statement_type",
             "accounting_standard",
             "industry_slug",
-            "parent_metric_id",
+            "parent_metric_key",
             name="uq_metric_lifecycle_entries_concept",
         ),
     )
@@ -540,6 +602,7 @@ class MetricLifecycleEntryRecord(Base):
     accounting_standard: Mapped[str] = mapped_column(String(32), nullable=False)
     industry_slug: Mapped[str] = mapped_column(String(64), nullable=False)
     parent_metric_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    parent_metric_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     current_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     mapped_standard_metric_id: Mapped[str | None] = mapped_column(String(128), index=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -621,6 +684,11 @@ def load_metric_lifecycle_entry_by_concept(
     self, concept: MetricLifecycleConceptIdentity
 ) -> MetricLifecycleEntry | None: ...
 def save_metric_lifecycle_decision(self, decision: MetricLifecycleDecision) -> str: ...
+def record_metric_lifecycle_decision(
+    self,
+    decision: MetricLifecycleDecision,
+    updated_entry: MetricLifecycleEntry,
+) -> str: ...
 def list_metric_lifecycle_decisions(
     self, lifecycle_entry_id: str
 ) -> tuple[MetricLifecycleDecision, ...]: ...
@@ -641,8 +709,16 @@ def list_metric_lifecycle_candidate_links(
 Use SQLAlchemy `select(...)`, `Session(self.engine)`, and converter helpers
 matching the existing `MetricGovernanceDecisionRecord` pattern.
 
-When saving an entry, use `session.merge(record)` so repeated upserts update the
-current denormalized state.
+When saving an entry, first look up an existing row by concept identity using
+the non-null `parent_metric_key`. If an existing row is present, update that row
+and return its existing `lifecycle_entry_id` rather than inserting a second row.
+This is required even when the incoming entry has a different
+`lifecycle_entry_id`.
+
+When recording a lifecycle decision, use `record_metric_lifecycle_decision()`.
+It must insert the decision and update the denormalized entry state inside one
+SQLAlchemy transaction and one `session.commit()`. If either write fails, neither
+the decision nor the entry update should persist.
 
 Decision history ordering must be:
 
@@ -709,8 +785,6 @@ Create `financial-report-analysis/tests/unit/test_metric_lifecycle_service.py`:
 ```python
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
 from financial_report_analysis.models import (
@@ -753,6 +827,15 @@ class _Repository:
         self.decisions.setdefault(decision.lifecycle_entry_id, []).append(decision)
         return decision.decision_id
 
+    def record_metric_lifecycle_decision(
+        self,
+        decision: MetricLifecycleDecision,
+        updated_entry: MetricLifecycleEntry,
+    ) -> str:
+        self.decisions.setdefault(decision.lifecycle_entry_id, []).append(decision)
+        self.entries[updated_entry.lifecycle_entry_id] = updated_entry
+        return decision.decision_id
+
     def list_metric_lifecycle_decisions(
         self, lifecycle_entry_id: str
     ) -> tuple[MetricLifecycleDecision, ...]:
@@ -791,6 +874,15 @@ class _Repository:
 
     def load_latest_metric_governance_decision(self, review_item_id: str):
         return self.phase2_decision
+
+
+class _FailingAtomicRepository(_Repository):
+    def record_metric_lifecycle_decision(
+        self,
+        decision: MetricLifecycleDecision,
+        updated_entry: MetricLifecycleEntry,
+    ) -> str:
+        raise RuntimeError("atomic write failed")
 
 
 def _concept() -> MetricLifecycleConceptIdentity:
@@ -859,6 +951,40 @@ def test_service_records_lifecycle_decision_and_updates_entry_state() -> None:
     assert repository.entries["lifecycle:001"].current_status == "approved_custom"
 
 
+@pytest.mark.parametrize(
+    ("action", "expected_status"),
+    [
+        ("approve_custom", "approved_custom"),
+        ("map_to_standard", "mapped_to_standard"),
+        ("deprecate", "deprecated"),
+        ("blacklist", "blacklisted"),
+    ],
+)
+def test_service_validates_all_action_status_transitions(
+    action,
+    expected_status,
+) -> None:
+    repository = _Repository()
+    service = MetricLifecycleService(repository, metric_registry=load_metric_registry())
+    repository.save_metric_lifecycle_entry(_entry())
+
+    decision = service.record_decision(
+        lifecycle_entry_id="lifecycle:001",
+        action=action,
+        target_metric_id="accounts_receiv" if action == "map_to_standard" else None,
+        actor="reviewer@example.com",
+        reason="Valid lifecycle action.",
+        evidence_bundle_id="bundle:001",
+        source_review_item_id="review:001",
+        source_artifact_id="artifact:001",
+        created_at="2026-04-27T10:03:00+00:00",
+        effective_at="2026-04-27T10:03:00+00:00",
+    )
+
+    assert decision.new_status == expected_status
+    assert repository.entries["lifecycle:001"].current_status == expected_status
+
+
 def test_service_validates_map_to_standard_target() -> None:
     repository = _Repository()
     service = MetricLifecycleService(repository, metric_registry=load_metric_registry())
@@ -909,6 +1035,19 @@ def test_service_rejects_invalid_target_and_wrong_target_shape() -> None:
             effective_at="2026-04-27T10:03:00+00:00",
         )
 
+    for action in ("deprecate", "blacklist"):
+        with pytest.raises(MetricLifecycleError, match="target_metric_id is not allowed"):
+            service.record_decision(
+                lifecycle_entry_id="lifecycle:001",
+                action=action,
+                target_metric_id="accounts_receiv",
+                actor="reviewer@example.com",
+                reason="Wrong shape.",
+                evidence_bundle_id="bundle:001",
+                created_at="2026-04-27T10:03:00+00:00",
+                effective_at="2026-04-27T10:03:00+00:00",
+            )
+
     with pytest.raises(MetricLifecycleError, match="supported standard metric"):
         service.record_decision(
             lifecycle_entry_id="lifecycle:001",
@@ -920,6 +1059,28 @@ def test_service_rejects_invalid_target_and_wrong_target_shape() -> None:
             created_at="2026-04-27T10:03:00+00:00",
             effective_at="2026-04-27T10:03:00+00:00",
         )
+
+
+def test_service_does_not_partially_write_decision_when_atomic_write_fails() -> None:
+    repository = _FailingAtomicRepository()
+    service = MetricLifecycleService(repository, metric_registry=load_metric_registry())
+    repository.save_metric_lifecycle_entry(_entry())
+
+    with pytest.raises(RuntimeError, match="atomic write failed"):
+        service.record_decision(
+            lifecycle_entry_id="lifecycle:001",
+            action="approve_custom",
+            actor="reviewer@example.com",
+            reason="Valid custom metric.",
+            evidence_bundle_id="bundle:001",
+            source_review_item_id="review:001",
+            source_artifact_id="artifact:001",
+            created_at="2026-04-27T10:03:00+00:00",
+            effective_at="2026-04-27T10:03:00+00:00",
+        )
+
+    assert repository.decisions == {}
+    assert repository.entries["lifecycle:001"].current_status == "provisional"
 
 
 def test_service_reads_state_by_concept_and_candidate_link() -> None:
@@ -980,7 +1141,9 @@ Create `financial-report-analysis/src/financial_report_analysis/services/metric_
 ```python
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Protocol
 from uuid import uuid4
 
@@ -1014,6 +1177,11 @@ class MetricLifecycleRepository(Protocol):
         self, concept: MetricLifecycleConceptIdentity
     ) -> MetricLifecycleEntry | None: ...
     def save_metric_lifecycle_decision(self, decision: MetricLifecycleDecision) -> str: ...
+    def record_metric_lifecycle_decision(
+        self,
+        decision: MetricLifecycleDecision,
+        updated_entry: MetricLifecycleEntry,
+    ) -> str: ...
     def list_metric_lifecycle_decisions(
         self, lifecycle_entry_id: str
     ) -> tuple[MetricLifecycleDecision, ...]: ...
@@ -1053,7 +1221,7 @@ class MetricLifecycleService:
             return existing
         timestamp = created_at or _utc_now()
         entry = MetricLifecycleEntry(
-            lifecycle_entry_id=f"metric-lifecycle:{uuid4().hex}",
+            lifecycle_entry_id=build_metric_lifecycle_entry_id(concept),
             concept=concept,
             current_status="provisional",
             mapped_standard_metric_id=None,
@@ -1112,8 +1280,7 @@ class MetricLifecycleService:
             created_at=timestamp,
             effective_at=effective,
         )
-        self._repository.save_metric_lifecycle_decision(decision)
-        self._repository.save_metric_lifecycle_entry(
+        updated_entry = (
             MetricLifecycleEntry(
                 lifecycle_entry_id=entry.lifecycle_entry_id,
                 concept=entry.concept,
@@ -1126,6 +1293,7 @@ class MetricLifecycleService:
                 created_by=entry.created_by,
             )
         )
+        self._repository.record_metric_lifecycle_decision(decision, updated_entry)
         return decision
 
     def load_state_by_concept(
@@ -1201,6 +1369,21 @@ class MetricLifecycleService:
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def build_metric_lifecycle_entry_id(concept: MetricLifecycleConceptIdentity) -> str:
+    payload = {
+        "issuer_id": concept.issuer_id,
+        "metric_id": concept.metric_id,
+        "statement_type": concept.statement_type,
+        "accounting_standard": concept.accounting_standard,
+        "industry_slug": concept.industry_slug,
+        "parent_metric_key": concept.parent_metric_id or "root",
+    }
+    digest = sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"metric-lifecycle:{digest}"
 ```
 
 - [ ] **Step 4: Run service tests**
@@ -1338,9 +1521,10 @@ cd financial-report-analysis
 uv run pytest tests/unit/test_storage_models.py \
   tests/unit/test_storage_repository.py \
   tests/unit/test_p5_recompute.py \
-  tests/unit/test_fact_pipeline.py::test_fact_pipeline_blocks_provisional_custom_metrics_from_canonical_promotion \
-  tests/unit/test_fact_pipeline.py::test_report_adapter_excludes_provisional_custom_metrics_from_key_facts \
-  tests/unit/test_fact_pipeline.py::test_report_adapter_does_not_build_ttm_from_provisional_custom_metrics -q
+  tests/unit/test_fact_pipeline.py::test_analyze_report_blocks_provisional_custom_metric_from_canonical_facts \
+  tests/unit/test_fact_pipeline.py::test_provisional_custom_quarterly_candidates_do_not_produce_ttm_facts \
+  tests/unit/test_report_adapter.py::test_report_adapter_excludes_non_auto_analysis_facts_from_key_facts \
+  tests/unit/test_report_adapter.py::test_report_adapter_does_not_expose_extensions_in_ttm_facts -q
 ```
 
 Expected: pass. These tests prove Phase 1 guardrails and P5 recompute behavior
@@ -1388,6 +1572,9 @@ If Step 4 did not change files, do not create an empty commit.
   `MetricLifecycleCandidateLink` exist and are exported.
 - [ ] SQLAlchemy storage can persist and read lifecycle entries, decisions, and
   candidate links.
+- [ ] Root concepts cannot duplicate because lifecycle storage uses a non-null
+  concept key instead of nullable `parent_metric_id` uniqueness.
+- [ ] Decision insert and denormalized entry-state update happen atomically.
 - [ ] Lifecycle service validates all four actions.
 - [ ] `map_to_standard` accepts only supported standard metric ids.
 - [ ] Latest lifecycle state ordering is deterministic by `effective_at`,

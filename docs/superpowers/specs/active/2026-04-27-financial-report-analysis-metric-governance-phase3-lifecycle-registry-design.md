@@ -266,6 +266,12 @@ the same issuer and custom metric concept. The implementation plan should choose
 a deterministic key using the existing custom metric identity components rather
 than a review-item id.
 
+The durable uniqueness key must not rely on nullable `parent_metric_id`
+semantics. Root concepts should use a non-null normalized parent key such as
+`root`, or an equivalent deterministic concept hash, so repeated root-level
+concepts cannot bypass uniqueness constraints in SQLite or Postgres-style
+databases.
+
 ### 9.2 Lifecycle Decision
 
 `MetricLifecycleDecision` represents an append-only lifecycle transition.
@@ -289,6 +295,10 @@ Minimum fields:
 The latest lifecycle state must be deterministic under ties. Reads should order
 by `effective_at`, then `created_at`, then `decision_id` unless the
 implementation plan identifies an existing stronger ordering field.
+
+Persisting a lifecycle decision and updating the lifecycle entry's denormalized
+current state must be atomic. A failure must not leave a decision history row
+that says one lifecycle state while the entry current status says another.
 
 ### 9.3 Candidate Link
 
@@ -339,6 +349,7 @@ separate from Phase 2 decisions:
 - load lifecycle entry by id;
 - load lifecycle entry by concept identity;
 - save lifecycle decision;
+- record lifecycle decision and updated entry state atomically;
 - list lifecycle decisions for an entry in deterministic order;
 - load latest lifecycle decision for an entry;
 - save candidate link;
