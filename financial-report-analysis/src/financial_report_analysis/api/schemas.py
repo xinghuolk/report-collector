@@ -139,6 +139,135 @@ class MetricGovernanceDecisionAnnotationResponse(BaseModel):
     created_at: str
 
 
+class MetricLifecycleConceptIdentityResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issuer_id: str
+    metric_id: str
+    raw_label: str
+    normalized_label: str | None = None
+    statement_type: str
+    accounting_standard: str
+    industry_slug: str
+    parent_metric_id: str | None = None
+
+
+class MetricLifecycleEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lifecycle_entry_id: str
+    concept: MetricLifecycleConceptIdentityResponse
+    current_status: str
+    mapped_standard_metric_id: str | None = None
+    created_at: str
+    updated_at: str
+    created_by: str | None = None
+
+
+class MetricLifecycleDecisionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_id: str
+    lifecycle_entry_id: str
+    action: str
+    previous_status: str
+    new_status: str
+    target_metric_id: str | None = None
+    actor: str
+    reason: str
+    evidence_bundle_id: str | None = None
+    source_review_item_id: str | None = None
+    source_artifact_id: str | None = None
+    created_at: str
+    effective_at: str
+
+
+class MetricLifecycleCandidateLinkResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_link_id: str
+    lifecycle_entry_id: str
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    candidate_metric_id: str
+    raw_label: str
+    normalized_label: str | None = None
+    statement_type: str
+    evidence_bundle_id: str | None = None
+    created_at: str
+    created_by: str | None = None
+
+
+class MetricLifecycleStateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entry: MetricLifecycleEntryResponse | None = None
+    latest_decision: MetricLifecycleDecisionResponse | None = None
+    candidate_link: MetricLifecycleCandidateLinkResponse | None = None
+    decision_history: list[MetricLifecycleDecisionResponse] = Field(
+        default_factory=list,
+    )
+
+
+class MetricLifecycleEntryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: str
+
+    @model_validator(mode="after")
+    def validate_actor(self) -> "MetricLifecycleEntryRequest":
+        if not self.actor.strip():
+            raise ValueError("actor is required")
+        return self
+
+
+class MetricLifecycleEntryWriteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_item: "MetricGovernanceReviewItemResponse"
+
+
+class MetricLifecycleDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal[
+        "approve_custom",
+        "map_to_standard",
+        "deprecate",
+        "blacklist",
+    ]
+    target_metric_id: str | None = None
+    reason: str
+    actor: str
+    effective_at: str | None = None
+
+    @model_validator(mode="after")
+    def validate_decision_shape(self) -> "MetricLifecycleDecisionRequest":
+        if not self.actor.strip():
+            raise ValueError("actor is required")
+        if not self.reason.strip():
+            raise ValueError("reason is required")
+        if self.action == "map_to_standard" and not self.target_metric_id:
+            raise ValueError(
+                "target_metric_id is required for action='map_to_standard'"
+            )
+        if self.action != "map_to_standard" and self.target_metric_id is not None:
+            raise ValueError(
+                "target_metric_id is only allowed for action='map_to_standard'"
+            )
+        return self
+
+
+class MetricLifecycleDecisionWriteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: MetricLifecycleDecisionResponse
+    review_item: "MetricGovernanceReviewItemResponse"
+
+
 class MetricGovernanceReviewItemResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -158,6 +287,7 @@ class MetricGovernanceReviewItemResponse(BaseModel):
     evidence_bundle_id: str | None = None
     metric_governance: dict[str, Any]
     latest_decision: MetricGovernanceDecisionAnnotationResponse | None = None
+    lifecycle_state: MetricLifecycleStateResponse
 
 
 class MetricGovernanceReviewListResponse(BaseModel):

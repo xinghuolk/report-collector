@@ -109,6 +109,12 @@ def test_metric_governance_review_list_and_write_flow(tmp_path: Path) -> None:
     assert list_response.status_code == 200
     payload = list_response.json()
     assert len(payload["items"]) == 1
+    assert payload["items"][0]["lifecycle_state"] == {
+        "entry": None,
+        "latest_decision": None,
+        "candidate_link": None,
+        "decision_history": [],
+    }
     review_item_id = payload["items"][0]["review_item_id"]
 
     write_response = client.post(
@@ -130,6 +136,12 @@ def test_metric_governance_review_list_and_write_flow(tmp_path: Path) -> None:
     )
 
     assert detail_response.status_code == 200
+    assert detail_response.json()["lifecycle_state"] == {
+        "entry": None,
+        "latest_decision": None,
+        "candidate_link": None,
+        "decision_history": [],
+    }
     assert detail_response.json()["latest_decision"]["target_metric_id"] == (
         "accounts_receiv"
     )

@@ -36,6 +36,7 @@ from financial_report_analysis.models import (
     MetricGovernanceDecision,
     MetricGovernanceDecisionAnnotation,
     MetricGovernanceReviewItem,
+    MetricLifecycleState,
 )
 from financial_report_analysis.registries import load_metric_registry
 from financial_report_analysis.semantic_fallback import build_semantic_fallback_service
@@ -56,6 +57,7 @@ from financial_report_analysis.api.schemas import (
     MetricGovernanceDecisionWriteResponse,
     MetricGovernanceReviewItemResponse,
     MetricGovernanceReviewListResponse,
+    MetricLifecycleStateResponse,
     MultiYearAvailabilityResponse,
     RecomputeDiffSummaryResponse,
     RecomputeResultResponse,
@@ -506,6 +508,7 @@ def _metric_governance_decision_annotation_to_response(
 
 def _metric_governance_review_item_to_response(
     item: MetricGovernanceReviewItem,
+    lifecycle_state: MetricLifecycleState | None = None,
 ) -> MetricGovernanceReviewItemResponse:
     return MetricGovernanceReviewItemResponse(
         review_item_id=item.review_item_id,
@@ -528,6 +531,26 @@ def _metric_governance_review_item_to_response(
             if item.latest_decision is not None
             else None
         ),
+        lifecycle_state=_metric_lifecycle_state_to_response(
+            lifecycle_state
+            or MetricLifecycleState(
+                entry=None,
+                latest_decision=None,
+                candidate_link=None,
+                decision_history=(),
+            )
+        ),
+    )
+
+
+def _metric_lifecycle_state_to_response(
+    state: MetricLifecycleState,
+) -> MetricLifecycleStateResponse:
+    return MetricLifecycleStateResponse(
+        entry=None,
+        latest_decision=None,
+        candidate_link=None,
+        decision_history=[],
     )
 
 
