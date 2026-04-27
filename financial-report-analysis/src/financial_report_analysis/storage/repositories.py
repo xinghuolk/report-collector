@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from dataclasses import dataclass, field
+from typing import cast
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from financial_report_analysis.models import (
+    MetricGovernanceDecision,
+    MetricGovernanceDecisionType,
+)
 from financial_report_analysis.models.table import ParsedTable
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact, DerivedFact
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
@@ -79,6 +84,7 @@ from .models import (
     IssuerRecord,
     ManifestEntryRecord,
     ManifestRecord,
+    MetricGovernanceDecisionRecord,
     QualityGateResultRecord,
     RecomputeRunRecord,
     ReportFileRecord,
@@ -1221,6 +1227,72 @@ class SqlAlchemyP5ArtifactRepository:
             ),
         )
 
+    def save_metric_governance_decision(
+        self,
+        decision: MetricGovernanceDecision,
+    ) -> str:
+        with Session(self.engine) as session:
+            session.add(
+                MetricGovernanceDecisionRecord(
+                    decision_id=decision.decision_id,
+                    review_item_id=decision.review_item_id,
+                    artifact_id=decision.artifact_id,
+                    issuer_id=decision.issuer_id,
+                    fiscal_year=decision.fiscal_year,
+                    report_type=decision.report_type,
+                    metric_id=decision.metric_id,
+                    raw_label=decision.raw_label,
+                    normalized_label=decision.normalized_label,
+                    statement_type=decision.statement_type,
+                    evidence_bundle_id=decision.evidence_bundle_id,
+                    decision_type=decision.decision_type,
+                    target_metric_id=decision.target_metric_id,
+                    reason=decision.reason,
+                    actor=decision.actor,
+                    created_at=decision.created_at,
+                )
+            )
+            session.commit()
+        return decision.decision_id
+
+    def list_metric_governance_decisions(
+        self,
+        review_item_id: str,
+    ) -> tuple[MetricGovernanceDecision, ...]:
+        statement = (
+            select(MetricGovernanceDecisionRecord)
+            .where(MetricGovernanceDecisionRecord.review_item_id == review_item_id)
+            .order_by(
+                MetricGovernanceDecisionRecord.created_at,
+                MetricGovernanceDecisionRecord.decision_id,
+            )
+        )
+        with Session(self.engine) as session:
+            records = session.scalars(statement).all()
+        return tuple(
+            self._metric_governance_decision_from_record(record)
+            for record in records
+        )
+
+    def load_latest_metric_governance_decision(
+        self,
+        review_item_id: str,
+    ) -> MetricGovernanceDecision | None:
+        statement = (
+            select(MetricGovernanceDecisionRecord)
+            .where(MetricGovernanceDecisionRecord.review_item_id == review_item_id)
+            .order_by(
+                MetricGovernanceDecisionRecord.created_at.desc(),
+                MetricGovernanceDecisionRecord.decision_id.desc(),
+            )
+            .limit(1)
+        )
+        with Session(self.engine) as session:
+            record = session.scalar(statement)
+        if record is None:
+            return None
+        return self._metric_governance_decision_from_record(record)
+
     def save_statement_tables(
         self,
         *,
@@ -1758,6 +1830,29 @@ class SqlAlchemyP5ArtifactRepository:
         report.pdf_path = str(entry.pdf_path)
         session.flush()
         return report
+
+    @staticmethod
+    def _metric_governance_decision_from_record(
+        record: MetricGovernanceDecisionRecord,
+    ) -> MetricGovernanceDecision:
+        return MetricGovernanceDecision(
+            decision_id=record.decision_id,
+            review_item_id=record.review_item_id,
+            artifact_id=record.artifact_id,
+            issuer_id=record.issuer_id,
+            fiscal_year=record.fiscal_year,
+            report_type=record.report_type,
+            metric_id=record.metric_id,
+            raw_label=record.raw_label,
+            normalized_label=record.normalized_label,
+            statement_type=record.statement_type,
+            evidence_bundle_id=record.evidence_bundle_id,
+            decision_type=cast(MetricGovernanceDecisionType, record.decision_type),
+            target_metric_id=record.target_metric_id,
+            reason=record.reason,
+            actor=record.actor,
+            created_at=record.created_at,
+        )
 
     @staticmethod
     def _upsert_manifest_entry(

@@ -569,3 +569,24 @@ class MetricRegistryEntryRecord(Base):
     is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     registry_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     created_at: Mapped[str] = mapped_column(String(64), default=_utc_iso_timestamp)
+
+
+class MetricGovernanceDecisionRecord(Base):
+    __tablename__ = "metric_governance_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    review_item_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    artifact_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    issuer_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    report_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    metric_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    raw_label: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_label: Mapped[str | None] = mapped_column(String(255))
+    statement_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    evidence_bundle_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    decision_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_metric_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
