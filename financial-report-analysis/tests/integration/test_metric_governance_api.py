@@ -6,6 +6,14 @@ from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
 from financial_report_analysis.api.runtime import build_api_runtime
+from financial_report_analysis.api.routes import _metric_lifecycle_state_to_response
+from financial_report_analysis.models import (
+    MetricLifecycleCandidateLink,
+    MetricLifecycleConceptIdentity,
+    MetricLifecycleDecision,
+    MetricLifecycleEntry,
+    MetricLifecycleState,
+)
 from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
 from financial_report_analysis.services.metric_governance_review import (
     build_review_item_id,
@@ -145,6 +153,75 @@ def test_metric_governance_review_list_and_write_flow(tmp_path: Path) -> None:
     assert detail_response.json()["latest_decision"]["target_metric_id"] == (
         "accounts_receiv"
     )
+
+
+def test_metric_lifecycle_state_response_preserves_non_empty_state() -> None:
+    concept = MetricLifecycleConceptIdentity(
+        issuer_id="CN_601919",
+        metric_id="custom::contract_assets",
+        raw_label="Contract assets",
+        normalized_label="contract assets",
+        statement_type="income_statement",
+        accounting_standard="cas",
+        industry_slug="shipping",
+        parent_metric_id="current_assets",
+    )
+    entry = MetricLifecycleEntry(
+        lifecycle_entry_id="lifecycle-entry-1",
+        concept=concept,
+        current_status="mapped_to_standard",
+        mapped_standard_metric_id="accounts_receiv",
+        created_at="2026-04-27T12:00:00+00:00",
+        updated_at="2026-04-27T12:05:00+00:00",
+        created_by="reviewer@example.com",
+    )
+    decision = MetricLifecycleDecision(
+        decision_id="decision-1",
+        lifecycle_entry_id=entry.lifecycle_entry_id,
+        action="map_to_standard",
+        previous_status="provisional",
+        new_status="mapped_to_standard",
+        target_metric_id="accounts_receiv",
+        actor="reviewer@example.com",
+        reason="maps to supported receivables metric",
+        evidence_bundle_id="bundle-1",
+        source_review_item_id="review-item-1",
+        source_artifact_id="artifact-1",
+        created_at="2026-04-27T12:06:00+00:00",
+        effective_at="2026-04-27T12:06:00+00:00",
+    )
+    candidate_link = MetricLifecycleCandidateLink(
+        candidate_link_id="candidate-link-1",
+        lifecycle_entry_id=entry.lifecycle_entry_id,
+        review_item_id="review-item-1",
+        artifact_id="artifact-1",
+        issuer_id="CN_601919",
+        fiscal_year=2025,
+        report_type="annual",
+        candidate_metric_id="custom::contract_assets",
+        raw_label="Contract assets",
+        normalized_label="contract assets",
+        statement_type="income_statement",
+        evidence_bundle_id="bundle-1",
+        created_at="2026-04-27T12:04:00+00:00",
+        created_by="reviewer@example.com",
+    )
+    state = MetricLifecycleState(
+        entry=entry,
+        latest_decision=decision,
+        candidate_link=candidate_link,
+        decision_history=(decision,),
+    )
+
+    payload = _metric_lifecycle_state_to_response(state).model_dump()
+
+    assert payload["entry"]["concept"]["parent_metric_id"] == "current_assets"
+    assert payload["entry"]["current_status"] == "mapped_to_standard"
+    assert payload["latest_decision"]["action"] == "map_to_standard"
+    assert payload["candidate_link"]["candidate_metric_id"] == (
+        "custom::contract_assets"
+    )
+    assert payload["decision_history"] == [payload["latest_decision"]]
 
 
 def test_metric_governance_rejects_unknown_review_item(tmp_path: Path) -> None:

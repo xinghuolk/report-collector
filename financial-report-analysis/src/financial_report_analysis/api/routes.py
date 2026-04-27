@@ -36,6 +36,10 @@ from financial_report_analysis.models import (
     MetricGovernanceDecision,
     MetricGovernanceDecisionAnnotation,
     MetricGovernanceReviewItem,
+    MetricLifecycleCandidateLink,
+    MetricLifecycleConceptIdentity,
+    MetricLifecycleDecision,
+    MetricLifecycleEntry,
     MetricLifecycleState,
 )
 from financial_report_analysis.registries import load_metric_registry
@@ -57,6 +61,10 @@ from financial_report_analysis.api.schemas import (
     MetricGovernanceDecisionWriteResponse,
     MetricGovernanceReviewItemResponse,
     MetricGovernanceReviewListResponse,
+    MetricLifecycleCandidateLinkResponse,
+    MetricLifecycleConceptIdentityResponse,
+    MetricLifecycleDecisionResponse,
+    MetricLifecycleEntryResponse,
     MetricLifecycleStateResponse,
     MultiYearAvailabilityResponse,
     RecomputeDiffSummaryResponse,
@@ -547,10 +555,95 @@ def _metric_lifecycle_state_to_response(
     state: MetricLifecycleState,
 ) -> MetricLifecycleStateResponse:
     return MetricLifecycleStateResponse(
-        entry=None,
-        latest_decision=None,
-        candidate_link=None,
-        decision_history=[],
+        entry=(
+            _metric_lifecycle_entry_to_response(state.entry)
+            if state.entry is not None
+            else None
+        ),
+        latest_decision=(
+            _metric_lifecycle_decision_to_response(state.latest_decision)
+            if state.latest_decision is not None
+            else None
+        ),
+        candidate_link=(
+            _metric_lifecycle_candidate_link_to_response(state.candidate_link)
+            if state.candidate_link is not None
+            else None
+        ),
+        decision_history=[
+            _metric_lifecycle_decision_to_response(decision)
+            for decision in state.decision_history
+        ],
+    )
+
+
+def _metric_lifecycle_concept_to_response(
+    concept: MetricLifecycleConceptIdentity,
+) -> MetricLifecycleConceptIdentityResponse:
+    return MetricLifecycleConceptIdentityResponse(
+        issuer_id=concept.issuer_id,
+        metric_id=concept.metric_id,
+        raw_label=concept.raw_label,
+        normalized_label=concept.normalized_label,
+        statement_type=concept.statement_type,
+        accounting_standard=concept.accounting_standard,
+        industry_slug=concept.industry_slug,
+        parent_metric_id=concept.parent_metric_id,
+    )
+
+
+def _metric_lifecycle_entry_to_response(
+    entry: MetricLifecycleEntry,
+) -> MetricLifecycleEntryResponse:
+    return MetricLifecycleEntryResponse(
+        lifecycle_entry_id=entry.lifecycle_entry_id,
+        concept=_metric_lifecycle_concept_to_response(entry.concept),
+        current_status=entry.current_status,
+        mapped_standard_metric_id=entry.mapped_standard_metric_id,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+        created_by=entry.created_by,
+    )
+
+
+def _metric_lifecycle_decision_to_response(
+    decision: MetricLifecycleDecision,
+) -> MetricLifecycleDecisionResponse:
+    return MetricLifecycleDecisionResponse(
+        decision_id=decision.decision_id,
+        lifecycle_entry_id=decision.lifecycle_entry_id,
+        action=decision.action,
+        previous_status=decision.previous_status,
+        new_status=decision.new_status,
+        target_metric_id=decision.target_metric_id,
+        actor=decision.actor,
+        reason=decision.reason,
+        evidence_bundle_id=decision.evidence_bundle_id,
+        source_review_item_id=decision.source_review_item_id,
+        source_artifact_id=decision.source_artifact_id,
+        created_at=decision.created_at,
+        effective_at=decision.effective_at,
+    )
+
+
+def _metric_lifecycle_candidate_link_to_response(
+    link: MetricLifecycleCandidateLink,
+) -> MetricLifecycleCandidateLinkResponse:
+    return MetricLifecycleCandidateLinkResponse(
+        candidate_link_id=link.candidate_link_id,
+        lifecycle_entry_id=link.lifecycle_entry_id,
+        review_item_id=link.review_item_id,
+        artifact_id=link.artifact_id,
+        issuer_id=link.issuer_id,
+        fiscal_year=link.fiscal_year,
+        report_type=link.report_type,
+        candidate_metric_id=link.candidate_metric_id,
+        raw_label=link.raw_label,
+        normalized_label=link.normalized_label,
+        statement_type=link.statement_type,
+        evidence_bundle_id=link.evidence_bundle_id,
+        created_at=link.created_at,
+        created_by=link.created_by,
     )
 
 
