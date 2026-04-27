@@ -6,6 +6,19 @@ from typing import Literal, cast
 from financial_report_analysis.models.facts import CandidateFact
 
 MetricGovernanceDecisionType = Literal["keep_provisional", "map_to_standard"]
+MetricLifecycleStatus = Literal[
+    "provisional",
+    "approved_custom",
+    "mapped_to_standard",
+    "deprecated",
+    "blacklisted",
+]
+MetricLifecycleAction = Literal[
+    "approve_custom",
+    "map_to_standard",
+    "deprecate",
+    "blacklist",
+]
 SourceKind = Literal[
     "statement_row",
     "deterministic_note_disclosure",
@@ -78,6 +91,72 @@ class MetricGovernanceDecisionAnnotation:
             actor=decision.actor,
             created_at=decision.created_at,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleConceptIdentity:
+    issuer_id: str
+    metric_id: str
+    raw_label: str
+    normalized_label: str | None
+    statement_type: str
+    accounting_standard: str
+    industry_slug: str
+    parent_metric_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleEntry:
+    lifecycle_entry_id: str
+    concept: MetricLifecycleConceptIdentity
+    current_status: MetricLifecycleStatus
+    mapped_standard_metric_id: str | None
+    created_at: str
+    updated_at: str
+    created_by: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleDecision:
+    decision_id: str
+    lifecycle_entry_id: str
+    action: MetricLifecycleAction
+    previous_status: MetricLifecycleStatus
+    new_status: MetricLifecycleStatus
+    target_metric_id: str | None
+    actor: str
+    reason: str
+    evidence_bundle_id: str | None
+    source_review_item_id: str | None
+    source_artifact_id: str | None
+    created_at: str
+    effective_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleCandidateLink:
+    candidate_link_id: str
+    lifecycle_entry_id: str
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    candidate_metric_id: str
+    raw_label: str
+    normalized_label: str | None
+    statement_type: str
+    evidence_bundle_id: str | None
+    created_at: str
+    created_by: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleState:
+    entry: MetricLifecycleEntry | None
+    latest_decision: MetricLifecycleDecision | None
+    candidate_link: MetricLifecycleCandidateLink | None
+    decision_history: tuple[MetricLifecycleDecision, ...]
 
 
 @dataclass(frozen=True, slots=True)

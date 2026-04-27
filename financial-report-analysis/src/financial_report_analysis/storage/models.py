@@ -590,3 +590,87 @@ class MetricGovernanceDecisionRecord(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     actor: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class MetricLifecycleEntryRecord(Base):
+    __tablename__ = "metric_lifecycle_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "issuer_id",
+            "metric_id",
+            "statement_type",
+            "accounting_standard",
+            "industry_slug",
+            "parent_metric_key",
+            name="uq_metric_lifecycle_entries_concept",
+        ),
+    )
+
+    lifecycle_entry_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    issuer_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    metric_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    raw_label: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_label: Mapped[str | None] = mapped_column(String(255))
+    statement_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    accounting_standard: Mapped[str] = mapped_column(String(32), nullable=False)
+    industry_slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    parent_metric_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    parent_metric_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    current_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    mapped_standard_metric_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_by: Mapped[str | None] = mapped_column(String(128))
+
+
+class MetricLifecycleDecisionRecord(Base):
+    __tablename__ = "metric_lifecycle_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    lifecycle_entry_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("metric_lifecycle_entries.lifecycle_entry_id"),
+        nullable=False,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    previous_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_metric_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_bundle_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    source_review_item_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    source_artifact_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    effective_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class MetricLifecycleCandidateLinkRecord(Base):
+    __tablename__ = "metric_lifecycle_candidate_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "review_item_id",
+            name="uq_metric_lifecycle_candidate_links_review_item",
+        ),
+    )
+
+    candidate_link_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    lifecycle_entry_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("metric_lifecycle_entries.lifecycle_entry_id"),
+        nullable=False,
+        index=True,
+    )
+    review_item_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    artifact_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    issuer_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    report_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    candidate_metric_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    raw_label: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_label: Mapped[str | None] = mapped_column(String(255))
+    statement_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    evidence_bundle_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_by: Mapped[str | None] = mapped_column(String(128))

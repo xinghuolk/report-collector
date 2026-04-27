@@ -11,6 +11,12 @@ from sqlalchemy.orm import Session
 from financial_report_analysis.models import (
     MetricGovernanceDecision,
     MetricGovernanceDecisionType,
+    MetricLifecycleAction,
+    MetricLifecycleCandidateLink,
+    MetricLifecycleConceptIdentity,
+    MetricLifecycleDecision,
+    MetricLifecycleEntry,
+    MetricLifecycleStatus,
 )
 from financial_report_analysis.models.table import ParsedTable
 from financial_report_analysis.models.facts import CandidateFact, CanonicalFact, DerivedFact
@@ -85,6 +91,9 @@ from .models import (
     ManifestEntryRecord,
     ManifestRecord,
     MetricGovernanceDecisionRecord,
+    MetricLifecycleCandidateLinkRecord,
+    MetricLifecycleDecisionRecord,
+    MetricLifecycleEntryRecord,
     QualityGateResultRecord,
     RecomputeRunRecord,
     ReportFileRecord,
@@ -1293,6 +1302,196 @@ class SqlAlchemyP5ArtifactRepository:
             return None
         return self._metric_governance_decision_from_record(record)
 
+    def save_metric_lifecycle_entry(
+        self,
+        entry: MetricLifecycleEntry,
+    ) -> str:
+        with Session(self.engine) as session:
+            record = self._upsert_metric_lifecycle_entry_record(session, entry)
+            session.commit()
+            return record.lifecycle_entry_id
+
+    def load_metric_lifecycle_entry(
+        self,
+        lifecycle_entry_id: str,
+    ) -> MetricLifecycleEntry | None:
+        with Session(self.engine) as session:
+            record = session.get(MetricLifecycleEntryRecord, lifecycle_entry_id)
+        if record is None:
+            return None
+        return self._metric_lifecycle_entry_from_record(record)
+
+    def load_metric_lifecycle_entry_by_concept(
+        self,
+        concept: MetricLifecycleConceptIdentity,
+    ) -> MetricLifecycleEntry | None:
+        statement = self._metric_lifecycle_entry_select_by_concept(concept)
+        with Session(self.engine) as session:
+            record = session.scalar(statement)
+        if record is None:
+            return None
+        return self._metric_lifecycle_entry_from_record(record)
+
+    def save_metric_lifecycle_decision(
+        self,
+        decision: MetricLifecycleDecision,
+    ) -> str:
+        with Session(self.engine) as session:
+            self._require_metric_lifecycle_entry_record(
+                session,
+                decision.lifecycle_entry_id,
+            )
+            session.add(self._metric_lifecycle_decision_record_from_domain(decision))
+            session.commit()
+        return decision.decision_id
+
+    def record_metric_lifecycle_decision(
+        self,
+        decision: MetricLifecycleDecision,
+        updated_entry: MetricLifecycleEntry,
+    ) -> str:
+        if updated_entry.lifecycle_entry_id != decision.lifecycle_entry_id:
+            raise P5ArtifactRepositoryError(
+                "updated lifecycle entry must match decision lifecycle entry id: "
+                f"{decision.lifecycle_entry_id}"
+            )
+        with Session(self.engine) as session:
+            self._require_metric_lifecycle_entry_record(
+                session,
+                decision.lifecycle_entry_id,
+            )
+            self._upsert_metric_lifecycle_entry_record(session, updated_entry)
+            session.add(self._metric_lifecycle_decision_record_from_domain(decision))
+            session.commit()
+        return decision.decision_id
+
+    def list_metric_lifecycle_decisions(
+        self,
+        lifecycle_entry_id: str,
+    ) -> tuple[MetricLifecycleDecision, ...]:
+        statement = (
+            select(MetricLifecycleDecisionRecord)
+            .where(MetricLifecycleDecisionRecord.lifecycle_entry_id == lifecycle_entry_id)
+            .order_by(
+                MetricLifecycleDecisionRecord.effective_at,
+                MetricLifecycleDecisionRecord.created_at,
+                MetricLifecycleDecisionRecord.decision_id,
+            )
+        )
+        with Session(self.engine) as session:
+            records = session.scalars(statement).all()
+        return tuple(self._metric_lifecycle_decision_from_record(record) for record in records)
+
+    def load_latest_metric_lifecycle_decision(
+        self,
+        lifecycle_entry_id: str,
+    ) -> MetricLifecycleDecision | None:
+        statement = (
+            select(MetricLifecycleDecisionRecord)
+            .where(MetricLifecycleDecisionRecord.lifecycle_entry_id == lifecycle_entry_id)
+            .order_by(
+                MetricLifecycleDecisionRecord.effective_at.desc(),
+                MetricLifecycleDecisionRecord.created_at.desc(),
+                MetricLifecycleDecisionRecord.decision_id.desc(),
+            )
+            .limit(1)
+        )
+        with Session(self.engine) as session:
+            record = session.scalar(statement)
+        if record is None:
+            return None
+        return self._metric_lifecycle_decision_from_record(record)
+
+    def save_metric_lifecycle_candidate_link(
+        self,
+        link: MetricLifecycleCandidateLink,
+    ) -> str:
+        with Session(self.engine) as session:
+            self._require_metric_lifecycle_entry_record(
+                session,
+                link.lifecycle_entry_id,
+            )
+            record = session.get(
+                MetricLifecycleCandidateLinkRecord,
+                link.candidate_link_id,
+            )
+            if record is not None and (
+                record.review_item_id != link.review_item_id
+                or record.lifecycle_entry_id != link.lifecycle_entry_id
+            ):
+                raise P5ArtifactRepositoryError(
+                    "cannot reuse candidate link id for a different review item "
+                    f"or lifecycle entry: {link.candidate_link_id}"
+                )
+            if record is None:
+                statement = select(MetricLifecycleCandidateLinkRecord).where(
+                    MetricLifecycleCandidateLinkRecord.review_item_id == link.review_item_id
+                )
+                record = session.scalar(statement)
+            if record is None:
+                record = MetricLifecycleCandidateLinkRecord(
+                    candidate_link_id=link.candidate_link_id,
+                    lifecycle_entry_id=link.lifecycle_entry_id,
+                    review_item_id=link.review_item_id,
+                    artifact_id=link.artifact_id,
+                    issuer_id=link.issuer_id,
+                    fiscal_year=link.fiscal_year,
+                    report_type=link.report_type,
+                    candidate_metric_id=link.candidate_metric_id,
+                    raw_label=link.raw_label,
+                    normalized_label=link.normalized_label,
+                    statement_type=link.statement_type,
+                    evidence_bundle_id=link.evidence_bundle_id,
+                    created_at=link.created_at,
+                    created_by=link.created_by,
+                )
+                session.add(record)
+            else:
+                record.lifecycle_entry_id = link.lifecycle_entry_id
+                record.review_item_id = link.review_item_id
+                record.artifact_id = link.artifact_id
+                record.issuer_id = link.issuer_id
+                record.fiscal_year = link.fiscal_year
+                record.report_type = link.report_type
+                record.candidate_metric_id = link.candidate_metric_id
+                record.raw_label = link.raw_label
+                record.normalized_label = link.normalized_label
+                record.statement_type = link.statement_type
+                record.evidence_bundle_id = link.evidence_bundle_id
+                record.created_at = link.created_at
+                record.created_by = link.created_by
+            session.commit()
+            return record.candidate_link_id
+
+    def load_metric_lifecycle_candidate_link(
+        self,
+        review_item_id: str,
+    ) -> MetricLifecycleCandidateLink | None:
+        statement = select(MetricLifecycleCandidateLinkRecord).where(
+            MetricLifecycleCandidateLinkRecord.review_item_id == review_item_id
+        )
+        with Session(self.engine) as session:
+            record = session.scalar(statement)
+        if record is None:
+            return None
+        return self._metric_lifecycle_candidate_link_from_record(record)
+
+    def list_metric_lifecycle_candidate_links(
+        self,
+        lifecycle_entry_id: str,
+    ) -> tuple[MetricLifecycleCandidateLink, ...]:
+        statement = (
+            select(MetricLifecycleCandidateLinkRecord)
+            .where(MetricLifecycleCandidateLinkRecord.lifecycle_entry_id == lifecycle_entry_id)
+            .order_by(MetricLifecycleCandidateLinkRecord.created_at)
+        )
+        with Session(self.engine) as session:
+            records = session.scalars(statement).all()
+        return tuple(
+            self._metric_lifecycle_candidate_link_from_record(record)
+            for record in records
+        )
+
     def save_statement_tables(
         self,
         *,
@@ -1852,6 +2051,180 @@ class SqlAlchemyP5ArtifactRepository:
             reason=record.reason,
             actor=record.actor,
             created_at=record.created_at,
+        )
+
+    @staticmethod
+    def _metric_lifecycle_parent_metric_key(parent_metric_id: str | None) -> str:
+        return parent_metric_id if parent_metric_id is not None else "root"
+
+    @classmethod
+    def _metric_lifecycle_entry_select_by_concept(
+        cls,
+        concept: MetricLifecycleConceptIdentity,
+    ):
+        return select(MetricLifecycleEntryRecord).where(
+            MetricLifecycleEntryRecord.issuer_id == concept.issuer_id,
+            MetricLifecycleEntryRecord.metric_id == concept.metric_id,
+            MetricLifecycleEntryRecord.statement_type == concept.statement_type,
+            MetricLifecycleEntryRecord.accounting_standard
+            == concept.accounting_standard,
+            MetricLifecycleEntryRecord.industry_slug == concept.industry_slug,
+            MetricLifecycleEntryRecord.parent_metric_key
+            == cls._metric_lifecycle_parent_metric_key(concept.parent_metric_id),
+        )
+
+    @classmethod
+    def _upsert_metric_lifecycle_entry_record(
+        cls,
+        session: Session,
+        entry: MetricLifecycleEntry,
+    ) -> MetricLifecycleEntryRecord:
+        record = session.scalar(cls._metric_lifecycle_entry_select_by_concept(entry.concept))
+        record_by_id = session.get(MetricLifecycleEntryRecord, entry.lifecycle_entry_id)
+        if record_by_id is not None and (
+            record is None or record.lifecycle_entry_id != record_by_id.lifecycle_entry_id
+        ):
+            raise P5ArtifactRepositoryError(
+                "cannot reuse lifecycle entry id for a different concept: "
+                f"{entry.lifecycle_entry_id}"
+            )
+        if record is None:
+            record = record_by_id
+        if record is None:
+            record = MetricLifecycleEntryRecord(
+                lifecycle_entry_id=entry.lifecycle_entry_id,
+                issuer_id=entry.concept.issuer_id,
+                metric_id=entry.concept.metric_id,
+                raw_label=entry.concept.raw_label,
+                normalized_label=entry.concept.normalized_label,
+                statement_type=entry.concept.statement_type,
+                accounting_standard=entry.concept.accounting_standard,
+                industry_slug=entry.concept.industry_slug,
+                parent_metric_id=entry.concept.parent_metric_id,
+                parent_metric_key=cls._metric_lifecycle_parent_metric_key(
+                    entry.concept.parent_metric_id
+                ),
+                current_status=entry.current_status,
+                mapped_standard_metric_id=entry.mapped_standard_metric_id,
+                created_at=entry.created_at,
+                updated_at=entry.updated_at,
+                created_by=entry.created_by,
+            )
+            session.add(record)
+            session.flush()
+            return record
+
+        record.issuer_id = entry.concept.issuer_id
+        record.metric_id = entry.concept.metric_id
+        record.raw_label = entry.concept.raw_label
+        record.normalized_label = entry.concept.normalized_label
+        record.statement_type = entry.concept.statement_type
+        record.accounting_standard = entry.concept.accounting_standard
+        record.industry_slug = entry.concept.industry_slug
+        record.parent_metric_id = entry.concept.parent_metric_id
+        record.parent_metric_key = cls._metric_lifecycle_parent_metric_key(
+            entry.concept.parent_metric_id
+        )
+        record.current_status = entry.current_status
+        record.mapped_standard_metric_id = entry.mapped_standard_metric_id
+        record.updated_at = entry.updated_at
+        session.flush()
+        return record
+
+    @staticmethod
+    def _require_metric_lifecycle_entry_record(
+        session: Session,
+        lifecycle_entry_id: str,
+    ) -> MetricLifecycleEntryRecord:
+        record = session.get(MetricLifecycleEntryRecord, lifecycle_entry_id)
+        if record is None:
+            raise P5ArtifactRepositoryError(
+                f"missing lifecycle entry in DB repository: {lifecycle_entry_id}"
+            )
+        return record
+
+    @staticmethod
+    def _metric_lifecycle_entry_from_record(
+        record: MetricLifecycleEntryRecord,
+    ) -> MetricLifecycleEntry:
+        return MetricLifecycleEntry(
+            lifecycle_entry_id=record.lifecycle_entry_id,
+            concept=MetricLifecycleConceptIdentity(
+                issuer_id=record.issuer_id,
+                metric_id=record.metric_id,
+                raw_label=record.raw_label,
+                normalized_label=record.normalized_label,
+                statement_type=record.statement_type,
+                accounting_standard=record.accounting_standard,
+                industry_slug=record.industry_slug,
+                parent_metric_id=record.parent_metric_id,
+            ),
+            current_status=cast(MetricLifecycleStatus, record.current_status),
+            mapped_standard_metric_id=record.mapped_standard_metric_id,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            created_by=record.created_by,
+        )
+
+    @staticmethod
+    def _metric_lifecycle_decision_record_from_domain(
+        decision: MetricLifecycleDecision,
+    ) -> MetricLifecycleDecisionRecord:
+        return MetricLifecycleDecisionRecord(
+            decision_id=decision.decision_id,
+            lifecycle_entry_id=decision.lifecycle_entry_id,
+            action=decision.action,
+            previous_status=decision.previous_status,
+            new_status=decision.new_status,
+            target_metric_id=decision.target_metric_id,
+            actor=decision.actor,
+            reason=decision.reason,
+            evidence_bundle_id=decision.evidence_bundle_id,
+            source_review_item_id=decision.source_review_item_id,
+            source_artifact_id=decision.source_artifact_id,
+            created_at=decision.created_at,
+            effective_at=decision.effective_at,
+        )
+
+    @staticmethod
+    def _metric_lifecycle_decision_from_record(
+        record: MetricLifecycleDecisionRecord,
+    ) -> MetricLifecycleDecision:
+        return MetricLifecycleDecision(
+            decision_id=record.decision_id,
+            lifecycle_entry_id=record.lifecycle_entry_id,
+            action=cast(MetricLifecycleAction, record.action),
+            previous_status=cast(MetricLifecycleStatus, record.previous_status),
+            new_status=cast(MetricLifecycleStatus, record.new_status),
+            target_metric_id=record.target_metric_id,
+            actor=record.actor,
+            reason=record.reason,
+            evidence_bundle_id=record.evidence_bundle_id,
+            source_review_item_id=record.source_review_item_id,
+            source_artifact_id=record.source_artifact_id,
+            created_at=record.created_at,
+            effective_at=record.effective_at,
+        )
+
+    @staticmethod
+    def _metric_lifecycle_candidate_link_from_record(
+        record: MetricLifecycleCandidateLinkRecord,
+    ) -> MetricLifecycleCandidateLink:
+        return MetricLifecycleCandidateLink(
+            candidate_link_id=record.candidate_link_id,
+            lifecycle_entry_id=record.lifecycle_entry_id,
+            review_item_id=record.review_item_id,
+            artifact_id=record.artifact_id,
+            issuer_id=record.issuer_id,
+            fiscal_year=record.fiscal_year,
+            report_type=record.report_type,
+            candidate_metric_id=record.candidate_metric_id,
+            raw_label=record.raw_label,
+            normalized_label=record.normalized_label,
+            statement_type=record.statement_type,
+            evidence_bundle_id=record.evidence_bundle_id,
+            created_at=record.created_at,
+            created_by=record.created_by,
         )
 
     @staticmethod

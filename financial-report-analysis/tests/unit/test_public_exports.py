@@ -31,6 +31,14 @@ def test_table_semantic_models_are_publicly_exported() -> None:
     assert table_semantics.NormalizedTableSemantics is NormalizedTableSemantics
 
 
+def test_metric_lifecycle_models_are_publicly_exported() -> None:
+    assert models.MetricLifecycleConceptIdentity is not None
+    assert models.MetricLifecycleEntry is not None
+    assert models.MetricLifecycleDecision is not None
+    assert models.MetricLifecycleCandidateLink is not None
+    assert models.MetricLifecycleState is not None
+
+
 def test_model_package_all_includes_semantic_exports() -> None:
     assert "NormalizedTableCellValue" in models.__all__
     assert "NormalizedTableColumn" in models.__all__
