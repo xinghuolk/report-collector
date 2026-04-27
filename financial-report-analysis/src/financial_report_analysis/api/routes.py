@@ -218,7 +218,7 @@ def list_metric_governance_review_items(
 
 
 @router.get(
-    "/api/v1/metric-governance/review-items/{review_item_id}",
+    "/api/v1/metric-governance/review-items/{review_item_id:path}",
     response_model=MetricGovernanceReviewItemResponse,
 )
 def get_metric_governance_review_item(
@@ -241,6 +241,19 @@ def write_metric_governance_decision(
 ) -> MetricGovernanceDecisionWriteResponse:
     repository = _require_storage_repository(request)
     service = MetricGovernanceReviewService(repository)
+    if not service.review_item_exists(decision_request.review_item_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "missing metric governance review item: "
+                f"{decision_request.review_item_id}"
+            ),
+        )
+    if not service.review_item_is_provisional(decision_request.review_item_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="review item is not provisional",
+        )
     item = _load_metric_governance_review_item_or_404(
         service,
         decision_request.review_item_id,
@@ -280,11 +293,10 @@ def write_metric_governance_decision(
         service,
         decision_request.review_item_id,
     )
-    latest_decision = refreshed_item.latest_decision
-    if latest_decision is None:
-        latest_decision = MetricGovernanceDecisionAnnotation.from_decision(decision)
     return MetricGovernanceDecisionWriteResponse(
-        decision=_metric_governance_decision_annotation_to_response(latest_decision),
+        decision=_metric_governance_decision_annotation_to_response(
+            MetricGovernanceDecisionAnnotation.from_decision(decision)
+        ),
         review_item=_metric_governance_review_item_to_response(refreshed_item),
     )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Mapping
 from typing import Protocol
 
@@ -46,14 +47,36 @@ class MetricGovernanceReviewService:
         return items
 
     def get_review_item(self, review_item_id: str) -> MetricGovernanceReviewItem | None:
-        artifact_id, separator, _candidate_id = review_item_id.partition(":")
-        if not separator:
+        artifact_id, fact_id = parse_review_item_id(review_item_id)
+        if artifact_id is None or fact_id is None:
             return None
         artifact = self._repository.load_extracted_artifact(artifact_id)
         for item in self._review_items_from_artifact(artifact):
             if item.review_item_id == review_item_id:
                 return item
         return None
+
+    def review_item_exists(self, review_item_id: str) -> bool:
+        artifact_id, fact_id = parse_review_item_id(review_item_id)
+        if artifact_id is None or fact_id is None:
+            return False
+        artifact = self._repository.load_extracted_artifact(artifact_id)
+        return any(
+            str(candidate.get("fact_id", "")) == fact_id
+            for candidate in artifact.candidate_facts
+        )
+
+    def review_item_is_provisional(self, review_item_id: str) -> bool:
+        artifact_id, fact_id = parse_review_item_id(review_item_id)
+        if artifact_id is None or fact_id is None:
+            return False
+        artifact = self._repository.load_extracted_artifact(artifact_id)
+        for candidate in artifact.candidate_facts:
+            if str(candidate.get("fact_id", "")) != fact_id:
+                continue
+            governance = _governance(_extensions(candidate))
+            return governance.get("registry_status") == "provisional"
+        return False
 
     def _review_items_from_artifact(
         self,
@@ -67,7 +90,7 @@ class MetricGovernanceReviewService:
                 continue
 
             fact_id = str(candidate.get("fact_id", ""))
-            review_item_id = f"{artifact.artifact_id}:{fact_id}"
+            review_item_id = build_review_item_id(artifact.artifact_id, fact_id)
             latest = self._repository.load_latest_metric_governance_decision(
                 review_item_id,
             )
@@ -126,3 +149,20 @@ def _optional_int(value: object) -> int | None:
 
 def _optional_number(value: object) -> float | int | None:
     return value if isinstance(value, (float, int)) else None
+
+
+def build_review_item_id(artifact_id: str, fact_id: str) -> str:
+    encoded_fact_id = urlsafe_b64encode(fact_id.encode("utf-8")).decode("ascii")
+    return f"{artifact_id}:{encoded_fact_id}"
+
+
+def parse_review_item_id(review_item_id: str) -> tuple[str | None, str | None]:
+    artifact_id, separator, encoded_fact_id = review_item_id.partition(":")
+    if not separator or not artifact_id or not encoded_fact_id:
+        return None, None
+    padding = "=" * (-len(encoded_fact_id) % 4)
+    try:
+        fact_id = urlsafe_b64decode(encoded_fact_id + padding).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None, None
+    return artifact_id, fact_id

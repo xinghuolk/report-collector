@@ -8,6 +8,7 @@ from financial_report_analysis.models import (
 from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
 from financial_report_analysis.services.metric_governance_review import (
     MetricGovernanceReviewService,
+    build_review_item_id,
 )
 
 
@@ -38,7 +39,7 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
         document_metadata={},
         candidate_facts=(
             {
-                "fact_id": "candidate-1",
+                "fact_id": "/tmp/report.pdf:candidate:1",
                 "metric_id": "custom::cn::general::income-statement::root::contract-assets",
                 "raw_label": "Contract assets",
                 "normalized_label": "contract assets",
@@ -195,9 +196,10 @@ def test_service_lists_only_provisional_review_items(tmp_path: Path) -> None:
 
 def test_service_hydrates_latest_decision_annotation(tmp_path: Path) -> None:
     artifact = _artifact(_entry(tmp_path))
+    review_item_id = build_review_item_id(artifact.artifact_id, "/tmp/report.pdf:candidate:1")
     decision = MetricGovernanceDecision(
         decision_id="decision-1",
-        review_item_id=f"{artifact.artifact_id}:candidate-1",
+        review_item_id=review_item_id,
         artifact_id=artifact.artifact_id,
         issuer_id="CN_601919",
         fiscal_year=2025,
@@ -215,7 +217,7 @@ def test_service_hydrates_latest_decision_annotation(tmp_path: Path) -> None:
     )
     service = MetricGovernanceReviewService(_StubRepository(artifact, decision))
 
-    item = service.get_review_item(f"{artifact.artifact_id}:candidate-1")
+    item = service.get_review_item(review_item_id)
 
     assert item is not None
     assert item.latest_decision is not None

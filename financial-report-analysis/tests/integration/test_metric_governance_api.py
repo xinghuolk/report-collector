@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from financial_report_analysis.api.app import create_app
 from financial_report_analysis.api.runtime import build_api_runtime
 from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
+from financial_report_analysis.services.metric_governance_review import (
+    build_review_item_id,
+)
 
 
 def _entry(tmp_path: Path) -> P5ManifestEntry:
@@ -36,7 +39,7 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
         document_metadata={},
         candidate_facts=(
             {
-                "fact_id": "candidate-1",
+                "fact_id": "/tmp/report.pdf:candidate:1",
                 "metric_id": "custom::cn::general::income-statement::root::contract-assets",
                 "raw_label": "Contract assets",
                 "normalized_label": "contract assets",
@@ -53,6 +56,27 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
                         "review_required": True,
                         "auto_analysis_allowed": False,
                         "governance_reason": "provisional_custom_metric",
+                    },
+                },
+            },
+            {
+                "fact_id": "candidate-2",
+                "metric_id": "revenue",
+                "raw_label": "Revenue",
+                "normalized_label": "revenue",
+                "statement_type": "income_statement",
+                "value": 500.0,
+                "evidence_bundle_id": "bundle-2",
+                "extensions": {
+                    "table_id": "table-8",
+                    "page_number": 89,
+                    "period_label": "FY2025",
+                    "metric_governance": {
+                        "registry_status": "standard",
+                        "metric_namespace": "standard",
+                        "review_required": False,
+                        "auto_analysis_allowed": True,
+                        "governance_reason": "standard_metric",
                     },
                 },
             },
@@ -157,6 +181,32 @@ def test_metric_governance_rejects_unknown_target_metric_id(
             "decision_type": "map_to_standard",
             "target_metric_id": "custom::bad",
             "reason": "unsupported custom metric id",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_metric_governance_rejects_non_provisional_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+
+    review_item_id = build_review_item_id(artifact.artifact_id, "candidate-2")
+    response = client.post(
+        "/api/v1/metric-governance/review-items/decision",
+        json={
+            "review_item_id": review_item_id,
+            "decision_type": "keep_provisional",
+            "reason": "should be rejected for standard candidate",
             "actor": "reviewer@example.com",
         },
     )
