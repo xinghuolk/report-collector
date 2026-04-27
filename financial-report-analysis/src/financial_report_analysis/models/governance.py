@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal, cast
 
-from financial_report_analysis.models.common import Extensions
 from financial_report_analysis.models.facts import CandidateFact
 
 MetricGovernanceDecisionType = Literal["keep_provisional", "map_to_standard"]
@@ -51,14 +49,14 @@ class MetricGovernanceDecision:
     report_type: str
     metric_id: str
     raw_label: str
-    normalized_label: str
+    normalized_label: str | None
     statement_type: str
-    evidence_bundle_id: str
+    evidence_bundle_id: str | None
     decision_type: MetricGovernanceDecisionType
     target_metric_id: str | None
     reason: str
     actor: str
-    created_at: datetime
+    created_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +65,7 @@ class MetricGovernanceDecisionAnnotation:
     target_metric_id: str | None
     reason: str
     actor: str
-    created_at: datetime
+    created_at: str
 
     @classmethod
     def from_decision(
@@ -91,14 +89,14 @@ class MetricGovernanceReviewItem:
     report_type: str
     metric_id: str
     raw_label: str
-    normalized_label: str
+    normalized_label: str | None
     statement_type: str
     candidate_value: float | int | None
-    period_label: str
+    period_label: str | None
     source_page: int | None
     source_table_id: str | None
-    evidence_bundle_id: str
-    metric_governance: Extensions
+    evidence_bundle_id: str | None
+    metric_governance: dict[str, object]
     latest_decision: MetricGovernanceDecisionAnnotation | None = None
 
 

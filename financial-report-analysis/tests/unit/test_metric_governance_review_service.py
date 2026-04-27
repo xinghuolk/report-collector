@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from financial_report_analysis.models import (
     MetricGovernanceDecision,
     MetricGovernanceDecisionAnnotation,
@@ -8,7 +6,6 @@ from financial_report_analysis.models import (
 
 
 def test_metric_governance_review_item_records_latest_mapping_decision() -> None:
-    created_at = datetime(2026, 4, 27, tzinfo=timezone.utc)
     decision = MetricGovernanceDecision(
         decision_id="decision-001",
         review_item_id="review-001",
@@ -25,7 +22,7 @@ def test_metric_governance_review_item_records_latest_mapping_decision() -> None
         target_metric_id="accounts_receiv",
         reason="Matches the standard receivables metric.",
         actor="analyst@example.com",
-        created_at=created_at,
+        created_at="2026-04-27T12:00:00+00:00",
     )
     annotation = MetricGovernanceDecisionAnnotation.from_decision(decision)
     review_item = MetricGovernanceReviewItem(
@@ -69,7 +66,7 @@ def test_metric_governance_decision_annotation_keeps_provisional_metric() -> Non
         target_metric_id=None,
         reason="No matching standard metric exists.",
         actor="analyst@example.com",
-        created_at=datetime(2026, 4, 27, tzinfo=timezone.utc),
+        created_at="2026-04-27T12:05:00+00:00",
     )
 
     annotation = MetricGovernanceDecisionAnnotation.from_decision(decision)
