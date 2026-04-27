@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
@@ -30,6 +32,12 @@ from financial_report_analysis.ingestion.pdf_ingestion import (
     PdfIngestionAdapter,
     PdfIngestionInputError,
 )
+from financial_report_analysis.models import (
+    MetricGovernanceDecision,
+    MetricGovernanceDecisionAnnotation,
+    MetricGovernanceReviewItem,
+)
+from financial_report_analysis.registries import load_metric_registry
 from financial_report_analysis.semantic_fallback import build_semantic_fallback_service
 from financial_report_analysis.api.schemas import (
     AnalysisExtractRequest,
@@ -43,6 +51,11 @@ from financial_report_analysis.api.schemas import (
     HealthResponse,
     IssuerReportsResponse,
     ManifestEntryResponse,
+    MetricGovernanceDecisionAnnotationResponse,
+    MetricGovernanceDecisionRequest,
+    MetricGovernanceDecisionWriteResponse,
+    MetricGovernanceReviewItemResponse,
+    MetricGovernanceReviewListResponse,
     MultiYearAvailabilityResponse,
     RecomputeDiffSummaryResponse,
     RecomputeResultResponse,
@@ -51,6 +64,9 @@ from financial_report_analysis.api.schemas import (
     TurtleExportReviewSurfaceResponse,
 )
 from financial_report_analysis.pipeline import analyze_report
+from financial_report_analysis.services.metric_governance_review import (
+    MetricGovernanceReviewService,
+)
 
 router = APIRouter()
 
@@ -179,6 +195,98 @@ def get_recompute_result(
     repository = _require_storage_repository(request)
     result = _load_or_404(repository.load_recompute_result, run_id)
     return _recompute_result_to_response(run_id, result)
+
+
+@router.get(
+    "/api/v1/metric-governance/review-items",
+    response_model=MetricGovernanceReviewListResponse,
+)
+def list_metric_governance_review_items(
+    request: Request,
+    issuer_id: str | None = None,
+    fiscal_year: int | None = None,
+) -> MetricGovernanceReviewListResponse:
+    repository = _require_storage_repository(request)
+    service = MetricGovernanceReviewService(repository)
+    items = service.list_review_items(
+        issuer_id=issuer_id,
+        fiscal_year=fiscal_year,
+    )
+    return MetricGovernanceReviewListResponse(
+        items=[_metric_governance_review_item_to_response(item) for item in items],
+    )
+
+
+@router.get(
+    "/api/v1/metric-governance/review-items/{review_item_id}",
+    response_model=MetricGovernanceReviewItemResponse,
+)
+def get_metric_governance_review_item(
+    review_item_id: str,
+    request: Request,
+) -> MetricGovernanceReviewItemResponse:
+    repository = _require_storage_repository(request)
+    service = MetricGovernanceReviewService(repository)
+    item = _load_metric_governance_review_item_or_404(service, review_item_id)
+    return _metric_governance_review_item_to_response(item)
+
+
+@router.post(
+    "/api/v1/metric-governance/review-items/decision",
+    response_model=MetricGovernanceDecisionWriteResponse,
+)
+def write_metric_governance_decision(
+    decision_request: MetricGovernanceDecisionRequest,
+    request: Request,
+) -> MetricGovernanceDecisionWriteResponse:
+    repository = _require_storage_repository(request)
+    service = MetricGovernanceReviewService(repository)
+    item = _load_metric_governance_review_item_or_404(
+        service,
+        decision_request.review_item_id,
+    )
+    if (
+        decision_request.decision_type == "map_to_standard"
+        and load_metric_registry().get_metric_definition(
+            decision_request.target_metric_id or ""
+        )
+        is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="unknown target_metric_id",
+        )
+
+    decision = MetricGovernanceDecision(
+        decision_id=str(uuid4()),
+        review_item_id=item.review_item_id,
+        artifact_id=item.artifact_id,
+        issuer_id=item.issuer_id,
+        fiscal_year=item.fiscal_year,
+        report_type=item.report_type,
+        metric_id=item.metric_id,
+        raw_label=item.raw_label,
+        normalized_label=item.normalized_label,
+        statement_type=item.statement_type,
+        evidence_bundle_id=item.evidence_bundle_id,
+        decision_type=decision_request.decision_type,
+        target_metric_id=decision_request.target_metric_id,
+        reason=decision_request.reason,
+        actor=decision_request.actor,
+        created_at=datetime.now(UTC).isoformat(),
+    )
+    repository.save_metric_governance_decision(decision)
+    refreshed_item = _load_metric_governance_review_item_or_404(
+        service,
+        decision_request.review_item_id,
+    )
+    latest_decision = refreshed_item.latest_decision
+    if latest_decision is None:
+        latest_decision = MetricGovernanceDecisionAnnotation.from_decision(decision)
+    return MetricGovernanceDecisionWriteResponse(
+        decision=_metric_governance_decision_annotation_to_response(latest_decision),
+        review_item=_metric_governance_review_item_to_response(refreshed_item),
+    )
 
 
 @router.post(
@@ -324,6 +432,25 @@ def _load_or_404(loader: Any, *args: Any, **kwargs: Any) -> Any:
         ) from exc
 
 
+def _load_metric_governance_review_item_or_404(
+    service: MetricGovernanceReviewService,
+    review_item_id: str,
+) -> MetricGovernanceReviewItem:
+    try:
+        item = service.get_review_item(review_item_id)
+    except P5ArtifactRepositoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"missing metric governance review item: {review_item_id}",
+        ) from exc
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"missing metric governance review item: {review_item_id}",
+        )
+    return item
+
+
 def _coverage_to_response(
     coverage: Any,
 ) -> ReportCoverageResponse:
@@ -350,6 +477,45 @@ def _manifest_entry_to_response(entry: P5ManifestEntry) -> ManifestEntryResponse
         source=entry.source,
         company_name=entry.company_name,
         report_language=entry.report_language,
+    )
+
+
+def _metric_governance_decision_annotation_to_response(
+    decision: MetricGovernanceDecisionAnnotation,
+) -> MetricGovernanceDecisionAnnotationResponse:
+    return MetricGovernanceDecisionAnnotationResponse(
+        decision_type=decision.decision_type,
+        target_metric_id=decision.target_metric_id,
+        reason=decision.reason,
+        actor=decision.actor,
+        created_at=decision.created_at,
+    )
+
+
+def _metric_governance_review_item_to_response(
+    item: MetricGovernanceReviewItem,
+) -> MetricGovernanceReviewItemResponse:
+    return MetricGovernanceReviewItemResponse(
+        review_item_id=item.review_item_id,
+        artifact_id=item.artifact_id,
+        issuer_id=item.issuer_id,
+        fiscal_year=item.fiscal_year,
+        report_type=item.report_type,
+        metric_id=item.metric_id,
+        raw_label=item.raw_label,
+        normalized_label=item.normalized_label,
+        statement_type=item.statement_type,
+        candidate_value=item.candidate_value,
+        period_label=item.period_label,
+        source_page=item.source_page,
+        source_table_id=item.source_table_id,
+        evidence_bundle_id=item.evidence_bundle_id,
+        metric_governance=dict(item.metric_governance),
+        latest_decision=(
+            _metric_governance_decision_annotation_to_response(item.latest_decision)
+            if item.latest_decision is not None
+            else None
+        ),
     )
 
 

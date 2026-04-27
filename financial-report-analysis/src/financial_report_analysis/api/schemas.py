@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -105,6 +105,72 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str
+
+
+class MetricGovernanceDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_item_id: str
+    decision_type: Literal["keep_provisional", "map_to_standard"]
+    target_metric_id: str | None = None
+    reason: str
+    actor: str
+
+    @model_validator(mode="after")
+    def validate_decision_shape(self) -> "MetricGovernanceDecisionRequest":
+        if self.decision_type == "map_to_standard" and not self.target_metric_id:
+            raise ValueError(
+                "target_metric_id is required for decision_type='map_to_standard'"
+            )
+        if self.decision_type == "keep_provisional" and self.target_metric_id is not None:
+            raise ValueError(
+                "target_metric_id is not allowed for decision_type='keep_provisional'"
+            )
+        return self
+
+
+class MetricGovernanceDecisionAnnotationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_type: str
+    target_metric_id: str | None = None
+    reason: str
+    actor: str
+    created_at: str
+
+
+class MetricGovernanceReviewItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    metric_id: str
+    raw_label: str
+    normalized_label: str | None = None
+    statement_type: str
+    candidate_value: int | float | None = None
+    period_label: str | None = None
+    source_page: int | None = None
+    source_table_id: str | None = None
+    evidence_bundle_id: str | None = None
+    metric_governance: dict[str, Any]
+    latest_decision: MetricGovernanceDecisionAnnotationResponse | None = None
+
+
+class MetricGovernanceReviewListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[MetricGovernanceReviewItemResponse]
+
+
+class MetricGovernanceDecisionWriteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: MetricGovernanceDecisionAnnotationResponse
+    review_item: MetricGovernanceReviewItemResponse
 
 
 class ManifestEntryResponse(BaseModel):
