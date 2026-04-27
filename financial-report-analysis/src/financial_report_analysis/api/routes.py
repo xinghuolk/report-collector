@@ -63,7 +63,9 @@ from financial_report_analysis.api.schemas import (
     MetricGovernanceReviewListResponse,
     MetricLifecycleCandidateLinkResponse,
     MetricLifecycleConceptIdentityResponse,
+    MetricLifecycleDecisionRequest,
     MetricLifecycleDecisionResponse,
+    MetricLifecycleDecisionWriteResponse,
     MetricLifecycleEntryRequest,
     MetricLifecycleEntryResponse,
     MetricLifecycleEntryWriteResponse,
@@ -295,6 +297,65 @@ def create_metric_governance_lifecycle_entry(
             refreshed_item,
             lifecycle_service.load_state_by_review_item(review_item_id),
         )
+    )
+
+
+@router.post(
+    "/api/v1/metric-governance/review-items/{review_item_id:path}/lifecycle-decision",
+    response_model=MetricLifecycleDecisionWriteResponse,
+)
+def write_metric_governance_lifecycle_decision(
+    review_item_id: str,
+    decision_request: MetricLifecycleDecisionRequest,
+    request: Request,
+) -> MetricLifecycleDecisionWriteResponse:
+    repository = _require_storage_repository(request)
+    review_service = MetricGovernanceReviewService(repository)
+    if not review_service.review_item_exists(review_item_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"missing metric governance review item: {review_item_id}",
+        )
+    if not review_service.review_item_is_provisional(review_item_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="review item is not provisional",
+        )
+    item = _load_metric_governance_review_item_or_404(review_service, review_item_id)
+    lifecycle_service = MetricLifecycleService(repository)
+    state = lifecycle_service.load_state_by_review_item(review_item_id)
+    if state.candidate_link is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="lifecycle candidate link is required",
+        )
+    try:
+        decision = lifecycle_service.record_decision(
+            lifecycle_entry_id=state.candidate_link.lifecycle_entry_id,
+            action=decision_request.action,
+            actor=decision_request.actor,
+            reason=decision_request.reason,
+            target_metric_id=decision_request.target_metric_id,
+            evidence_bundle_id=item.evidence_bundle_id,
+            source_review_item_id=item.review_item_id,
+            source_artifact_id=item.artifact_id,
+            effective_at=decision_request.effective_at,
+        )
+    except MetricLifecycleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    refreshed_item = _load_metric_governance_review_item_or_404(
+        review_service,
+        review_item_id,
+    )
+    return MetricLifecycleDecisionWriteResponse(
+        decision=_metric_lifecycle_decision_to_response(decision),
+        review_item=_metric_governance_review_item_to_response(
+            refreshed_item,
+            lifecycle_service.load_state_by_review_item(review_item_id),
+        ),
     )
 
 

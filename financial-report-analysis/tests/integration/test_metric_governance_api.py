@@ -276,6 +276,262 @@ def test_metric_governance_lifecycle_entry_requires_storage_runtime() -> None:
     assert response.json()["detail"] == "storage repository is not configured"
 
 
+def test_metric_governance_lifecycle_decision_endpoint_records_mapping(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+
+    decision_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Matches the supported receivables metric.",
+            "actor": "reviewer@example.com",
+            "effective_at": "2026-04-27T10:03:00+00:00",
+        },
+    )
+
+    assert decision_response.status_code == 200
+    payload = decision_response.json()
+    assert payload["decision"]["action"] == "map_to_standard"
+    assert payload["decision"]["previous_status"] == "provisional"
+    assert payload["decision"]["new_status"] == "mapped_to_standard"
+    assert payload["decision"]["target_metric_id"] == "accounts_receiv"
+    assert payload["decision"]["evidence_bundle_id"] == "bundle-1"
+    assert payload["decision"]["source_review_item_id"] == review_item_id
+    assert payload["decision"]["source_artifact_id"] == artifact.artifact_id
+    state = payload["review_item"]["lifecycle_state"]
+    assert state["entry"]["current_status"] == "mapped_to_standard"
+    assert state["entry"]["mapped_standard_metric_id"] == "accounts_receiv"
+    assert state["latest_decision"]["action"] == "map_to_standard"
+    assert len(state["decision_history"]) == 1
+
+
+def test_metric_governance_lifecycle_decision_rejects_missing_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/api/v1/metric-governance/review-items/missing:item/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Missing review item.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_metric_governance_lifecycle_decision_rejects_non_provisional_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(artifact.artifact_id, "candidate-2")
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Standard candidates are not lifecycle review items.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "review item is not provisional"
+
+
+def test_metric_governance_lifecycle_decision_requires_candidate_link(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Matches the supported receivables metric.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "lifecycle candidate link is required"
+
+
+def test_metric_governance_lifecycle_decision_rejects_target_for_non_mapping_action(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "approve_custom",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Keep as custom metric.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_metric_governance_lifecycle_decision_rejects_blank_actor_and_reason(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+
+    blank_actor_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Valid reason.",
+            "actor": "   ",
+        },
+    )
+    blank_reason_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "   ",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert blank_actor_response.status_code == 422
+    assert blank_reason_response.status_code == 422
+
+
+def test_metric_governance_lifecycle_decision_requires_storage_runtime() -> None:
+    client = TestClient(create_app(runtime=build_api_runtime(None)))
+
+    response = client.post(
+        "/api/v1/metric-governance/review-items/missing:item/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Missing storage runtime.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "storage repository is not configured"
+
+
+def test_metric_governance_lifecycle_decision_rejects_unknown_standard_target(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "custom::bad",
+            "reason": "Unsupported target.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "target_metric_id must be a supported standard metric"
+    )
+
+
 def test_metric_governance_review_list_and_write_flow(tmp_path: Path) -> None:
     runtime = build_api_runtime(tmp_path / "storage.db")
     entry = _entry(tmp_path)
