@@ -253,16 +253,10 @@ def create_metric_governance_lifecycle_entry(
 ) -> MetricLifecycleEntryWriteResponse:
     repository = _require_storage_repository(request)
     review_service = MetricGovernanceReviewService(repository)
-    if not review_service.review_item_exists(review_item_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"missing metric governance review item: {review_item_id}",
-        )
-    if not review_service.review_item_is_provisional(review_item_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="review item is not provisional",
-        )
+    _require_metric_governance_review_item_is_provisional(
+        review_service,
+        review_item_id,
+    )
     item = _load_metric_governance_review_item_or_404(review_service, review_item_id)
     lifecycle_service = MetricLifecycleService(repository)
     try:
@@ -311,16 +305,10 @@ def write_metric_governance_lifecycle_decision(
 ) -> MetricLifecycleDecisionWriteResponse:
     repository = _require_storage_repository(request)
     review_service = MetricGovernanceReviewService(repository)
-    if not review_service.review_item_exists(review_item_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"missing metric governance review item: {review_item_id}",
-        )
-    if not review_service.review_item_is_provisional(review_item_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="review item is not provisional",
-        )
+    _require_metric_governance_review_item_is_provisional(
+        review_service,
+        review_item_id,
+    )
     item = _load_metric_governance_review_item_or_404(review_service, review_item_id)
     lifecycle_service = MetricLifecycleService(repository)
     state = lifecycle_service.load_state_by_review_item(review_item_id)
@@ -388,19 +376,10 @@ def write_metric_governance_decision(
     repository = _require_storage_repository(request)
     service = MetricGovernanceReviewService(repository)
     lifecycle_service = MetricLifecycleService(repository)
-    if not service.review_item_exists(decision_request.review_item_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                "missing metric governance review item: "
-                f"{decision_request.review_item_id}"
-            ),
-        )
-    if not service.review_item_is_provisional(decision_request.review_item_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="review item is not provisional",
-        )
+    _require_metric_governance_review_item_is_provisional(
+        service,
+        decision_request.review_item_id,
+    )
     item = _load_metric_governance_review_item_or_404(
         service,
         decision_request.review_item_id,
@@ -611,6 +590,32 @@ def _load_metric_governance_review_item_or_404(
             detail=f"missing metric governance review item: {review_item_id}",
         )
     return item
+
+
+def _require_metric_governance_review_item_is_provisional(
+    service: MetricGovernanceReviewService,
+    review_item_id: str,
+) -> None:
+    try:
+        exists = service.review_item_exists(review_item_id)
+        is_provisional = (
+            service.review_item_is_provisional(review_item_id) if exists else False
+        )
+    except P5ArtifactRepositoryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"missing metric governance review item: {review_item_id}",
+        ) from exc
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"missing metric governance review item: {review_item_id}",
+        )
+    if not is_provisional:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="review item is not provisional",
+        )
 
 
 def _metric_lifecycle_concept_from_review_item(

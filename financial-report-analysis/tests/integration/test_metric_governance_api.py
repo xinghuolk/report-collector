@@ -218,6 +218,21 @@ def test_metric_governance_lifecycle_entry_rejects_missing_review_item(
     assert response.status_code == 404
 
 
+def test_metric_governance_lifecycle_entry_rejects_missing_artifact_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id("missing-artifact", "candidate-1")
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_metric_governance_lifecycle_entry_rejects_non_provisional_review_item(
     tmp_path: Path,
 ) -> None:
@@ -336,6 +351,26 @@ def test_metric_governance_lifecycle_decision_rejects_missing_review_item(
             "action": "map_to_standard",
             "target_metric_id": "accounts_receiv",
             "reason": "Missing review item.",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_metric_governance_lifecycle_decision_rejects_missing_artifact_review_item(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id("missing-artifact", "candidate-1")
+
+    response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Missing artifact.",
             "actor": "reviewer@example.com",
         },
     )
