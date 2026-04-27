@@ -317,15 +317,47 @@ Goal:
 - preserve reviewer, timestamp, reason, evidence, and target mapping;
 - make recompute read lifecycle decisions deterministically.
 
-### Phase 4: Workflow, API, and Recompute Integration
+### Phase 4A: Lifecycle Workflow And Review API
 
 Goal:
 
-- expose review workflow endpoints;
-- integrate lifecycle decisions into recompute;
-- support audit and diff views;
-- optionally support approval workflow and async job handles if business needs
-  require them.
+- expose lifecycle workflow endpoints for explicit lifecycle entry creation,
+  candidate linking, lifecycle state reads, and lifecycle decision writes;
+- allow review item list/detail responses to show Phase 3 lifecycle state next
+  to Phase 2 review decision history;
+- require explicit candidate links before review-item reads resolve lifecycle
+  state;
+- preserve Phase 1 guardrails and Phase 2 review-decision semantics;
+- avoid recompute, canonical fact, P5 dataset, Turtle, extraction, Ollama, or
+  semantic fallback behavior changes.
+
+Phase 4A is the workflow/API bridge. It makes the durable lifecycle registry
+operable through internal review APIs, but it does not make lifecycle decisions
+change automatic outputs.
+
+### Phase 4B: Recompute Planning And Controlled Consumption
+
+Goal:
+
+- produce deterministic recompute-needed and dry-run audit views when lifecycle
+  decisions change;
+- integrate lifecycle decisions into recompute only after the planning and audit
+  contract is stable;
+- support controlled consumption rules such as `mapped_to_standard` remapping
+  and `blacklisted` suppression with explicit provenance;
+- keep P5 dataset and Turtle behavior changes behind focused regressions that
+  show exactly which lifecycle decision affected each output.
+
+Phase 4B is the recompute/output bridge. It should start with planning and audit
+signals, then add controlled consumption in the same phase only after each
+output-changing rule has deterministic tests.
+
+Deferred from Phase 4 unless a separate business need appears:
+
+- durable approval workflow;
+- async job orchestration;
+- UI;
+- historical Phase 2 decision backfill or migration tooling.
 
 ## 8. Phase 1 Detailed Scope
 
