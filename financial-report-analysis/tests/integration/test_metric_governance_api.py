@@ -126,3 +126,39 @@ def test_metric_governance_rejects_unknown_review_item(tmp_path: Path) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_metric_governance_rejects_unknown_target_metric_id(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+
+    list_response = client.get(
+        "/api/v1/metric-governance/review-items",
+        params={"issuer_id": "CN_601919"},
+    )
+
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert len(payload["items"]) == 1
+    review_item_id = payload["items"][0]["review_item_id"]
+
+    response = client.post(
+        "/api/v1/metric-governance/review-items/decision",
+        json={
+            "review_item_id": review_item_id,
+            "decision_type": "map_to_standard",
+            "target_metric_id": "custom::bad",
+            "reason": "unsupported custom metric id",
+            "actor": "reviewer@example.com",
+        },
+    )
+
+    assert response.status_code == 422

@@ -253,7 +253,7 @@ def write_metric_governance_decision(
         is None
     ):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="unknown target_metric_id",
         )
 
