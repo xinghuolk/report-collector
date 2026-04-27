@@ -126,6 +126,7 @@ Behavior:
 - load the review item;
 - reject missing review items with 404;
 - reject non-provisional review items with 422;
+- reject blank `actor` with 422;
 - build a `MetricLifecycleConceptIdentity` from the review item fields;
 - call `MetricLifecycleService.create_or_load_entry`;
 - create a `MetricLifecycleCandidateLink` for the review item and lifecycle
@@ -170,6 +171,7 @@ Behavior:
 - load the review item;
 - reject missing review items with 404;
 - reject non-provisional review items with 422;
+- reject blank `actor` or `reason` with 422;
 - require an existing lifecycle candidate link for the review item;
 - pass the review item's `evidence_bundle_id`, `review_item_id`, and
   `artifact_id` as lifecycle decision source context;
@@ -283,6 +285,7 @@ Add focused integration tests around the existing FastAPI test style:
 - lifecycle entry endpoint creates entry and candidate link, then review detail
   shows lifecycle state;
 - repeated lifecycle entry calls are idempotent for the same review item;
+- lifecycle entry endpoint rejects blank `actor`;
 - lifecycle entry creation derives `accounting_standard`, `industry_slug`, and
   `parent_metric_id` from a registry-format custom metric id;
 - lifecycle entry creation falls back to `OTHER/general/root` for malformed
@@ -291,9 +294,11 @@ Add focused integration tests around the existing FastAPI test style:
   state;
 - lifecycle decision endpoint rejects `target_metric_id` for non-mapping
   actions;
+- lifecycle decision endpoint rejects blank `actor` and blank `reason`;
 - lifecycle decision endpoint rejects missing lifecycle link;
 - lifecycle endpoints reject missing review item and non-provisional review item;
 - lifecycle decision endpoint rejects unsupported standard metric targets;
+- lifecycle endpoints return 503 when the storage repository is not configured;
 - existing Phase 2 decision write flow still works and still populates
   `latest_decision`;
 - P5/recompute/guardrail regression tests remain unchanged.
