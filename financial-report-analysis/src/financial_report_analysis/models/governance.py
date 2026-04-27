@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, cast
 
+from financial_report_analysis.models.common import Extensions
 from financial_report_analysis.models.facts import CandidateFact
 
+MetricGovernanceDecisionType = Literal["keep_provisional", "map_to_standard"]
 SourceKind = Literal[
     "statement_row",
     "deterministic_note_disclosure",
@@ -36,6 +39,67 @@ _SOURCE_POLICIES: set[str] = {
     "review_required",
     "blocked",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class MetricGovernanceDecision:
+    decision_id: str
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    metric_id: str
+    raw_label: str
+    normalized_label: str
+    statement_type: str
+    evidence_bundle_id: str
+    decision_type: MetricGovernanceDecisionType
+    target_metric_id: str | None
+    reason: str
+    actor: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MetricGovernanceDecisionAnnotation:
+    decision_type: MetricGovernanceDecisionType
+    target_metric_id: str | None
+    reason: str
+    actor: str
+    created_at: datetime
+
+    @classmethod
+    def from_decision(
+        cls, decision: MetricGovernanceDecision
+    ) -> MetricGovernanceDecisionAnnotation:
+        return cls(
+            decision_type=decision.decision_type,
+            target_metric_id=decision.target_metric_id,
+            reason=decision.reason,
+            actor=decision.actor,
+            created_at=decision.created_at,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MetricGovernanceReviewItem:
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    metric_id: str
+    raw_label: str
+    normalized_label: str
+    statement_type: str
+    candidate_value: float | int | None
+    period_label: str
+    source_page: int | None
+    source_table_id: str | None
+    evidence_bundle_id: str
+    metric_governance: Extensions
+    latest_decision: MetricGovernanceDecisionAnnotation | None = None
 
 
 @dataclass(frozen=True, slots=True)

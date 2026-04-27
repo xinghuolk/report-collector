@@ -9,6 +9,10 @@ from financial_report_analysis.models.facts import (
 )
 from financial_report_analysis.models.governance import (
     ConflictState,
+    MetricGovernanceDecision,
+    MetricGovernanceDecisionAnnotation,
+    MetricGovernanceDecisionType,
+    MetricGovernanceReviewItem,
     ReviewPacket,
     SourceKind,
     SourcePolicy,
@@ -40,6 +44,10 @@ __all__ = [
     "EvidenceItem",
     "Extensions",
     "DerivedFact",
+    "MetricGovernanceDecision",
+    "MetricGovernanceDecisionAnnotation",
+    "MetricGovernanceDecisionType",
+    "MetricGovernanceReviewItem",
     "ReviewPacket",
     "NormalizedTableCellValue",
     "NormalizedTableColumn",
