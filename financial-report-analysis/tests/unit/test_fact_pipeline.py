@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from financial_report_analysis.models.evidence import EvidenceBundle, EvidenceItem
@@ -456,6 +458,135 @@ def test_analyze_report_blocks_forged_mapping_marker_with_stale_supported_metric
     assert packet.metric_id.startswith("custom::")
     assert packet.source_policy == "review_required"
     assert packet.conflict_state == "provisional_metric_review_required"
+
+
+def test_analyze_report_blocks_unsupported_label_with_spoofed_mapping_marker() -> (
+    None
+):
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-spoofed-supported-1",
+                    "metric_id": "revenue",
+                    "metric_label_raw": "Customer loyalty liabilities",
+                    "statement_type": "balance_sheet",
+                    "entity_scope": "consolidated",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1000",
+                    "numeric_value": 1000.0,
+                    "raw_unit": "CNY",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "extensions": {
+                        "metric_mapping_source": "metric_mapping_registry",
+                        METRIC_GOVERNANCE_EXTENSION_KEY: {
+                            "registry_status": "standard",
+                            "metric_namespace": "standard",
+                            "review_required": False,
+                            "auto_analysis_allowed": True,
+                            "governance_reason": "supported_metric_mapping",
+                        },
+                    },
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "Customer loyalty liabilities 1000",
+                    "snapshot_path": None,
+                    "extraction_method": "table_skill",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    assert result.canonical_facts == []
+    assert result.derived_facts == []
+    assert result.quality_gate == "review"
+    assert result.validation_report.overall_status == "review_required"
+    assert "provisional_metric_review_required" in result.validation_report.issues
+    assert len(result.review_packets) == 1
+    packet = result.review_packets[0]
+    assert packet.metric_id.startswith("custom::")
+    assert packet.source_policy == "review_required"
+    assert packet.conflict_state == "provisional_metric_review_required"
+
+
+def test_analyze_report_preserves_supported_metric_after_json_roundtrip() -> None:
+    registry = MetricMappingRegistry(
+        [
+            MetricMappingDefinition(
+                metric_id="c_pay_acq_const_fiolta",
+                statement_type="cash_flow_statement",
+                allowed_table_kinds=("cash_flow_statement",),
+                normalized_row_labels=(
+                    "payments for acquisition of property, plant and equipment",
+                ),
+                period_scope="duration",
+                value_type="amount",
+                unit_expectation="currency_amount",
+                sign_rule="allow_negative",
+                aliases_by_market={"HK": ()},
+            )
+        ]
+    )
+    semantics = NormalizedTableSemantics(
+        table_id="table-capex-1",
+        document_id="doc-1",
+        page_range=(1, 1),
+        table_kind="cash_flow_statement",
+        title_text="Cash Flow Statement",
+        statement_scope_guess="consolidated",
+        table_unit="HKD million",
+        table_currency="HKD",
+        rows=[
+            NormalizedTableRow(
+                row_id="row-1",
+                label_raw="Payments for acquisition of property, plant and equipment",
+                normalized_row_label=(
+                    "payments for acquisition of property, plant and equipment"
+                ),
+                values=[
+                    NormalizedTableCellValue(
+                        row_index=1,
+                        column_index=1,
+                        raw_text="80",
+                        numeric_value=80.0,
+                        period_id="2024FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                    )
+                ],
+            )
+        ],
+    )
+
+    candidate_facts = build_table_candidate_facts(
+        [semantics],
+        registry=registry,
+        document_id="doc-1",
+        market="HK",
+    )
+    roundtripped_candidate_facts = json.loads(json.dumps(candidate_facts))
+
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "HK"},
+        extracted_payload={"candidate_facts": roundtripped_candidate_facts},
+    )
+
+    assert result.quality_gate == "pass"
+    assert len(result.canonical_facts) == 1
+    assert result.canonical_facts[0].metric_id == "c_pay_acq_const_fiolta"
+    assert result.review_packets == []
 
 
 @pytest.mark.parametrize(

@@ -42,6 +42,28 @@ Run the API with:
 uv run financial-report-analysis-api
 ```
 
+## Test Commands
+
+Use these three tiers for local validation:
+
+```bash
+# Fast regression: skip slow, real-PDF, Ollama, and external-service paths
+uv run pytest -m "not slow and not real_pdf and not ollama and not external"
+
+# Standard validation: include ordinary unit/integration tests, skip slow paths
+uv run pytest -m "not slow"
+
+# Full suite: includes slow, real-PDF, and service-dependent tests
+uv run pytest
+```
+
+For the real-PDF matrix, prefer the dedicated runner instead of `uv run pytest`:
+
+```bash
+REAL_PDF_LIMIT=3 REAL_PDF_JOBS=2 PER_TEST_TIMEOUT_SECONDS=240 \
+scripts/run-real-pdf-matrix.sh
+```
+
 Run the real-PDF extract/persist/readback smoke with:
 
 ```bash

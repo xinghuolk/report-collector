@@ -321,6 +321,12 @@ class PdfIngestionAdapter:
         pdf_path: str | None,
         pdf_url: str | None,
     ) -> list[tuple[int, str]]:
+        # Preserve page-level behavior in production while allowing tests that
+        # stub the legacy text hook to keep supplying synthetic document text.
+        if type(self)._extract_text is not _DEFAULT_EXTRACT_TEXT_METHOD:
+            text = self._extract_text(pdf_path=pdf_path, pdf_url=pdf_url)
+            return [] if text == "" else [(1, text)]
+
         if pdf_path:
             path = Path(pdf_path)
             if not path.exists():
@@ -1296,3 +1302,6 @@ class PdfIngestionAdapter:
         if "." not in text:
             return 0
         return len(text.split(".", maxsplit=1)[1].rstrip("0"))
+
+
+_DEFAULT_EXTRACT_TEXT_METHOD = PdfIngestionAdapter._extract_text
