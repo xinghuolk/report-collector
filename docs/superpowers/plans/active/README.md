@@ -1,4 +1,5 @@
 # Active Plans
 
-There are no active implementation plans after the 2026-04-28 explicit
-JSON-to-DB sync bridge closeout.
+Current active implementation plans:
+
+- `2026-04-28-financial-report-analysis-post-p5-profit-enhancement.md`
