@@ -198,6 +198,29 @@ class RecomputeRunRecord(Base):
     created_at: Mapped[str] = mapped_column(String(64), default=_utc_iso_timestamp)
 
 
+class JsonToDbSyncRecord(Base):
+    __tablename__ = "json_to_db_sync_records"
+
+    sync_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    recompute_run_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    dataset_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_hashes_json: Mapped[str] = mapped_column("input_hashes", Text, nullable=False)
+    before_refs_json: Mapped[str] = mapped_column("before_refs", Text, nullable=False)
+    after_refs_json: Mapped[str] = mapped_column("after_refs", Text, nullable=False)
+    written_refs_json: Mapped[str] = mapped_column("written_refs", Text, nullable=False)
+    skipped_refs_json: Mapped[str] = mapped_column("skipped_refs", Text, nullable=False)
+    blocking_reasons_json: Mapped[str] = mapped_column(
+        "blocking_reasons",
+        Text,
+        nullable=False,
+    )
+    requested_by: Mapped[str | None] = mapped_column(String(128))
+    sync_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str | None] = mapped_column(String(64), index=True)
+    completed_at: Mapped[str | None] = mapped_column(String(64))
+
+
 class ReportFileRecord(Base):
     __tablename__ = "report_files"
     __table_args__ = (

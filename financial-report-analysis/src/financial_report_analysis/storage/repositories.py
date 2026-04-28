@@ -31,6 +31,10 @@ from financial_report_analysis.p5.artifact_repository import (
     turtle_export_from_payload,
     turtle_export_to_payload,
 )
+from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncAuditView,
+    JsonToDbSyncStatus,
+)
 from financial_report_analysis.p5.lineage import (
     artifact_lineage_from_payload,
     artifact_lineage_to_payload,
@@ -91,6 +95,7 @@ from .models import (
     FactLineageRecord,
     FactSetRecord,
     IssuerRecord,
+    JsonToDbSyncRecord,
     ManifestEntryRecord,
     ManifestRecord,
     MetricGovernanceDecisionRecord,
@@ -328,6 +333,29 @@ def _lifecycle_recompute_audit_from_result_payload(
     if not isinstance(audit_payload, dict):
         raise P5ArtifactRepositoryError("lifecycle_recompute_audit must be an object")
     return metric_lifecycle_recompute_audit_from_payload(audit_payload)
+
+
+def _json_to_db_sync_view_from_record(
+    record: JsonToDbSyncRecord,
+) -> JsonToDbSyncAuditView:
+    return JsonToDbSyncAuditView(
+        sync_id=record.sync_id,
+        recompute_run_id=record.recompute_run_id,
+        dataset_id=record.dataset_id,
+        status=JsonToDbSyncStatus(record.status),
+        input_hashes=cast(dict[str, str], json.loads(record.input_hashes_json)),
+        before_refs=cast(dict[str, str], json.loads(record.before_refs_json)),
+        after_refs=cast(dict[str, str], json.loads(record.after_refs_json)),
+        written_refs=cast(dict[str, str], json.loads(record.written_refs_json)),
+        skipped_refs=cast(dict[str, str], json.loads(record.skipped_refs_json)),
+        blocking_reasons=tuple(
+            cast(list[str], json.loads(record.blocking_reasons_json))
+        ),
+        requested_by=record.requested_by,
+        sync_reason=record.sync_reason,
+        created_at=record.created_at,
+        completed_at=record.completed_at,
+    )
 
 
 @dataclass(slots=True)
@@ -1287,6 +1315,123 @@ class SqlAlchemyP5ArtifactRepository:
                 else None
             ),
         )
+
+    def save_json_to_db_sync_result(self, view: JsonToDbSyncAuditView) -> str:
+        if view.sync_id is None:
+            raise P5ArtifactRepositoryError("JSON-to-DB sync result requires sync_id")
+
+        input_hashes_json = json.dumps(
+            dict(view.input_hashes),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        before_refs_json = json.dumps(
+            dict(view.before_refs),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        after_refs_json = json.dumps(
+            dict(view.after_refs),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        written_refs_json = json.dumps(
+            dict(view.written_refs),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        skipped_refs_json = json.dumps(
+            dict(view.skipped_refs),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        blocking_reasons_json = json.dumps(
+            list(view.blocking_reasons),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+        with Session(self.engine) as session:
+            record = session.get(JsonToDbSyncRecord, view.sync_id)
+            if record is None:
+                record = JsonToDbSyncRecord(
+                    sync_id=view.sync_id,
+                    recompute_run_id=view.recompute_run_id,
+                    dataset_id=view.dataset_id,
+                    status=view.status.value,
+                    input_hashes_json=input_hashes_json,
+                    before_refs_json=before_refs_json,
+                    after_refs_json=after_refs_json,
+                    written_refs_json=written_refs_json,
+                    skipped_refs_json=skipped_refs_json,
+                    blocking_reasons_json=blocking_reasons_json,
+                    requested_by=view.requested_by,
+                    sync_reason=view.sync_reason,
+                    created_at=view.created_at,
+                    completed_at=view.completed_at,
+                )
+                session.add(record)
+            else:
+                record.recompute_run_id = view.recompute_run_id
+                record.dataset_id = view.dataset_id
+                record.status = view.status.value
+                record.input_hashes_json = input_hashes_json
+                record.before_refs_json = before_refs_json
+                record.after_refs_json = after_refs_json
+                record.written_refs_json = written_refs_json
+                record.skipped_refs_json = skipped_refs_json
+                record.blocking_reasons_json = blocking_reasons_json
+                record.requested_by = view.requested_by
+                record.sync_reason = view.sync_reason
+                record.created_at = view.created_at
+                record.completed_at = view.completed_at
+            session.commit()
+        return view.sync_id
+
+    def load_json_to_db_sync_result(self, sync_id: str) -> JsonToDbSyncAuditView:
+        with Session(self.engine) as session:
+            record = session.get(JsonToDbSyncRecord, sync_id)
+            if record is None:
+                raise P5ArtifactRepositoryError(
+                    f"missing JSON-to-DB sync result in DB repository: {sync_id}"
+                )
+            return _json_to_db_sync_view_from_record(record)
+
+    def load_latest_json_to_db_sync_for_dataset(
+        self,
+        dataset_id: str,
+    ) -> JsonToDbSyncAuditView | None:
+        with Session(self.engine) as session:
+            record = session.scalar(
+                select(JsonToDbSyncRecord)
+                .where(JsonToDbSyncRecord.dataset_id == dataset_id)
+                .order_by(
+                    JsonToDbSyncRecord.created_at.desc(),
+                    JsonToDbSyncRecord.sync_id.desc(),
+                )
+                .limit(1)
+            )
+            if record is None:
+                return None
+            return _json_to_db_sync_view_from_record(record)
+
+    def load_latest_json_to_db_sync_for_recompute_run(
+        self,
+        recompute_run_id: str,
+    ) -> JsonToDbSyncAuditView | None:
+        with Session(self.engine) as session:
+            record = session.scalar(
+                select(JsonToDbSyncRecord)
+                .where(JsonToDbSyncRecord.recompute_run_id == recompute_run_id)
+                .order_by(
+                    JsonToDbSyncRecord.created_at.desc(),
+                    JsonToDbSyncRecord.sync_id.desc(),
+                )
+                .limit(1)
+            )
+            if record is None:
+                return None
+            return _json_to_db_sync_view_from_record(record)
 
     def save_metric_governance_decision(
         self,
