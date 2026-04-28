@@ -1,7 +1,8 @@
 # Active Plans
 
-There are no active implementation plans after the 2026-04-28 DB-backed
-recompute boundary/readiness closeout.
+Current active implementation plan:
+
+- `2026-04-28-financial-report-analysis-explicit-json-to-db-sync-bridge.md`
 
 Before creating a new plan, read:
 

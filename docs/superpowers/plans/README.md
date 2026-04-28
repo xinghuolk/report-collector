@@ -8,7 +8,7 @@ Use this directory as a lifecycle-managed workspace:
 
 Current active implementation plans:
 
-- None.
+- `active/2026-04-28-financial-report-analysis-explicit-json-to-db-sync-bridge.md`
 
 Archive rule:
 
