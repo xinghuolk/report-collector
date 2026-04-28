@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from financial_report_analysis.p5.governance_policy import (
+    is_downstream_consumable_fact,
+)
 from financial_report_analysis.p5.models import P5ExtractedArtifact
 
 if TYPE_CHECKING:
@@ -173,6 +176,7 @@ def _availability_metrics(
                 not isinstance(metric_id, str)
                 or metric_id not in required_metric_id_set
                 or metric_id in metrics_by_id
+                or not is_downstream_consumable_fact(fact)
             ):
                 continue
             metrics_by_id[metric_id] = _present_metric(artifact.artifact_id, fact)

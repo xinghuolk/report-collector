@@ -74,7 +74,16 @@ def _artifact(
         "currency": "USD",
         "quality_status": "ok",
         "evidence_bundle_id": f"bundle-{metric_id}-{fiscal_year}",
-        "extensions": {"period_scope": "fy"},
+        "extensions": {
+            "period_scope": "fy",
+            "metric_governance": {
+                "registry_status": "standard",
+                "metric_namespace": "standard",
+                "review_required": False,
+                "auto_analysis_allowed": True,
+                "governance_reason": "standard_metric",
+            },
+        },
     }
     if normalized_unit is not None:
         canonical_fact["normalized_unit"] = normalized_unit
@@ -365,6 +374,68 @@ def test_availability_uses_missing_status_from_artifact() -> None:
         "revenue": "present",
         "st_borr": "out_of_scope",
     }
+
+
+def test_availability_does_not_mark_blocked_governance_fact_present() -> None:
+    artifact = _artifact(
+        fiscal_year=2024,
+        missing_status={"working_capital_missing_status": {"revenue": "present"}},
+    )
+    blocked_fact = dict(artifact.canonical_facts[0])
+    blocked_fact["extensions"] = {
+        "period_scope": "fy",
+        "metric_governance": {
+            "registry_status": "provisional",
+            "metric_namespace": "custom",
+            "review_required": True,
+            "auto_analysis_allowed": False,
+            "governance_reason": "provisional_custom_metric",
+        },
+    }
+    artifact = P5ExtractedArtifact(
+        artifact_id=artifact.artifact_id,
+        artifact_version=artifact.artifact_version,
+        pipeline_version=artifact.pipeline_version,
+        manifest_entry=artifact.manifest_entry,
+        source_pdf_path=artifact.source_pdf_path,
+        document=artifact.document,
+        document_metadata=artifact.document_metadata,
+        candidate_facts=artifact.candidate_facts,
+        canonical_facts=(blocked_fact,),
+        derived_facts=artifact.derived_facts,
+        validation_report=artifact.validation_report,
+        review_packets=artifact.review_packets,
+        quality_gate=artifact.quality_gate,
+        missing_status=artifact.missing_status,
+        created_at=artifact.created_at,
+    )
+    repository = FakeReadRepository(
+        coverages={
+            ("HK_09987", 2024, "annual"): _coverage(
+                fiscal_year=2024,
+                artifact_ids=("HK_09987_2024",),
+            )
+        },
+        artifacts={"HK_09987_2024": artifact},
+        loaded_artifact_ids=[],
+    )
+
+    view = build_multi_year_availability_view(
+        repository=repository,
+        request=MultiYearAvailabilityRequest(
+            issuer_id="HK_09987",
+            start_year=2024,
+            end_year=2024,
+            metric_profile="turtle_core",
+            required_metric_ids=("revenue",),
+        ),
+    )
+
+    metric = view.years[0].metrics[0]
+    assert metric.metric_id == "revenue"
+    assert metric.status == "unknown"
+    assert metric.value is None
+    assert view.coverage_summary["present_metric_count"] == 0
 
 
 def test_availability_service_does_not_require_write_build_or_extract_methods() -> None:
