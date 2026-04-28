@@ -8,7 +8,10 @@ from fastapi.testclient import TestClient
 
 from financial_report_analysis.api.app import create_app
 from financial_report_analysis.api.runtime import build_api_runtime
-from financial_report_analysis.api.routes import _metric_lifecycle_state_to_response
+from financial_report_analysis.api.routes import (
+    _load_artifact_for_lifecycle_dry_run,
+    _metric_lifecycle_state_to_response,
+)
 from financial_report_analysis.models import (
     MetricLifecycleCandidateLink,
     MetricLifecycleConceptIdentity,
@@ -16,6 +19,7 @@ from financial_report_analysis.models import (
     MetricLifecycleEntry,
     MetricLifecycleState,
 )
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
 from financial_report_analysis.services.metric_governance_review import (
     build_review_item_id,
@@ -112,6 +116,21 @@ def _artifact_with_malformed_custom_metric(
         artifact,
         candidate_facts=(first_candidate, *artifact.candidate_facts[1:]),
     )
+
+
+class _MissingArtifactRepository:
+    def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact:
+        raise P5ArtifactRepositoryError(f"missing extracted artifact: {artifact_id}")
+
+
+class _CorruptArtifactRepository:
+    def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact:
+        raise P5ArtifactRepositoryError(f"invalid extracted artifact: {artifact_id}")
+
+
+class _KeyErrorArtifactRepository:
+    def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact:
+        raise KeyError(artifact_id)
 
 
 def test_metric_governance_lifecycle_entry_endpoint_creates_linked_state(
@@ -434,6 +453,31 @@ def test_metric_governance_lifecycle_recompute_audit_accepts_dry_run(
         "conflict",
         "suppress_blacklisted",
     }
+
+
+def test_lifecycle_recompute_dry_run_loader_ignores_missing_artifact() -> None:
+    artifact = _load_artifact_for_lifecycle_dry_run(
+        _MissingArtifactRepository(),
+        "missing-artifact",
+    )
+
+    assert artifact is None
+
+
+def test_lifecycle_recompute_dry_run_loader_preserves_repository_errors() -> None:
+    with pytest.raises(P5ArtifactRepositoryError, match="invalid extracted artifact"):
+        _load_artifact_for_lifecycle_dry_run(
+            _CorruptArtifactRepository(),
+            "corrupt-artifact",
+        )
+
+
+def test_lifecycle_recompute_dry_run_loader_preserves_key_error() -> None:
+    with pytest.raises(KeyError):
+        _load_artifact_for_lifecycle_dry_run(
+            _KeyErrorArtifactRepository(),
+            "corrupt-artifact",
+        )
 
 
 def test_metric_governance_lifecycle_decision_rejects_missing_review_item(

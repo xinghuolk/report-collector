@@ -624,8 +624,12 @@ def _load_artifact_for_lifecycle_dry_run(
     try:
         load_artifact = getattr(repository, "load_extracted_artifact")
         return load_artifact(artifact_id)
-    except (AttributeError, FileNotFoundError, KeyError, P5ArtifactRepositoryError):
+    except (AttributeError, FileNotFoundError):
         return None
+    except P5ArtifactRepositoryError as exc:
+        if str(exc).startswith("missing "):
+            return None
+        raise
 
 
 def _load_metric_governance_review_item_or_404(
