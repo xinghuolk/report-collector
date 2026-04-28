@@ -974,6 +974,7 @@ def _dataset_row_to_response(row: P5DatasetRow) -> DatasetRowResponse:
         source_fact_id=row.source_fact_id,
         source_artifact_id=row.source_artifact_id,
         evidence_bundle_id=row.evidence_bundle_id,
+        lifecycle_consumption=row.lifecycle_consumption,
     )
 
 

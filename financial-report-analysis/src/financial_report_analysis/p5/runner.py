@@ -42,6 +42,10 @@ def run_p5_dataset_build(
     ] = build_extracted_artifact,
     assemble_dataset_func: Callable[..., P5DatasetArtifact] = assemble_dataset,
     build_turtle_export_func: Callable[[P5DatasetArtifact], P5TurtleExport] = build_turtle_export,
+    artifact_transform_func: Callable[
+        [P5ExtractedArtifact],
+        P5ExtractedArtifact,
+    ] | None = None,
     now_func: Callable[[], str] | None = None,
 ) -> P5RunResult:
     manifest = load_manifest(manifest_path, pdf_root=pdf_root)
@@ -56,6 +60,8 @@ def run_p5_dataset_build(
             force_rebuild=entry.artifact_id in forced_artifact_ids,
             build_artifact_func=build_artifact_func,
         )
+        if artifact_transform_func is not None:
+            artifact = artifact_transform_func(artifact)
         extracted_artifacts.append(artifact)
 
     dataset = assemble_dataset_func(

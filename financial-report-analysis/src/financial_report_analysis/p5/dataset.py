@@ -76,6 +76,12 @@ def _present_row_from_fact(
 ) -> P5DatasetRow:
     entry = artifact.manifest_entry
     extensions = _mapping_value(fact.get("extensions"))
+    metric_governance = _mapping_value_or_none(extensions.get("metric_governance"))
+    lifecycle_consumption = None
+    if metric_governance is not None:
+        lifecycle_consumption = _mapping_value_or_none(
+            metric_governance.get("lifecycle_consumption")
+        )
     return P5DatasetRow(
         issuer_id=entry.issuer_id,
         market=entry.market,
@@ -99,6 +105,7 @@ def _present_row_from_fact(
         source_fact_id=_optional_text_value(fact.get("fact_id")),
         source_artifact_id=artifact.artifact_id,
         evidence_bundle_id=_optional_text_value(fact.get("evidence_bundle_id")),
+        lifecycle_consumption=lifecycle_consumption,
     )
 
 
@@ -149,6 +156,7 @@ def _missing_rows(
                 source_fact_id=None,
                 source_artifact_id=artifact.artifact_id,
                 evidence_bundle_id=None,
+                lifecycle_consumption=None,
             )
             if _missing_row_key(missing_row) not in present_row_keys:
                 rows.append(missing_row)
@@ -347,6 +355,12 @@ def _mapping_value(value: object) -> dict[str, Any]:
         return {}
     if not isinstance(value, Mapping):
         raise ValueError("expected mapping value")
+    return dict(value)
+
+
+def _mapping_value_or_none(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
     return dict(value)
 
 

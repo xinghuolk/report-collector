@@ -118,6 +118,69 @@ def test_assemble_dataset_emits_present_rows_and_missing_status_rows(
     assert dataset.quality_summary["duplicate_fact_conflicts"] == []
 
 
+def test_assemble_dataset_preserves_lifecycle_consumption_provenance(
+    tmp_path: Path,
+) -> None:
+    provenance = {
+        "source_review_item_id": "CN_601919_2025:candidate-1",
+        "lifecycle_entry_id": "metric-lifecycle:1",
+        "decision_id": "metric-lifecycle-decision:1",
+        "decision_action": "map_to_standard",
+        "source_candidate_metric_id": "custom::receivables",
+        "target_metric_id": "accounts_receiv",
+        "consumption_action": "map_to_standard",
+    }
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-governed-receivables",
+                "metric_id": "accounts_receiv",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-1",
+                "extensions": {
+                    "period_scope": "duration",
+                    "metric_governance": {"lifecycle_consumption": provenance},
+                },
+            },
+            {
+                "fact_id": "fact-revenue",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 200.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-2",
+                "extensions": {"period_scope": "duration"},
+            },
+        ),
+        missing_status={
+            "asset_missing_status": {"cash": "absent"},
+        },
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    rows_by_metric = {row.metric_id: row for row in dataset.rows}
+    assert rows_by_metric["accounts_receiv"].lifecycle_consumption == provenance
+    assert rows_by_metric["revenue"].lifecycle_consumption is None
+    assert rows_by_metric["cash"].lifecycle_consumption is None
+
+
 def test_assemble_dataset_does_not_emit_present_missing_status_without_fact(
     tmp_path: Path,
 ) -> None:

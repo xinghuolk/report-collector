@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from financial_report_analysis.models import MetricLifecycleRecomputeAudit
 from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
 from financial_report_analysis.p5.models import (
+    P5ExtractedArtifact,
     P5RecomputeDiffSummary,
     P5RecomputePlan,
     P5RecomputeResult,
@@ -16,6 +18,11 @@ from financial_report_analysis.p5.runner import (
     run_p5_dataset_build,
 )
 from financial_report_analysis.p5.turtle_export import build_turtle_export
+from financial_report_analysis.services.metric_lifecycle_consumption import (
+    apply_metric_lifecycle_consumption,
+)
+
+_LIFECYCLE_RECOMPUTE_REASON = "metric_lifecycle_decision_changed"
 
 
 def build_recompute_plan(
@@ -42,6 +49,7 @@ def execute_recompute_plan(
     manifest_path: str | Path,
     artifact_root: str | Path,
     pdf_root: str | Path | None,
+    lifecycle_consumption_audit: MetricLifecycleRecomputeAudit | None = None,
     run_p5_dataset_build_func: Callable[..., P5RunResult] = run_p5_dataset_build,
 ) -> P5RecomputeResult:
     repository = P5JsonArtifactRepository(artifact_root)
@@ -50,6 +58,22 @@ def execute_recompute_plan(
         repository.turtle_export_artifact_path(plan.dataset_id)
     )
     if plan.rebuild_dataset:
+        build_kwargs: dict[str, object] = {}
+        if _is_lifecycle_recompute_reason(plan.reason):
+            if lifecycle_consumption_audit is None:
+                raise ValueError(
+                    "lifecycle_consumption_audit is required for lifecycle recompute"
+                )
+
+            def transform_artifact(
+                artifact: P5ExtractedArtifact,
+            ) -> P5ExtractedArtifact:
+                return apply_metric_lifecycle_consumption(
+                    artifact=artifact,
+                    audit=lifecycle_consumption_audit,
+                )
+
+            build_kwargs["artifact_transform_func"] = transform_artifact
         run_result = run_p5_dataset_build_func(
             manifest_path=manifest_path,
             artifact_root=artifact_root,
@@ -57,6 +81,7 @@ def execute_recompute_plan(
             pdf_root=pdf_root,
             force_rebuild_artifact_ids=_force_rebuild_artifact_ids_for_reason(plan),
             write_turtle_export=plan.rebuild_turtle_export,
+            **build_kwargs,
         )
         after_dataset = _safe_read_json_payload(run_result.dataset_path)
         after_turtle = _safe_read_json_payload(run_result.turtle_export_path)
@@ -109,6 +134,7 @@ def _rebuild_flags_for_reason(reason: str) -> tuple[bool, bool]:
         "pipeline_version_changed": (True, True),
         "manual_review_check": (True, True),
         "dataset_assembly_contract_changed": (True, True),
+        _LIFECYCLE_RECOMPUTE_REASON: (True, True),
         "export_alias_changed": (False, True),
         "export_shape_changed": (False, True),
     }
@@ -124,6 +150,10 @@ def _force_rebuild_artifact_ids_for_reason(plan: P5RecomputePlan) -> tuple[str, 
     }:
         return plan.target_artifact_ids
     return ()
+
+
+def _is_lifecycle_recompute_reason(reason: str) -> bool:
+    return reason.strip().lower() == _LIFECYCLE_RECOMPUTE_REASON
 
 
 def _safe_read_json_payload(path: Path) -> object | None:

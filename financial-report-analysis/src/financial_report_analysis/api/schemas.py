@@ -419,6 +419,7 @@ class DatasetRowResponse(BaseModel):
     source_fact_id: str | None
     source_artifact_id: str
     evidence_bundle_id: str | None
+    lifecycle_consumption: dict[str, object] | None = None
 
 
 class DatasetArtifactResponse(BaseModel):

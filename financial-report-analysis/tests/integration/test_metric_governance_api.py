@@ -20,7 +20,12 @@ from financial_report_analysis.models import (
     MetricLifecycleState,
 )
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
-from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
+from financial_report_analysis.p5.models import (
+    P5DatasetArtifact,
+    P5DatasetRow,
+    P5ExtractedArtifact,
+    P5ManifestEntry,
+)
 from financial_report_analysis.services.metric_governance_review import (
     build_review_item_id,
 )
@@ -458,6 +463,61 @@ def test_metric_governance_lifecycle_recompute_audit_accepts_dry_run(
         "conflict",
         "suppress_blacklisted",
     }
+
+
+def test_dataset_api_preserves_lifecycle_consumption_provenance(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    assert runtime.storage_repository is not None
+    provenance = {
+        "source_review_item_id": "CN_601919_2025:candidate-1",
+        "lifecycle_entry_id": "metric-lifecycle:1",
+        "decision_id": "metric-lifecycle-decision:1",
+        "decision_action": "map_to_standard",
+        "source_candidate_metric_id": "custom::receivables",
+        "target_metric_id": "accounts_receiv",
+        "consumption_action": "map_to_standard",
+    }
+    runtime.storage_repository.save_dataset_artifact(
+        P5DatasetArtifact(
+            dataset_id="p5_seed",
+            dataset_version="1.0",
+            created_at="2026-04-28T00:00:00+00:00",
+            issuer_count=1,
+            periods=(2025,),
+            metrics=("accounts_receiv",),
+            rows=(
+                P5DatasetRow(
+                    issuer_id="CN_601919",
+                    market="CN",
+                    stock_code="601919",
+                    fiscal_year=2025,
+                    metric_id="accounts_receiv",
+                    entity_scope="consolidated",
+                    period_scope="duration",
+                    statement_type="income_statement",
+                    value=100.0,
+                    currency="CNY",
+                    unit="currency_amount",
+                    quality_status="ok",
+                    missing_status="present",
+                    source_fact_id="fact-governed-receivables",
+                    source_artifact_id="CN_601919_2025",
+                    evidence_bundle_id="bundle-1",
+                    lifecycle_consumption=provenance,
+                ),
+            ),
+            quality_summary={},
+            source_artifacts=("CN_601919_2025",),
+        )
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.get("/datasets/p5_seed")
+
+    assert response.status_code == 200
+    assert response.json()["rows"][0]["lifecycle_consumption"] == provenance
 
 
 def test_lifecycle_recompute_dry_run_loader_ignores_missing_artifact() -> None:

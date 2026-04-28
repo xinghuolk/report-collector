@@ -310,6 +310,7 @@ def _row_to_json(row: P5DatasetRow) -> dict[str, Any]:
         "source_fact_id": row.source_fact_id,
         "source_artifact_id": row.source_artifact_id,
         "evidence_bundle_id": row.evidence_bundle_id,
+        "lifecycle_consumption": row.lifecycle_consumption,
     }
 
 
@@ -332,6 +333,9 @@ def _row_from_json(payload: Any) -> P5DatasetRow:
         source_fact_id=_optional_text_from_json(row.get("source_fact_id")),
         source_artifact_id=_text_from_json(row["source_artifact_id"], "source_artifact_id"),
         evidence_bundle_id=_optional_text_from_json(row.get("evidence_bundle_id")),
+        lifecycle_consumption=_optional_object_from_json(
+            row.get("lifecycle_consumption")
+        ),
     )
 
 
@@ -428,6 +432,12 @@ def _object_from_json(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _type_error("object", "object", value)
     return value
+
+
+def _optional_object_from_json(value: Any) -> dict[str, object] | None:
+    if value is None:
+        return None
+    return _object_from_json(value)
 
 
 def _tuple_of_objects(value: Any) -> tuple[dict[str, Any], ...]:

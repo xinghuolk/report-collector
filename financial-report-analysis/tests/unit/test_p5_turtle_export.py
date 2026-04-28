@@ -5,6 +5,15 @@ from financial_report_analysis.p5.turtle_export import build_turtle_export
 
 
 def test_build_turtle_export_maps_canonical_ids_to_turtle_aliases() -> None:
+    provenance = {
+        "source_review_item_id": "CN_601919_2025:candidate-1",
+        "lifecycle_entry_id": "metric-lifecycle:1",
+        "decision_id": "metric-lifecycle-decision:1",
+        "decision_action": "map_to_standard",
+        "source_candidate_metric_id": "custom::cash",
+        "target_metric_id": "cash",
+        "consumption_action": "map_to_standard",
+    }
     dataset = P5DatasetArtifact(
         dataset_id="p5_seed",
         dataset_version="1.0",
@@ -30,6 +39,7 @@ def test_build_turtle_export_maps_canonical_ids_to_turtle_aliases() -> None:
                 source_fact_id="fact-cash",
                 source_artifact_id="CN_601919_2025",
                 evidence_bundle_id="bundle-cash",
+                lifecycle_consumption=provenance,
             ),
             P5DatasetRow(
                 issuer_id="CN_601919",
@@ -64,3 +74,5 @@ def test_build_turtle_export_maps_canonical_ids_to_turtle_aliases() -> None:
     assert export.rows[1]["turtle_field"] == "n_cashflow_act"
     assert export.rows[0]["canonical_metric_id"] == "cash"
     assert export.rows[1]["canonical_metric_id"] == "operating_cash_flow"
+    assert export.rows[0]["lifecycle_consumption"] == provenance
+    assert export.rows[1]["lifecycle_consumption"] is None
