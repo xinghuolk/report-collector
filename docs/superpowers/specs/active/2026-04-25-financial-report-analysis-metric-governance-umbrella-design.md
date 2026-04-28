@@ -3,7 +3,7 @@
 > **Status:** Active umbrella spec
 > **Date:** 2026-04-25
 > **Scope Type:** Architecture and multi-phase roadmap
-> **Current Implementation Status:** Phase 1-4B implemented baseline
+> **Current Implementation Status:** Phase 1-4B plus downstream governance hardening implemented baseline
 
 ## 1. Purpose
 
@@ -117,10 +117,14 @@ Current implementation status:
 - Phase 3 added durable lifecycle registry behavior.
 - Phase 4A exposed lifecycle workflow and review API operations.
 - Phase 4B added recompute audit, dry-run, and controlled consumption.
+- The downstream hardening slice added an explicit P5/availability consumption
+  policy so non-consumable governed facts no longer become stable dataset rows,
+  Turtle rows, or availability present metrics.
 
 The remaining post-P4B work is no longer "implement durable lifecycle". It is
-to harden downstream consumers, persist lifecycle recompute audit snapshots when
-needed, and clarify the DB-backed recompute boundary.
+to persist lifecycle recompute audit snapshots when needed, clarify the
+DB-backed recompute boundary, or start a one-field post-P5 onboarding slice after
+the governance/source precedence gates remain satisfied.
 
 ## 3. Design Principles
 
@@ -501,11 +505,12 @@ status is tracked by:
 - `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
 - `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`
 
-Recommended post-P4B choices:
+Downstream governance hardening is now complete. Recommended post-hardening
+choices:
 
-- downstream governance hardening in P5 dataset, Turtle export, and
-  availability read surfaces;
 - lifecycle recompute audit snapshot persistence;
 - DB-backed recompute boundary clarification;
 - one-field post-P5 onboarding only after the governance/source precedence gates
-  remain satisfied.
+  remain satisfied;
+- whole-document LLM assessment/diff review only as a review artifact, never as a
+  canonical fact or recompute decision source.

@@ -28,6 +28,10 @@
 - `Metric Governance Phase 1` 到 `Phase 4B` 已完成并收口，包括 metadata
   guardrails、review surface、durable lifecycle registry、workflow/review API、
   recompute audit、dry-run 和 controlled consumption。
+- `Downstream Governance Hardening` 已完成并收口。P5 dataset、Turtle export 和
+  3-5Y availability 现在不再只信任 upstream canonical purity，而是通过显式
+  downstream consumption policy 阻断缺失治理 metadata、provisional/custom、
+  deprecated/blacklisted 或未受控 lifecycle facts 进入稳定下游输出。
 - 当前架构分析已收口在
   `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`。
 - 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
@@ -67,6 +71,10 @@
 因此，下一步不宜再从数据库 umbrella spec、availability spec 或 workflow umbrella spec 直接写新的 implementation plan。只有当出现新的明确业务目标时，才从下面这些 future buckets 中选择一个最小切片：
 
 - Metric governance 与 custom/provisional lifecycle：把 registry 状态、review decision、canonical promotion 的长期方向拆成小的可验证 slice。
+- Lifecycle recompute audit persistence：当业务需要解释“哪些 lifecycle decision 影响了
+  哪次 dataset/Turtle output”时，持久化 run-level audit snapshot。
+- DB-backed recompute boundary：明确 recompute 是 JSON-first 加显式 DB sync，还是
+  DB-native，避免长期保留两条含糊路径。
 - Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
 - Whole-document LLM assessment / diff review：只作为 review artifact，不进入 canonical facts 或 deterministic recompute 裁决链。
 - 3-5Y workflow/products：只有在业务明确需要自动补齐、job 状态、product artifact 生命周期或 approval workflow 时再启动。
@@ -320,12 +328,15 @@ pdf
    - 当前不是“还有数据库层没做完”，而是单年抽取持久化与 3-5 年只读数据提供已经形成闭环。
    - availability view 已完成并归档；不要再围绕同一目标新开 active spec。
 
-3. **承认 metric governance Phase 1-4B 已完成。**
+3. **承认 metric governance Phase 1-4B 和 downstream hardening 已完成。**
    - 当前不是“只有 Phase 1 是 immediate target”，而是 metadata guardrails、
      review surface、durable lifecycle、workflow API、recompute audit 和
      controlled consumption 已形成 post-P4B baseline。
-   - 后续 governance 工作应从 downstream hardening、audit persistence 或 DB
-     recompute boundary 中选择 focused slice，而不是重复执行 Phase 1-4B。
+   - 下游消费层已经补上显式 guardrail：P5 dataset 会过滤 non-consumable facts 并记录
+     blocked summary，availability 不再把 blocked facts 标记为 present，Turtle export
+     继续只继承 dataset rows。
+   - 后续 governance 工作应从 audit persistence 或 DB recompute boundary 中选择
+     focused slice，而不是重复执行 Phase 1-4B 或 downstream hardening。
 
 4. **把 workflow/products 明确后置为 future scope。**
    - 当前业务暂不需要 job 状态表、自动补齐、recompute 生命周期、product artifact 生命周期或 approval workflow。
@@ -539,6 +550,28 @@ pdf
 - 该能力只服务 review、gap detection 与差异摘要，不直接改写 canonical facts。
 - 该能力不进入 deterministic recompute 主链，只作为可插拔评估扩展存在。
 
+### Milestone H: Downstream Governance Hardening Closeout
+
+当前状态：
+
+- 已新增共享 downstream governance policy helper，集中判断 canonical fact 是否允许进入
+  自动下游消费。
+- P5 dataset 只为 consumable facts 生成 `present` rows；被阻断 facts 会进入
+  `quality_summary` 的 governance blocked 摘要。
+- 3-5Y availability 在 present 判定前复用同一 policy，避免 blocked fact 造成
+  false-present。
+- Turtle export 保持 dataset-driven，不读取 raw artifact，也不重新执行 lifecycle
+  lookup。
+- 缺失或 malformed governance metadata 默认 fail closed。
+
+后续含义：
+
+- `Downstream Governance Hardening` 不再是下一步候选项。
+- 如果继续 governance 线，优先选择 lifecycle recompute audit persistence 或
+  DB-backed recompute boundary。
+- 如果继续 Turtle 字段线，应从 one-field post-P5 onboarding slice 开始，并保留当前
+  governance/source precedence gates。
+
 ## 10. 非目标
 
 本文不做以下事情：
@@ -593,4 +626,6 @@ issuer + fiscal-year range
 
 `financial-report-analysis-3-5y-persisted-dataset-availability-view-design` 已完成并归档。真实 PDF 可继续作为 seed smoke test，但 availability correctness 的第一层验证应使用 seeded DB / mocked extracted artifacts，避免每次收口都被完整 real-PDF matrix 和 Ollama fallback 成本拖住。
 
-在没有新增业务目标前，不需要新的 active implementation plan。
+在没有新增业务目标前，不需要新的 active implementation plan。若需要继续推进，当前最小
+候选顺序是：`lifecycle recompute audit persistence`、`DB-backed recompute boundary`、
+或一个经过 sample-onboarding diagnosis 的 post-P5 单字段切片。

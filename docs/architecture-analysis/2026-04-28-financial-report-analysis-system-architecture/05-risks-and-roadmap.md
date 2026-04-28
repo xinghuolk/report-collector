@@ -33,6 +33,15 @@ Metric governance 也已完成 Phase 1-4B 切片：
 - recompute audit 和 dry-run；
 - controlled consumption 和 provenance。
 
+Downstream governance hardening 也已完成：
+
+- P5 dataset 通过共享 policy helper 过滤 non-consumable canonical facts；
+- dataset `quality_summary` 记录 governance blocked count、metric、reason 和 source
+  fact ids；
+- Turtle export 继续只消费 dataset rows，不绕过 dataset governance；
+- 3-5Y availability 在 present 判定前检查同一 governance policy；
+- 缺失或 malformed governance metadata 默认 fail closed。
+
 ## 暂停门槛
 
 路线图定义了五类 pause gates：
@@ -66,12 +75,16 @@ unknown or unsupported field
 - `ConflictResolver` 阻断 provisional custom canonical promotion。
 - `ReportAdapter` 排除 `auto_analysis_allowed=false`。
 - Lifecycle-controlled output changes 必须通过显式 audit 和 recompute。
+- P5 dataset 和 availability 现在也会在下游消费前显式执行 governance policy。
 
 剩余风险：
 
-- P5 dataset、Turtle export 和 availability 大体信任 canonical facts。如果 polluted
-  canonical fact 通过其他路径进入 artifact，这些下游 consumers 仍可能将其视为
-  present。
+- Lifecycle recompute 的 audit snapshot 仍主要是运行时/测试层可见，尚未形成稳定的
+  run-level 持久化审计模型。
+- DB-backed recompute 边界仍需要明确：未来到底是 JSON-first 加显式 DB sync，还是
+  DB-native recompute path。
+- 如果新增 post-P5 字段，仍需要先走 sample-onboarding diagnosis，避免绕过当前
+  governance/source precedence gates。
 
 ## 语义兜底边界
 
@@ -108,25 +121,21 @@ unknown or unsupported field
 
 ## 建议的后续切片
 
-1. **Active docs reconciliation。**
-   更新 active roadmap/umbrella 状态，使其明确反映 metric governance Phase
-   1-4B 已实现，同时 approval workflow/UI/async jobs 仍是 future scope。
-
-2. **Downstream governance hardening。**
-   在 P5 dataset、Turtle export 和 availability 中增加显式 governance
-   assertions 或 filters，避免完全依赖 upstream canonical purity。
-
-3. **Lifecycle recompute audit persistence。**
+1. **Lifecycle recompute audit persistence。**
    持久化 audit snapshots 或 run-level metadata，说明哪些 lifecycle decisions
    影响了某次 dataset/Turtle output。
 
-4. **DB-backed recompute boundary。**
+2. **DB-backed recompute boundary。**
    明确 recompute 是继续 JSON-first 并显式 DB sync，还是变成 DB-native。避免
    长期保留两条含糊的 recompute paths。
 
-5. **One-field post-P5 onboarding slice。**
+3. **One-field post-P5 onboarding slice。**
    从 gap list 中选择一个字段族，先执行 sample-onboarding diagnosis，再决定
    是否扩展 deterministic semantics、registry mappings 或 review surfaces。
+
+4. **Whole-document LLM assessment/diff review。**
+   只作为 review/gap-detection artifact，不直接产出 canonical facts，也不参与
+   deterministic recompute 裁决。
 
 ## 不应该马上做的事
 
