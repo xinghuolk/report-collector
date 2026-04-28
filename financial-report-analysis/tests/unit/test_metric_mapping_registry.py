@@ -817,3 +817,91 @@ def test_metric_mapping_registry_does_not_misclassify_non_cash_health_rows(
     )
 
     assert definition is None
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "market", "label"),
+    [
+        (
+            "selling_general_administrative",
+            "HK",
+            "selling, general and administrative expenses",
+        ),
+        (
+            "selling_general_administrative",
+            "HK",
+            "selling and distribution expenses and administrative expenses",
+        ),
+        ("selling_general_administrative", "CN", "销售及行政开支"),
+        ("fv_value_chg_gain", "CN", "公允价值变动收益"),
+        ("fv_value_chg_gain", "HK", "fair value gains and losses"),
+        ("non_oper_income", "CN", "营业外收入"),
+        ("non_oper_income", "HK", "non-operating income"),
+        ("non_oper_exp", "CN", "营业外支出"),
+        ("non_oper_exp", "HK", "non-operating expenses"),
+    ],
+)
+def test_metric_mapping_registry_matches_post_p5_profit_enhancement_fields(
+    metric_id: str,
+    market: str,
+    label: str,
+) -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="income_statement",
+        normalized_row_label=label,
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market=market,
+    )
+
+    assert definition is not None
+    assert definition.metric_id == metric_id
+    assert definition.statement_type == "income_statement"
+    assert definition.period_scope == "duration"
+
+
+@pytest.mark.parametrize(
+    ("label", "market"),
+    [
+        ("selling expenses", "HK"),
+        ("administrative expenses", "HK"),
+        ("销售费用", "CN"),
+        ("管理费用", "CN"),
+        ("other income", "HK"),
+        ("other gains and losses", "HK"),
+        ("other expenses", "HK"),
+    ],
+)
+def test_metric_mapping_registry_rejects_broad_profit_enhancement_false_positives(
+    label: str,
+    market: str,
+) -> None:
+    registry = load_metric_registry()
+
+    assert (
+        registry.match(
+            table_kind="income_statement",
+            normalized_row_label=label,
+            value_time_shape="duration",
+            statement_scope_guess="consolidated",
+            market=market,
+        )
+        is None
+    )
+
+
+def test_metric_mapping_registry_rejects_fair_value_profit_metric_outside_income_statement() -> None:
+    registry = load_metric_registry()
+
+    assert (
+        registry.match(
+            table_kind="balance_sheet",
+            normalized_row_label="fair value gains and losses",
+            value_time_shape="point_in_time",
+            statement_scope_guess="consolidated",
+            market="HK",
+        )
+        is None
+    )
