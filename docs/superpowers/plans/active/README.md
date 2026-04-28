@@ -2,4 +2,4 @@
 
 Current active implementation plans:
 
-- `2026-04-28-financial-report-analysis-post-p5-profit-enhancement.md`
+- None after the 2026-04-28 post-P5 profit enhancement closeout.

@@ -14,6 +14,7 @@ P4/P5 缺口处理：
 - 现金健康度 / bridge baseline：`restricted_cash`、`interest_paid_cash`、`time_deposits_or_wealth_products`
 - 母公司范围 baseline：parent `cash`、`lt_eqt_invest`、parent debt/equity/asset/liability families
 - 经营质量与 capex follow-up baseline：`fix_assets`、`cip`、`rd_exp`、`invest_income`、`asset_disp_income`、`n_recp_disp_fiolta`、`c_recp_return_invest`
+- 利润增强最小切片已完成：`selling_general_administrative` direct-combined rows、`fv_value_chg_gain`、`non_oper_income`、`non_oper_exp` 已进入 deterministic statement-row coverage；`gross_profit` 继续作为既有基线回归保护。CN 单独 `销售费用` / `管理费用` 求和仍保持 future scope。
 - P5 multi-year investor dataset、Turtle export、storage-backed lookup、review、
   lineage、recompute 和 3-5Y availability baseline
 
@@ -23,9 +24,9 @@ roadmap、reconciliation spec 和当前代码为准。
 
 当前仍开放、且更适合进入后续 focused specs 的差距主要是：
 
-1. 利润增强：`gross_profit`、SG&A 等价口径、`fv_value_chg_gain`、`non_oper_income`、`non_oper_exp`
-2. 资产负债增强：`total_cur_assets`、`other_cur_assets`、`total_cur_liab`、`defer_tax_assets`、`defer_tax_liab`
-3. 现金流增强：`stock_based_compensation`、`change_in_receivables`、`change_in_payables`、`change_in_inventory`、`receiv_tax_refund`
+1. 资产负债增强：`total_cur_assets`、`other_cur_assets`、`total_cur_liab`、`defer_tax_assets`、`defer_tax_liab`
+2. 现金流增强：`stock_based_compensation`、`change_in_receivables`、`change_in_payables`、`change_in_inventory`、`receiv_tax_refund`
+3. CN 单独 `销售费用` / `管理费用` 求和等非最小切片利润细化
 4. 附注/公告桥接：DPS、分红方案、回购/注销、资本化研发、资本化利息、账龄/坏账、关联方应收应付
 5. 文本型 review artifact：MD&A、审计意见、风险因素、股息政策原文
 

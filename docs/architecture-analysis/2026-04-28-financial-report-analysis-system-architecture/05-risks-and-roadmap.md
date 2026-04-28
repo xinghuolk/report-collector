@@ -128,17 +128,25 @@ unknown or unsupported field
 
 ## 建议的后续切片
 
-1. **HTTP-triggered recompute/job boundary evaluation。**
+1. **Profit enhancement minimal slice closed。**
+   `selling_general_administrative` direct-combined rows、`fv_value_chg_gain`、
+   `non_oper_income`、`non_oper_exp` 已进入 deterministic statement-row
+   coverage；`gross_profit` 保持既有基线回归保护。CN 单独 `销售费用` /
+   `管理费用` 求和仍是 future scope，不应阻塞本切片 closeout。
+
+2. **Asset/liability enhancement onboarding slice。**
+   若继续做字段覆盖，优先从 `total_cur_assets`、`other_cur_assets`、
+   `total_cur_liab`、`defer_tax_assets`、`defer_tax_liab` 中选择一个最小字段族，
+   先执行 sample-onboarding diagnosis，再决定是否扩展 deterministic semantics、
+   registry mappings 或 review surfaces。
+
+3. **HTTP-triggered recompute/job boundary evaluation。**
    DB-backed recompute boundary/readiness contract 已明确：当前仍是 JSON-first
    canonical executor，DB-native recompute unsupported。explicit JSON-to-DB sync
    bridge baseline 已完成；后续只有在出现产品 workflow requirement 时，才评估
    HTTP-triggered recompute、job status、locking/idempotency 和 async boundary。
 
-2. **One-field post-P5 onboarding slice。**
-   从 gap list 中选择一个字段族，先执行 sample-onboarding diagnosis，再决定
-   是否扩展 deterministic semantics、registry mappings 或 review surfaces。
-
-3. **Whole-document LLM assessment/diff review。**
+4. **Whole-document LLM assessment/diff review。**
    只作为 review/gap-detection artifact，不直接产出 canonical facts，也不参与
    deterministic recompute 裁决。
 

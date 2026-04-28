@@ -8,7 +8,7 @@ Use this directory as a lifecycle-managed workspace:
 
 Current active implementation plans:
 
-- `active/2026-04-28-financial-report-analysis-post-p5-profit-enhancement.md`
+- None.
 
 Archive rule:
 

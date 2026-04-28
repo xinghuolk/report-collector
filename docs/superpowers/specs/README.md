@@ -11,11 +11,11 @@ Current active entries:
 - `active/2026-04-22-financial-report-analysis-unified-roadmap.md`
 - `active/2026-04-24-financial-report-analysis-hk-09987-2025-extraction-recovery-design.md`
 - `active/2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`
-- `active/2026-04-28-financial-report-analysis-post-p5-profit-enhancement-design.md`
 
 Archived entries include:
 
 - `archived/2026-04-28-financial-report-analysis-explicit-json-to-db-sync-bridge-design.md`
+- `archived/2026-04-28-financial-report-analysis-post-p5-profit-enhancement-design.md`
 
 Archive rule:
 
