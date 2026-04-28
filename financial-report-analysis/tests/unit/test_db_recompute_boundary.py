@@ -173,7 +173,7 @@ def test_source_artifact_id_count_must_match_loaded_audit_records() -> None:
 def test_source_artifact_ids_must_match_loaded_audit_record_ids() -> None:
     with pytest.raises(
         P5ArtifactRepositoryError,
-        match="source artifact audit records do not match source artifact ids",
+        match="source artifact audit record ids do not match source artifact ids",
     ):
         build_db_recompute_boundary_view(
             repository=_FakeRepository(

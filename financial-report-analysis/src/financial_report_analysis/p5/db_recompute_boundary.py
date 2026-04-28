@@ -53,12 +53,17 @@ def build_db_recompute_boundary_view(
             "missing source artifacts for dataset in DB repository: "
             f"{dataset_id}"
         )
+    if len(audit_view.source_artifacts) != len(source_artifact_ids):
+        raise P5ArtifactRepositoryError(
+            "source artifact audit records do not match source artifact ids "
+            f"for dataset in DB repository: {dataset_id}"
+        )
     source_audit_artifact_ids = tuple(
         record.source_artifact_id for record in audit_view.source_artifacts
     )
     if source_audit_artifact_ids != source_artifact_ids:
         raise P5ArtifactRepositoryError(
-            "source artifact audit records do not match source artifact ids "
+            "source artifact audit record ids do not match source artifact ids "
             f"for dataset in DB repository: {dataset_id}"
         )
 
