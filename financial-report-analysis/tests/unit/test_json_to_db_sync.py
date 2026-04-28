@@ -6,7 +6,11 @@ from typing import cast
 
 import pytest
 
-from financial_report_analysis.models import MetricLifecycleRecomputeAudit
+from financial_report_analysis.models import (
+    MetricLifecycleRecomputeAudit,
+    MetricLifecycleRecomputeAuditItem,
+    MetricLifecycleRecomputeAuditSummary,
+)
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.json_to_db_sync import (
     JsonToDbSyncAuditView,
@@ -107,13 +111,17 @@ class _FakeRepository:
         self,
         *,
         existing_sync: JsonToDbSyncAuditView | None = None,
+        existing_sync_by_id: dict[str, JsonToDbSyncAuditView] | None = None,
         artifact_hashes: dict[str, str] | None = None,
         db_source_artifact_ids: tuple[str, ...] = ("artifact-1",),
         current_before_refs: dict[str, str] | None = None,
         fail_bundle: bool = False,
         fail_recompute: bool = False,
+        fail_completed_metadata: bool = False,
+        preflight_exception: Exception | None = None,
     ) -> None:
         self.existing_sync = existing_sync
+        self.existing_sync_by_id = existing_sync_by_id or {}
         self.artifact_hashes = artifact_hashes or {"artifact-1": "hash-1"}
         self.db_source_artifact_ids = db_source_artifact_ids
         self.current_before_refs = current_before_refs or {
@@ -122,12 +130,18 @@ class _FakeRepository:
         }
         self.fail_bundle = fail_bundle
         self.fail_recompute = fail_recompute
+        self.fail_completed_metadata = fail_completed_metadata
+        self.preflight_exception = preflight_exception
         self.saved_sync: JsonToDbSyncAuditView | None = None
         self.saved_syncs: list[JsonToDbSyncAuditView] = []
         self.saved_bundle_count = 0
         self.saved_recompute_count = 0
+        self.operations: list[str] = []
 
     def load_dataset_audit_view(self, dataset_id: str) -> object:
+        self.operations.append("load_dataset_audit_view")
+        if self.preflight_exception is not None:
+            raise self.preflight_exception
         return type(
             "AuditView",
             (),
@@ -135,18 +149,33 @@ class _FakeRepository:
         )()
 
     def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]:
+        self.operations.append("load_current_json_to_db_before_refs")
+        if self.preflight_exception is not None:
+            raise self.preflight_exception
         return self.current_before_refs
+
+    def load_json_to_db_sync_result(self, sync_id: str) -> JsonToDbSyncAuditView:
+        self.operations.append("load_json_to_db_sync_result")
+        existing = self.existing_sync_by_id.get(sync_id)
+        if existing is None:
+            raise P5ArtifactRepositoryError(f"missing sync: {sync_id}")
+        return existing
 
     def load_latest_json_to_db_sync_for_recompute_run(
         self,
         recompute_run_id: str,
     ) -> JsonToDbSyncAuditView | None:
+        self.operations.append("load_latest_json_to_db_sync_for_recompute_run")
         return self.existing_sync
 
     def compute_extracted_artifact_hash(self, artifact_id: str) -> str:
+        self.operations.append("compute_extracted_artifact_hash")
+        if self.preflight_exception is not None:
+            raise self.preflight_exception
         return self.artifact_hashes[artifact_id]
 
     def save_p5_assembly_bundle(self, **kwargs: object) -> int:
+        self.operations.append("save_p5_assembly_bundle")
         self.saved_bundle_count += 1
         if self.fail_bundle:
             raise RuntimeError("bundle write failed")
@@ -154,15 +183,52 @@ class _FakeRepository:
         return len(lineage_records)
 
     def save_recompute_result(self, **kwargs: object) -> str:
+        self.operations.append("save_recompute_result")
         self.saved_recompute_count += 1
         if self.fail_recompute:
             raise RuntimeError("recompute write failed")
         return cast(str, kwargs["run_id"])
 
     def save_json_to_db_sync_result(self, view: JsonToDbSyncAuditView) -> str:
+        self.operations.append(f"save_json_to_db_sync_result:{view.status.value}")
+        if self.fail_completed_metadata and view.status is JsonToDbSyncStatus.COMPLETED:
+            raise RuntimeError("completed metadata write failed")
         self.saved_sync = view
         self.saved_syncs.append(view)
         return cast(str, view.sync_id)
+
+
+def _lifecycle_audit(
+    reason: str = "lifecycle decision affects outputs",
+) -> MetricLifecycleRecomputeAudit:
+    return MetricLifecycleRecomputeAudit(
+        items=(
+            MetricLifecycleRecomputeAuditItem(
+                review_item_id="review-1",
+                artifact_id="artifact-1",
+                issuer_id="issuer-1",
+                fiscal_year=2025,
+                report_type="annual",
+                candidate_metric_id="custom::metric",
+                raw_label="raw metric",
+                lifecycle_entry_id="lifecycle-entry-1",
+                current_status="mapped_to_standard",
+                latest_decision_id="decision-1",
+                latest_decision_action="map_to_standard",
+                target_metric_id="revenue",
+                recompute_needed=True,
+                consumption_action="map_to_standard",
+                conflict_state="none",
+                reason=reason,
+            ),
+        ),
+        summary=MetricLifecycleRecomputeAuditSummary(
+            review_item_count=1,
+            artifact_count=1,
+            recompute_needed_count=1,
+            dry_run_conflict_count=0,
+        ),
+    )
 
 
 def test_status_values_are_stable() -> None:
@@ -231,6 +297,18 @@ def test_sync_id_changes_when_after_payload_changes_without_identity_change() ->
     )
 
 
+def test_sync_id_changes_when_lifecycle_audit_changes() -> None:
+    request = replace(_request(), lifecycle_recompute_audit=_lifecycle_audit())
+    changed_request = replace(
+        request,
+        lifecycle_recompute_audit=_lifecycle_audit("changed lifecycle reason"),
+    )
+
+    assert build_json_to_db_sync_id(request) != build_json_to_db_sync_id(
+        changed_request
+    )
+
+
 def test_request_accepts_null_requested_by() -> None:
     request = replace(_request(), requested_by=None)
 
@@ -285,7 +363,10 @@ def test_sync_skips_existing_completed_record_idempotently() -> None:
         created_at="2026-04-28T00:00:00+00:00",
         completed_at="2026-04-28T00:00:01+00:00",
     )
-    repository = _FakeRepository(existing_sync=existing)
+    repository = _FakeRepository(
+        existing_sync_by_id={cast(str, existing.sync_id): existing},
+        artifact_hashes={"artifact-1": "stale-but-not-checked"},
+    )
 
     result = sync_json_recompute_to_db(repository=repository, request=request)
 
@@ -294,6 +375,42 @@ def test_sync_skips_existing_completed_record_idempotently() -> None:
     assert repository.saved_bundle_count == 0
     assert repository.saved_recompute_count == 0
     assert repository.saved_syncs == []
+    assert repository.operations == ["load_json_to_db_sync_result"]
+
+
+def test_sync_uses_exact_sync_id_not_latest_recompute_record_for_idempotency() -> None:
+    request = _request()
+    exact_existing = JsonToDbSyncAuditView(
+        sync_id=build_json_to_db_sync_id(request),
+        recompute_run_id=request.recompute_run_id,
+        dataset_id=request.dataset.dataset_id,
+        status=JsonToDbSyncStatus.COMPLETED,
+        input_hashes=dict(request.input_hashes),
+        before_refs=dict(request.before_refs),
+        after_refs={"dataset_id": "dataset-1"},
+        written_refs={"dataset_id": "dataset-1"},
+        skipped_refs={},
+        blocking_reasons=(),
+        requested_by="test",
+        sync_reason="test-sync",
+        created_at="2026-04-28T00:00:00+00:00",
+        completed_at="2026-04-28T00:00:01+00:00",
+    )
+    latest_other_sync = replace(
+        exact_existing,
+        sync_id="json-to-db-sync:dataset-1:recompute-run-1:other",
+    )
+    repository = _FakeRepository(
+        existing_sync=latest_other_sync,
+        existing_sync_by_id={cast(str, exact_existing.sync_id): exact_existing},
+        artifact_hashes={"artifact-1": "stale-but-not-checked"},
+    )
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.SKIPPED_IDEMPOTENT
+    assert repository.saved_syncs == []
+    assert repository.operations == ["load_json_to_db_sync_result"]
 
 
 def test_sync_rejects_stale_input_hash_before_writing() -> None:
@@ -347,6 +464,12 @@ def test_sync_writes_pending_metadata_before_payload_writes() -> None:
         JsonToDbSyncStatus.PENDING,
         JsonToDbSyncStatus.COMPLETED,
     ]
+    assert repository.operations.index("save_json_to_db_sync_result:pending") < (
+        repository.operations.index("save_p5_assembly_bundle")
+    )
+    assert repository.operations.index("save_p5_assembly_bundle") < (
+        repository.operations.index("save_recompute_result")
+    )
     assert repository.saved_bundle_count == 1
     assert repository.saved_recompute_count == 1
 
@@ -373,12 +496,43 @@ def test_sync_records_partial_metadata_when_recompute_write_fails() -> None:
     result = sync_json_recompute_to_db(repository=repository, request=request)
 
     assert result.status is JsonToDbSyncStatus.PARTIAL
-    assert result.written_refs["dataset"] == request.dataset.dataset_id
-    assert "recompute_run" not in result.written_refs
+    assert result.written_refs["dataset_id"] == request.dataset.dataset_id
+    assert "recompute_run_id" not in result.written_refs
     assert result.blocking_reasons == ("recompute write failed",)
     assert [view.status for view in repository.saved_syncs] == [
         JsonToDbSyncStatus.PENDING,
         JsonToDbSyncStatus.PARTIAL,
+    ]
+
+
+def test_sync_records_failed_metadata_when_preflight_repository_raises() -> None:
+    request = _request()
+    repository = _FakeRepository(
+        preflight_exception=P5ArtifactRepositoryError("hash load failed")
+    )
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.blocking_reasons == ("preflight_failed: hash load failed",)
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+    assert [view.status for view in repository.saved_syncs] == [
+        JsonToDbSyncStatus.FAILED
+    ]
+
+
+def test_sync_raises_unknown_state_when_completed_metadata_write_fails() -> None:
+    request = _request()
+    repository = _FakeRepository(fail_completed_metadata=True)
+
+    with pytest.raises(P5ArtifactRepositoryError, match="unknown sync state"):
+        sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert repository.saved_bundle_count == 1
+    assert repository.saved_recompute_count == 1
+    assert [view.status for view in repository.saved_syncs] == [
+        JsonToDbSyncStatus.PENDING
     ]
 
 

@@ -12,7 +12,9 @@ from financial_report_analysis.models import MetricLifecycleRecomputeAudit
 from financial_report_analysis.p5.artifact_repository import (
     P5ArtifactRepositoryError,
     dataset_artifact_to_payload,
+    turtle_export_to_payload,
 )
+from financial_report_analysis.p5.lineage import artifact_lineage_to_payload
 from financial_report_analysis.p5.models import (
     P5ArtifactLineage,
     P5DatasetArtifact,
@@ -21,6 +23,14 @@ from financial_report_analysis.p5.models import (
     P5RecomputeResult,
     P5TurtleExport,
     P5TurtleExportReviewSurface,
+)
+from financial_report_analysis.p5.recompute import (
+    metric_lifecycle_recompute_audit_to_payload,
+    recompute_result_to_payload,
+)
+from financial_report_analysis.p5.review import (
+    dataset_review_surface_to_payload,
+    turtle_export_review_surface_to_payload,
 )
 
 
@@ -90,6 +100,8 @@ class JsonToDbSyncRepository(Protocol):
 
     def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]: ...
 
+    def load_json_to_db_sync_result(self, sync_id: str) -> JsonToDbSyncAuditView: ...
+
     def load_latest_json_to_db_sync_for_recompute_run(
         self,
         recompute_run_id: str,
@@ -140,6 +152,13 @@ def build_json_to_db_sync_id(request: JsonToDbSyncRequest) -> str:
             "before_refs": dict(request.before_refs),
             "after_refs": _derived_after_refs(request),
             "input_hashes": dict(request.input_hashes),
+            "lifecycle_recompute_audit": (
+                None
+                if request.lifecycle_recompute_audit is None
+                else metric_lifecycle_recompute_audit_to_payload(
+                    request.lifecycle_recompute_audit
+                )
+            ),
             "source_artifact_ids": request.dataset.source_artifacts,
         }
     )
@@ -209,9 +228,7 @@ def sync_json_recompute_to_db(
         )
 
     sync_id = build_json_to_db_sync_id(request)
-    existing = repository.load_latest_json_to_db_sync_for_recompute_run(
-        request.recompute_run_id
-    )
+    existing = _load_existing_sync_by_id(repository, sync_id)
     if _is_same_completed_sync(existing, sync_id, request):
         return _result_from_view(
             existing,
@@ -219,9 +236,13 @@ def sync_json_recompute_to_db(
             skipped_refs={"sync_id": existing.sync_id or sync_id},
         )
 
-    stale_reasons = _stale_input_hash_reasons(repository, request)
-    stale_reasons.extend(_db_source_artifact_reasons(repository, request))
-    stale_reasons.extend(_stale_before_ref_reasons(repository, request))
+    try:
+        stale_reasons = _stale_input_hash_reasons(repository, request)
+        stale_reasons.extend(_db_source_artifact_reasons(repository, request))
+        stale_reasons.extend(_stale_before_ref_reasons(repository, request))
+    except Exception as exc:
+        stale_reasons = [f"preflight_failed: {exc}"]
+
     if stale_reasons:
         view = _build_sync_view(
             request=request,
@@ -258,14 +279,14 @@ def sync_json_recompute_to_db(
             turtle_export=request.turtle_export,
             turtle_export_review_surface=request.turtle_export_review_surface,
         )
-        written_refs.update(after_refs)
+        written_refs.update(_assembly_written_refs(after_refs))
         repository.save_recompute_result(
             run_id=request.recompute_run_id,
             plan=request.plan,
             result=request.recompute_result,
             lifecycle_recompute_audit=request.lifecycle_recompute_audit,
         )
-        written_refs["recompute_run"] = request.recompute_run_id
+        written_refs.update(_recompute_written_refs(after_refs, request))
     except Exception as exc:
         status = JsonToDbSyncStatus.PARTIAL if written_refs else JsonToDbSyncStatus.FAILED
         view = _build_sync_view(
@@ -291,7 +312,13 @@ def sync_json_recompute_to_db(
         blocking_reasons=(),
         completed_at=utc_now_iso(),
     )
-    repository.save_json_to_db_sync_result(view)
+    try:
+        repository.save_json_to_db_sync_result(view)
+    except Exception as exc:
+        raise P5ArtifactRepositoryError(
+            "completed JSON-to-DB sync metadata write failed; unknown sync state "
+            f"after payload writes: {exc}"
+        ) from exc
     return _result_from_view(view)
 
 
@@ -325,6 +352,17 @@ def _derived_after_refs(request: JsonToDbSyncRequest) -> dict[str, Any]:
         "recompute_result": {
             "payload_hash": compute_payload_hash(request.recompute_result),
         },
+        "lifecycle_recompute_audit": (
+            None
+            if request.lifecycle_recompute_audit is None
+            else {
+                "payload_hash": compute_payload_hash(
+                    metric_lifecycle_recompute_audit_to_payload(
+                        request.lifecycle_recompute_audit
+                    )
+                ),
+            }
+        ),
         "turtle_export": (
             None
             if request.turtle_export is None
@@ -405,9 +443,23 @@ def _is_same_completed_sync(
         existing is not None
         and existing.sync_id == sync_id
         and existing.status is JsonToDbSyncStatus.COMPLETED
+        and existing.recompute_run_id == request.recompute_run_id
+        and existing.dataset_id == request.dataset.dataset_id
         and existing.input_hashes == dict(request.input_hashes)
         and existing.before_refs == dict(request.before_refs)
     )
+
+
+def _load_existing_sync_by_id(
+    repository: JsonToDbSyncRepository,
+    sync_id: str,
+) -> JsonToDbSyncAuditView | None:
+    try:
+        return repository.load_json_to_db_sync_result(sync_id)
+    except P5ArtifactRepositoryError as exc:
+        if "missing" in str(exc).lower():
+            return None
+        raise
 
 
 def _stale_input_hash_reasons(
@@ -448,13 +500,67 @@ def _stale_before_ref_reasons(
 
 def _after_refs_for_request(request: JsonToDbSyncRequest) -> dict[str, str]:
     refs = {
-        "dataset": request.dataset.dataset_id,
-        "dataset_hash": compute_payload_hash(dataset_artifact_to_payload(request.dataset)),
+        "dataset_id": request.dataset.dataset_id,
+        "dataset_payload_hash": compute_payload_hash(
+            dataset_artifact_to_payload(request.dataset)
+        ),
+        "lineage_payload_hash": compute_payload_hash(
+            tuple(
+                artifact_lineage_to_payload(lineage)
+                for lineage in request.lineage_records
+            )
+        ),
+        "recompute_result_hash": compute_payload_hash(
+            recompute_result_to_payload(request.recompute_result)
+        ),
     }
+    if request.dataset_review_surface is not None:
+        refs["dataset_review_surface_hash"] = compute_payload_hash(
+            dataset_review_surface_to_payload(request.dataset_review_surface)
+        )
     if request.turtle_export is not None:
-        refs["turtle_export"] = request.turtle_export.dataset_id
-    if request.lineage_records:
-        refs["lineage_records"] = str(len(request.lineage_records))
+        refs["turtle_export_id"] = request.turtle_export.dataset_id
+        refs["turtle_export_hash"] = compute_payload_hash(
+            turtle_export_to_payload(request.turtle_export)
+        )
+    if request.turtle_export_review_surface is not None:
+        refs["turtle_export_review_surface_hash"] = compute_payload_hash(
+            turtle_export_review_surface_to_payload(
+                request.turtle_export_review_surface
+            )
+        )
+    if request.lifecycle_recompute_audit is not None:
+        refs["lifecycle_recompute_audit_hash"] = compute_payload_hash(
+            metric_lifecycle_recompute_audit_to_payload(
+                request.lifecycle_recompute_audit
+            )
+        )
+    return refs
+
+
+def _assembly_written_refs(after_refs: Mapping[str, str]) -> dict[str, str]:
+    assembly_keys = (
+        "dataset_id",
+        "dataset_payload_hash",
+        "dataset_review_surface_hash",
+        "lineage_payload_hash",
+        "turtle_export_id",
+        "turtle_export_hash",
+        "turtle_export_review_surface_hash",
+    )
+    return {key: after_refs[key] for key in assembly_keys if key in after_refs}
+
+
+def _recompute_written_refs(
+    after_refs: Mapping[str, str],
+    request: JsonToDbSyncRequest,
+) -> dict[str, str]:
+    recompute_keys = (
+        "recompute_result_hash",
+        "lifecycle_recompute_audit_hash",
+    )
+    refs = {key: after_refs[key] for key in recompute_keys if key in after_refs}
+    refs["recompute_run_id"] = request.recompute_run_id
     return refs
 
 

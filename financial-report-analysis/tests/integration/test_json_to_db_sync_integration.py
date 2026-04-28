@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
-from financial_report_analysis.p5.artifact_repository import extracted_artifact_to_payload
+from financial_report_analysis.p5.artifact_repository import (
+    P5ArtifactRepositoryError,
+    extracted_artifact_to_payload,
+)
 from financial_report_analysis.p5.json_to_db_sync import (
     JsonToDbSyncAuditView,
     JsonToDbSyncRequest,
@@ -15,6 +17,8 @@ from financial_report_analysis.p5.json_to_db_sync import (
     compute_payload_hash,
     sync_json_recompute_to_db,
 )
+from financial_report_analysis.p5.recompute import recompute_result_to_payload
+from financial_report_analysis.p5.review import dataset_review_surface_to_payload
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
     P5DatasetReviewSurface,
@@ -242,6 +246,25 @@ def test_sync_service_writes_dataset_bundle_recompute_and_sync_metadata(
     assert latest is not None
     assert latest.sync_id == result.sync_id
     assert latest.status is JsonToDbSyncStatus.COMPLETED
+    assert latest.before_refs == request.before_refs
+    expected_after_refs = {
+        "dataset_id": request.dataset.dataset_id,
+        "dataset_payload_hash": repository.compute_dataset_artifact_hash(
+            request.dataset.dataset_id
+        ),
+        "dataset_review_surface_hash": compute_payload_hash(
+            dataset_review_surface_to_payload(request.dataset_review_surface)
+        ),
+        "lineage_payload_hash": compute_payload_hash(()),
+        "recompute_result_hash": compute_payload_hash(
+            recompute_result_to_payload(request.recompute_result)
+        ),
+    }
+    assert latest.after_refs == expected_after_refs
+    assert latest.written_refs == {
+        **expected_after_refs,
+        "recompute_run_id": request.recompute_run_id,
+    }
 
 
 def test_json_to_db_sync_latest_loaders_order_by_created_at_then_sync_id(
