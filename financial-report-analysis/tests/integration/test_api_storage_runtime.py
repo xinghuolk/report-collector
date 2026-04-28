@@ -32,7 +32,10 @@ from financial_report_analysis.p5.review import (
     build_extracted_review_surface,
     build_turtle_export_review_surface,
 )
-from financial_report_analysis.storage.models import RecomputeRunRecord
+from financial_report_analysis.storage.models import (
+    JsonToDbSyncRecord,
+    RecomputeRunRecord,
+)
 
 
 def _entry(
@@ -269,6 +272,13 @@ def _recompute_run_count(client: TestClient) -> int:
         return session.scalar(select(func.count()).select_from(RecomputeRunRecord)) or 0
 
 
+def _sync_record_count(client: TestClient) -> int:
+    repository = client.app.state.runtime.storage_repository
+    assert repository is not None
+    with Session(repository.engine) as session:
+        return session.scalar(select(func.count()).select_from(JsonToDbSyncRecord)) or 0
+
+
 def test_storage_backed_routes_return_503_without_runtime_storage() -> None:
     client = TestClient(create_app())
 
@@ -443,6 +453,7 @@ def test_storage_runtime_exposes_read_only_recompute_boundary(
     client = TestClient(create_app(storage_db_path=tmp_path / "runtime.db"))
     _seed_runtime(client, tmp_path)
     before_run_count = _recompute_run_count(client)
+    before_sync_count = _sync_record_count(client)
 
     response = client.get(
         "/datasets/p5_seed_3_issuers_2_years/recompute-boundary",
@@ -475,6 +486,7 @@ def test_storage_runtime_exposes_read_only_recompute_boundary(
         "json_to_db_sync_blocking_reasons": [],
     }
     assert _recompute_run_count(client) == before_run_count
+    assert _sync_record_count(client) == before_sync_count
 
 
 def test_storage_runtime_marks_completed_sync_out_of_sync_for_newer_recompute(

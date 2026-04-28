@@ -496,6 +496,8 @@ def test_sync_records_partial_metadata_when_recompute_write_fails() -> None:
     result = sync_json_recompute_to_db(repository=repository, request=request)
 
     assert result.status is JsonToDbSyncStatus.PARTIAL
+    assert repository.saved_bundle_count == 1
+    assert repository.saved_recompute_count == 1
     assert result.written_refs["dataset_id"] == request.dataset.dataset_id
     assert "recompute_run_id" not in result.written_refs
     assert result.blocking_reasons == ("recompute write failed",)
