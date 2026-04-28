@@ -5,6 +5,11 @@ from financial_report_analysis.p5.availability import (
     MultiYearAvailabilityView,
     build_multi_year_availability_view,
 )
+from financial_report_analysis.p5.governance_policy import (
+    DownstreamGovernanceDecision,
+    evaluate_downstream_fact_consumption,
+    is_downstream_consumable_fact,
+)
 from financial_report_analysis.p5.lineage import build_dataset_lineage
 from financial_report_analysis.p5.manifest import load_manifest
 from financial_report_analysis.p5.models import (
@@ -36,6 +41,7 @@ from financial_report_analysis.p5.review import (
 __all__ = [
     "AvailabilityMetric",
     "AvailabilityYear",
+    "DownstreamGovernanceDecision",
     "MultiYearAvailabilityRequest",
     "MultiYearAvailabilityView",
     "P5DatasetArtifact",
@@ -58,6 +64,8 @@ __all__ = [
     "build_multi_year_availability_view",
     "build_turtle_export_review_surface",
     "build_recompute_plan",
+    "evaluate_downstream_fact_consumption",
     "execute_recompute_plan",
+    "is_downstream_consumable_fact",
     "load_manifest",
 ]

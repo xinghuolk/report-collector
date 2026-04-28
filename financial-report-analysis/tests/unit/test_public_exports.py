@@ -152,3 +152,13 @@ def test_p5_availability_public_exports() -> None:
     assert build_multi_year_availability_view.__name__ == (
         "build_multi_year_availability_view"
     )
+
+
+def test_p5_governance_policy_public_exports() -> None:
+    from financial_report_analysis.p5 import (
+        evaluate_downstream_fact_consumption,
+        is_downstream_consumable_fact,
+    )
+
+    assert callable(evaluate_downstream_fact_consumption)
+    assert callable(is_downstream_consumable_fact)
