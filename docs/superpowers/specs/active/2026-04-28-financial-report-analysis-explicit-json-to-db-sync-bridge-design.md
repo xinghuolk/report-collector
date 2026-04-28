@@ -97,6 +97,9 @@ DB read surface 不应静默“看起来像最新”。每次同步都必须有�
 
 如果 sync metadata 缺失、hash mismatch、source artifact mismatch、after payload
 缺失或 partial failure 未恢复，DB read surface 不应声称自己已经完整反映该 recompute。
+如果 dataset 的 latest recompute run 与 latest sync record 的 recompute run 不一致，
+read surface 必须报告 `out_of_sync` 或等价 blocking reason，不能把旧 run 的 completed
+sync 当成当前 dataset 状态。
 
 ### 4.4 幂等优先
 
@@ -157,6 +160,12 @@ product，也不会让用户通过 API 直接触发 heavy recompute。
 - `partial`
 - `skipped_idempotent`
 
+Read surface 还需要两个派生状态：
+
+- `not_attempted`：当前 latest recompute run 没有对应 sync record；
+- `out_of_sync`：存在 sync record，但 sync record 的 `recompute_run_id` 不等于当前
+  latest recompute run。
+
 ### 5.2 Repository Write Boundary
 
 同步服务应通过 DB repository 的显式方法写入，避免把复杂逻辑散落在 API route 或
@@ -168,6 +177,7 @@ recompute executor 中。
 - `load_json_to_db_sync_result(sync_id)`
 - `load_latest_json_to_db_sync_for_dataset(dataset_id)`
 - `load_latest_json_to_db_sync_for_recompute_run(recompute_run_id)`
+- `load_effective_json_to_db_sync_for_dataset(dataset_id, latest_recompute_run_id)`
 
 如果第一阶段不新增独立 DB table，可以先将 sync metadata 存入 recompute run payload
 的扩展区；但 spec 推荐新增关系型同步记录，因为它需要表达 partial writes、retry 和
@@ -184,7 +194,9 @@ dataset 当前状态映射。
 - 校验 recompute result 和 after payloads 完整；
 - 校验 source artifact ids 与 DB 当前 dataset audit view 一致；
 - 计算或验证 input hashes；
-- 拒绝 hash mismatch 和 stale before refs；
+- 拒绝 hash mismatch、source artifact mismatch 和 stale before refs；
+- 在写 dataset/Turtle/recompute payload 前先写入 `pending` sync metadata，或在同一
+  repository transaction 中写入 payload 与 sync metadata；
 - 调用 repository 写入 dataset/Turtle/review/lineage/recompute audit；
 - 记录 sync status、written refs、blocking reasons；
 - 对同一 recompute run + input hashes 支持幂等 retry。
@@ -222,9 +234,10 @@ JSON-first recompute
 -> P5RecomputeResult + after payloads
 -> JsonToDbSyncRequest
 -> validate source artifacts / input hashes / before refs
+-> save pending sync metadata
 -> save P5 assembly bundle to DB
 -> save recompute result + lifecycle audit if present
--> save sync metadata
+-> update sync metadata to completed
 -> DB read surfaces expose latest synced recompute run
 ```
 
@@ -256,6 +269,16 @@ DB latest source artifact/hash no longer matches request
 -> reject before writing
 -> status failed
 -> blocking_reasons includes stale_input_hash
+```
+
+out-of-sync read：
+
+```text
+latest recompute run = run-2
+latest completed sync record = run-1
+-> read surface status out_of_sync
+-> blocking_reasons includes sync_recompute_run_mismatch
+-> DB read surfaces do not claim run-2 is synced
 ```
 
 ## 7. Error Handling
@@ -292,7 +315,7 @@ Required read behavior：
   - JSON-first required；
   - DB assembly available；
   - DB-native unsupported；
-  - JSON-to-DB sync not attempted / completed / failed / partial。
+  - JSON-to-DB sync not attempted / completed / failed / partial / out-of-sync。
 
 Out of scope：
 
@@ -313,6 +336,7 @@ Unit tests：
 - same recompute run + same hashes idempotent；
 - malformed lifecycle audit fail fast；
 - missing after payload fail fast。
+- latest recompute run 与 latest sync record 不一致时 fail closed 为 out-of-sync。
 
 Integration tests：
 
@@ -320,6 +344,7 @@ Integration tests：
 - sync 后 dataset audit view 显示 latest synced recompute run；
 - recompute run read view 显示 sync metadata；
 - partial failure 不让 boundary/audit 声称 complete；
+- latest recompute run 与 latest sync run 不一致时，boundary/audit 不声称 complete；
 - read path 不触发 recompute、dataset build 或 Turtle build。
 
 Regression tests：
@@ -337,8 +362,11 @@ Regression tests：
   recompute run 的 after payloads 对齐。
 - dataset audit、recompute run read 或 boundary view 能读出 latest sync status。
 - 同一 recompute run + input hashes 可以安全 retry。
-- stale input hash/source artifact mismatch 被拒绝，且不会覆盖 DB state。
+- stale input hash、source artifact mismatch 和 stale before ref 被拒绝，且不会覆盖
+  DB state。
 - partial failure 可观测，read surfaces 不会误报 complete。
+- latest recompute run 与 latest sync run 不一致时，read surfaces 报告 out-of-sync
+  或等价 blocking reason。
 - DB-native recompute 仍明确 unsupported。
 - 没有新增 field coverage、LLM extraction 或 async workflow 行为。
 

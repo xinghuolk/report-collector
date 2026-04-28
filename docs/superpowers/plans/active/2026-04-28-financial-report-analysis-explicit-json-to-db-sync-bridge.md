@@ -4,7 +4,7 @@
 
 **Goal:** Build an explicit, auditable sync bridge that writes successful JSON-first recompute outputs into DB-backed read surfaces without introducing DB-native recompute or async workflow behavior.
 
-**Architecture:** Add a focused `p5/json_to_db_sync.py` contract/service that validates source artifacts, input hashes, recompute run identity, and after artifacts before writing through `SqlAlchemyP5ArtifactRepository`. Persist sync metadata in a dedicated DB table so dataset audit, recompute run reads, and recompute boundary views can report sync status without inferring it from payload existence.
+**Architecture:** Add a focused `p5/json_to_db_sync.py` contract/service that validates source artifacts, input hashes, before refs, recompute run identity, and after artifacts before writing through `SqlAlchemyP5ArtifactRepository`. Persist sync metadata in a dedicated DB table with pending-first semantics so dataset audit, recompute run reads, and recompute boundary views can report sync status without inferring it from payload existence.
 
 **Tech Stack:** Python 3.10+, dataclasses, SQLAlchemy ORM, Pydantic API schemas, FastAPI routes, pytest, Ruff.
 
@@ -27,7 +27,7 @@
 - Modify `financial-report-analysis/src/financial_report_analysis/api/routes.py`.
   - Serializes sync metadata in existing read-only endpoints.
 - Add `financial-report-analysis/tests/unit/test_json_to_db_sync.py`.
-  - Unit coverage for contract validation, hash mismatch, missing after payloads, and idempotent detection using fakes.
+  - Unit coverage for contract validation, hash mismatch, source artifact mismatch, stale before refs, missing after payloads, pending-first writes, and idempotent detection using fakes.
 - Add or extend `financial-report-analysis/tests/integration/test_json_to_db_sync_integration.py`.
   - SQLite repository coverage for success, persisted readback, stale hash rejection, and partial failure status.
 - Extend `financial-report-analysis/tests/integration/test_api_storage_runtime.py`.
@@ -51,9 +51,11 @@ Add tests that lock the exact statuses, deterministic sync id, hash helper, and 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from financial_report_analysis.models import MetricLifecycleRecomputeAudit
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.json_to_db_sync import (
     JsonToDbSyncRequest,
@@ -64,6 +66,7 @@ from financial_report_analysis.p5.json_to_db_sync import (
 )
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
+    P5DatasetReviewSurface,
     P5RecomputeDiffSummary,
     P5RecomputePlan,
     P5RecomputeResult,
@@ -81,6 +84,20 @@ def _dataset() -> P5DatasetArtifact:
         rows=(),
         quality_summary={},
         source_artifacts=("artifact-1",),
+    )
+
+
+def _dataset_review_surface() -> P5DatasetReviewSurface:
+    return P5DatasetReviewSurface(
+        dataset_id="dataset-1",
+        dataset_version="1.0",
+        issuer_count=1,
+        period_count=1,
+        pipeline_versions=("p5-v1",),
+        source_artifact_ids=("artifact-1",),
+        present_row_count=0,
+        missing_row_count=0,
+        review_required_artifact_ids=(),
     )
 
 
@@ -118,13 +135,13 @@ def _request() -> JsonToDbSyncRequest:
         plan=_plan(),
         recompute_result=_result(),
         dataset=_dataset(),
-        dataset_review_surface=None,
+        dataset_review_surface=_dataset_review_surface(),
         turtle_export=None,
         turtle_export_review_surface=None,
         lineage_records=(),
         lifecycle_recompute_audit=None,
         input_hashes={"artifact-1": "hash-1"},
-        before_refs={"dataset": "dataset-1@before"},
+        before_refs={"dataset": "dataset-hash-1", "recompute_run": "none"},
         requested_by="test",
         sync_reason="test-sync",
     )
@@ -137,6 +154,8 @@ def test_status_values_are_stable() -> None:
         "failed",
         "partial",
         "skipped_idempotent",
+        "not_attempted",
+        "out_of_sync",
     ]
 
 
@@ -217,6 +236,101 @@ def test_validate_rejects_dataset_id_mismatch() -> None:
 
     with pytest.raises(P5ArtifactRepositoryError, match="dataset id mismatch"):
         validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_source_artifact_mismatch_between_dataset_and_result() -> None:
+    request = _request()
+    invalid_result = P5RecomputeResult(
+        manifest_id="manifest-1",
+        extracted_artifact_ids=("artifact-2",),
+        dataset_path=Path("dataset.json"),
+        turtle_export_path=Path("turtle.json"),
+        diff_summary=request.recompute_result.diff_summary,
+    )
+    invalid_request = JsonToDbSyncRequest(
+        recompute_run_id=request.recompute_run_id,
+        plan=request.plan,
+        recompute_result=invalid_result,
+        dataset=request.dataset,
+        dataset_review_surface=request.dataset_review_surface,
+        turtle_export=request.turtle_export,
+        turtle_export_review_surface=request.turtle_export_review_surface,
+        lineage_records=request.lineage_records,
+        lifecycle_recompute_audit=request.lifecycle_recompute_audit,
+        input_hashes=request.input_hashes,
+        before_refs=request.before_refs,
+        requested_by=request.requested_by,
+        sync_reason=request.sync_reason,
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="source artifact mismatch"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_missing_dataset_before_ref() -> None:
+    request = _request()
+    invalid_request = JsonToDbSyncRequest(
+        recompute_run_id=request.recompute_run_id,
+        plan=request.plan,
+        recompute_result=request.recompute_result,
+        dataset=request.dataset,
+        dataset_review_surface=request.dataset_review_surface,
+        turtle_export=request.turtle_export,
+        turtle_export_review_surface=request.turtle_export_review_surface,
+        lineage_records=request.lineage_records,
+        lifecycle_recompute_audit=request.lifecycle_recompute_audit,
+        input_hashes=request.input_hashes,
+        before_refs={},
+        requested_by=request.requested_by,
+        sync_reason=request.sync_reason,
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="before dataset ref is required"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_missing_after_dataset_review_surface() -> None:
+    request = _request()
+    invalid_request = JsonToDbSyncRequest(
+        recompute_run_id=request.recompute_run_id,
+        plan=request.plan,
+        recompute_result=request.recompute_result,
+        dataset=request.dataset,
+        dataset_review_surface=None,
+        turtle_export=request.turtle_export,
+        turtle_export_review_surface=request.turtle_export_review_surface,
+        lineage_records=request.lineage_records,
+        lifecycle_recompute_audit=request.lifecycle_recompute_audit,
+        input_hashes=request.input_hashes,
+        before_refs=request.before_refs,
+        requested_by=request.requested_by,
+        sync_reason=request.sync_reason,
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="after dataset review surface"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_malformed_lifecycle_audit() -> None:
+    request = _request()
+    invalid_request = JsonToDbSyncRequest(
+        recompute_run_id=request.recompute_run_id,
+        plan=request.plan,
+        recompute_result=request.recompute_result,
+        dataset=request.dataset,
+        dataset_review_surface=request.dataset_review_surface,
+        turtle_export=request.turtle_export,
+        turtle_export_review_surface=request.turtle_export_review_surface,
+        lineage_records=request.lineage_records,
+        lifecycle_recompute_audit=cast(MetricLifecycleRecomputeAudit, object()),
+        input_hashes=request.input_hashes,
+        before_refs=request.before_refs,
+        requested_by=request.requested_by,
+        sync_reason=request.sync_reason,
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="malformed lifecycle audit"):
+        validate_json_to_db_sync_request(invalid_request)
 ```
 
 - [ ] **Step 2: Run the new tests and verify they fail**
@@ -263,6 +377,8 @@ class JsonToDbSyncStatus(str, Enum):
     FAILED = "failed"
     PARTIAL = "partial"
     SKIPPED_IDEMPOTENT = "skipped_idempotent"
+    NOT_ATTEMPTED = "not_attempted"
+    OUT_OF_SYNC = "out_of_sync"
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,10 +469,25 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
         raise P5ArtifactRepositoryError("manifest id mismatch between plan and result")
     if not request.dataset.source_artifacts:
         raise P5ArtifactRepositoryError("source artifacts are required for sync")
+    if not request.before_refs.get("dataset"):
+        raise P5ArtifactRepositoryError("before dataset ref is required for sync")
     if set(request.dataset.source_artifacts) != set(request.input_hashes):
         raise P5ArtifactRepositoryError(
             "input hashes must exactly match dataset source artifacts"
         )
+    if set(request.dataset.source_artifacts) != set(
+        request.recompute_result.extracted_artifact_ids
+    ):
+        raise P5ArtifactRepositoryError(
+            "source artifact mismatch between dataset and recompute result"
+        )
+    if request.dataset_review_surface is None:
+        raise P5ArtifactRepositoryError("after dataset review surface is required")
+    if request.lifecycle_recompute_audit is not None and not isinstance(
+        request.lifecycle_recompute_audit,
+        MetricLifecycleRecomputeAudit,
+    ):
+        raise P5ArtifactRepositoryError("malformed lifecycle audit for sync")
     if request.dataset_review_surface is not None:
         if request.dataset_review_surface.dataset_id != request.dataset.dataset_id:
             raise P5ArtifactRepositoryError("dataset review surface dataset id mismatch")
@@ -704,12 +835,35 @@ from financial_report_analysis.p5.json_to_db_sync import sync_json_recompute_to_
 
 
 class _FakeRepository:
-    def __init__(self, *, existing_sync=None, artifact_hashes=None) -> None:
+    def __init__(
+        self,
+        *,
+        existing_sync=None,
+        artifact_hashes=None,
+        db_source_artifact_ids=("artifact-1",),
+        current_before_refs=None,
+    ) -> None:
         self.existing_sync = existing_sync
         self.artifact_hashes = artifact_hashes or {"artifact-1": "hash-1"}
+        self.db_source_artifact_ids = db_source_artifact_ids
+        self.current_before_refs = current_before_refs or {
+            "dataset": "dataset-hash-1",
+            "recompute_run": "none",
+        }
         self.saved_sync = None
+        self.saved_syncs = []
         self.saved_bundle_count = 0
         self.saved_recompute_count = 0
+
+    def load_dataset_audit_view(self, dataset_id):
+        return type(
+            "AuditView",
+            (),
+            {"source_artifact_ids": self.db_source_artifact_ids},
+        )()
+
+    def load_current_json_to_db_before_refs(self, dataset_id):
+        return self.current_before_refs
 
     def load_latest_json_to_db_sync_for_recompute_run(self, recompute_run_id):
         return self.existing_sync
@@ -727,6 +881,7 @@ class _FakeRepository:
 
     def save_json_to_db_sync_result(self, view):
         self.saved_sync = view
+        self.saved_syncs.append(view)
         return view.sync_id
 
 
@@ -767,6 +922,47 @@ def test_sync_rejects_stale_input_hash_before_writing() -> None:
     assert result.blocking_reasons == ("stale_input_hash: artifact-1",)
     assert repository.saved_bundle_count == 0
     assert repository.saved_recompute_count == 0
+
+
+def test_sync_rejects_db_source_artifact_mismatch_before_writing() -> None:
+    request = _request()
+    repository = _FakeRepository(db_source_artifact_ids=("artifact-2",))
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.blocking_reasons == ("db_source_artifact_mismatch",)
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+
+
+def test_sync_rejects_stale_before_ref_before_writing() -> None:
+    request = _request()
+    repository = _FakeRepository(
+        current_before_refs={"dataset": "dataset-hash-2", "recompute_run": "none"}
+    )
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.blocking_reasons == ("stale_before_ref: dataset",)
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+
+
+def test_sync_writes_pending_metadata_before_payload_writes() -> None:
+    request = _request()
+    repository = _FakeRepository()
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.COMPLETED
+    assert [view.status for view in repository.saved_syncs] == [
+        JsonToDbSyncStatus.PENDING,
+        JsonToDbSyncStatus.COMPLETED,
+    ]
+    assert repository.saved_bundle_count == 1
+    assert repository.saved_recompute_count == 1
 ```
 
 - [ ] **Step 2: Run tests and verify they fail**
@@ -786,6 +982,10 @@ Extend `p5/json_to_db_sync.py`:
 
 ```python
 class JsonToDbSyncRepository(Protocol):
+    def load_dataset_audit_view(self, dataset_id: str): ...
+
+    def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]: ...
+
     def load_latest_json_to_db_sync_for_recompute_run(
         self,
         recompute_run_id: str,
@@ -821,6 +1021,9 @@ def sync_json_recompute_to_db(
     request: JsonToDbSyncRequest,
 ) -> JsonToDbSyncResult:
     validate_json_to_db_sync_request(request)
+    dataset_review_surface = request.dataset_review_surface
+    if dataset_review_surface is None:
+        raise P5ArtifactRepositoryError("after dataset review surface is required")
     sync_id = build_json_to_db_sync_id(request)
     existing = repository.load_latest_json_to_db_sync_for_recompute_run(
         request.recompute_run_id
@@ -833,6 +1036,8 @@ def sync_json_recompute_to_db(
         )
 
     stale_reasons = _stale_input_hash_reasons(repository, request)
+    stale_reasons.extend(_db_source_artifact_reasons(repository, request))
+    stale_reasons.extend(_stale_before_ref_reasons(repository, request))
     if stale_reasons:
         view = _build_sync_view(
             request=request,
@@ -849,12 +1054,21 @@ def sync_json_recompute_to_db(
 
     after_refs = _after_refs_for_request(request)
     written_refs: dict[str, str] = {}
+    pending_view = _build_sync_view(
+        request=request,
+        sync_id=sync_id,
+        status=JsonToDbSyncStatus.PENDING,
+        after_refs=after_refs,
+        written_refs={},
+        skipped_refs={},
+        blocking_reasons=(),
+        completed_at=None,
+    )
+    repository.save_json_to_db_sync_result(pending_view)
     try:
-        if request.dataset_review_surface is None:
-            raise P5ArtifactRepositoryError("dataset review surface is required for sync")
         repository.save_p5_assembly_bundle(
             dataset=request.dataset,
-            dataset_review_surface=request.dataset_review_surface,
+            dataset_review_surface=dataset_review_surface,
             lineage_records=request.lineage_records,
             turtle_export=request.turtle_export,
             turtle_export_review_surface=request.turtle_export_review_surface,
@@ -921,6 +1135,30 @@ def _stale_input_hash_reasons(
         actual_hash = repository.compute_extracted_artifact_hash(artifact_id)
         if actual_hash != expected_hash:
             reasons.append(f"stale_input_hash: {artifact_id}")
+    return reasons
+
+
+def _db_source_artifact_reasons(
+    repository: JsonToDbSyncRepository,
+    request: JsonToDbSyncRequest,
+) -> list[str]:
+    audit_view = repository.load_dataset_audit_view(request.dataset.dataset_id)
+    if tuple(audit_view.source_artifact_ids) != tuple(request.dataset.source_artifacts):
+        return ["db_source_artifact_mismatch"]
+    return []
+
+
+def _stale_before_ref_reasons(
+    repository: JsonToDbSyncRepository,
+    request: JsonToDbSyncRequest,
+) -> list[str]:
+    current_refs = repository.load_current_json_to_db_before_refs(
+        request.dataset.dataset_id
+    )
+    reasons: list[str] = []
+    for ref_name, expected_ref in sorted(request.before_refs.items()):
+        if current_refs.get(ref_name) != expected_ref:
+            reasons.append(f"stale_before_ref: {ref_name}")
     return reasons
 
 
@@ -994,9 +1232,22 @@ In `SqlAlchemyP5ArtifactRepository`, add:
     def compute_extracted_artifact_hash(self, artifact_id: str) -> str:
         artifact = self.load_extracted_artifact(artifact_id)
         return compute_payload_hash(extracted_artifact_to_payload(artifact))
+
+    def compute_dataset_artifact_hash(self, dataset_id: str) -> str:
+        dataset = self.load_dataset_artifact(dataset_id)
+        return compute_payload_hash(dataset_artifact_to_payload(dataset))
+
+    def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]:
+        refs = {"dataset": self.compute_dataset_artifact_hash(dataset_id)}
+        latest_sync = self.load_latest_json_to_db_sync_for_dataset(dataset_id)
+        refs["recompute_run"] = (
+            latest_sync.recompute_run_id if latest_sync is not None else "none"
+        )
+        return refs
 ```
 
-Import `compute_payload_hash` from `p5/json_to_db_sync.py`.
+Import `compute_payload_hash` from `p5/json_to_db_sync.py`, and reuse existing
+`dataset_artifact_to_payload(...)` from `p5/artifact_repository.py`.
 
 - [ ] **Step 5: Add integration success test**
 
@@ -1058,10 +1309,14 @@ from financial_report_analysis.p5.json_to_db_sync import (
 )
 
 
-def _sync_view(status: JsonToDbSyncStatus) -> JsonToDbSyncAuditView:
+def _sync_view(
+    status: JsonToDbSyncStatus,
+    *,
+    recompute_run_id: str = "recompute-run-1",
+) -> JsonToDbSyncAuditView:
     return JsonToDbSyncAuditView(
         sync_id="sync-1",
-        recompute_run_id="recompute-run-1",
+        recompute_run_id=recompute_run_id,
         dataset_id="dataset-1",
         status=status,
         input_hashes={"artifact-1": "hash-1"},
@@ -1098,6 +1353,34 @@ def test_boundary_exposes_latest_json_to_db_sync_status() -> None:
 
     assert view.latest_json_to_db_sync_status is JsonToDbSyncStatus.COMPLETED
     assert view.latest_json_to_db_sync_id == "sync-1"
+    assert view.json_to_db_sync_effective_status is JsonToDbSyncStatus.COMPLETED
+
+
+def test_boundary_does_not_treat_old_sync_as_current_recompute_state() -> None:
+    audit_view = _audit_view(latest_recompute_reason="pipeline_version_changed")
+    audit_view = DatasetAuditView(
+        dataset_id=audit_view.dataset_id,
+        source_artifact_ids=audit_view.source_artifact_ids,
+        source_artifacts=audit_view.source_artifacts,
+        dataset_review_surface=audit_view.dataset_review_surface,
+        turtle_export_review_surface=audit_view.turtle_export_review_surface,
+        latest_recompute_run_id="recompute-run-2",
+        latest_recompute_reason=audit_view.latest_recompute_reason,
+        latest_lifecycle_recompute_audit=audit_view.latest_lifecycle_recompute_audit,
+        latest_json_to_db_sync=_sync_view(
+            JsonToDbSyncStatus.COMPLETED,
+            recompute_run_id="recompute-run-1",
+        ),
+    )
+
+    view = build_db_recompute_boundary_view(
+        repository=_FakeRepository(audit_view),
+        dataset_id="dataset-1",
+    )
+
+    assert view.latest_json_to_db_sync_status is JsonToDbSyncStatus.COMPLETED
+    assert view.json_to_db_sync_effective_status is JsonToDbSyncStatus.OUT_OF_SYNC
+    assert "sync_recompute_run_mismatch" in view.json_to_db_sync_blocking_reasons
 ```
 
 - [ ] **Step 2: Run boundary tests and verify they fail**
@@ -1144,7 +1427,10 @@ Update `load_recompute_run_audit_view(...)` and `load_dataset_audit_view(...)` t
 Modify `p5/db_recompute_boundary.py`:
 
 ```python
-from financial_report_analysis.p5.json_to_db_sync import JsonToDbSyncStatus
+from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncAuditView,
+    JsonToDbSyncStatus,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1159,9 +1445,40 @@ class DbRecomputeBoundaryView:
     blocking_reasons: tuple[str, ...]
     latest_json_to_db_sync_id: str | None = None
     latest_json_to_db_sync_status: JsonToDbSyncStatus | None = None
+    json_to_db_sync_effective_status: JsonToDbSyncStatus = (
+        JsonToDbSyncStatus.NOT_ATTEMPTED
+    )
+    json_to_db_sync_blocking_reasons: tuple[str, ...] = ()
 ```
 
-Populate the two new fields from `audit_view.latest_json_to_db_sync`.
+Populate the sync fields from `audit_view.latest_json_to_db_sync`. The effective
+status must be computed against `audit_view.latest_recompute_run_id`:
+
+```python
+def _effective_sync_status(
+    *,
+    latest_recompute_run_id: str | None,
+    latest_sync: JsonToDbSyncAuditView | None,
+) -> tuple[JsonToDbSyncStatus, tuple[str, ...]]:
+    if latest_recompute_run_id is None:
+        return (
+            JsonToDbSyncStatus.NOT_ATTEMPTED,
+            ("no recompute run has been recorded for this dataset",),
+        )
+    if latest_sync is None:
+        return (
+            JsonToDbSyncStatus.NOT_ATTEMPTED,
+            ("json_to_db_sync_not_attempted",),
+        )
+    if latest_sync.recompute_run_id != latest_recompute_run_id:
+        return (
+            JsonToDbSyncStatus.OUT_OF_SYNC,
+            ("sync_recompute_run_mismatch",),
+        )
+    if latest_sync.status is not JsonToDbSyncStatus.COMPLETED:
+        return (latest_sync.status, latest_sync.blocking_reasons)
+    return (JsonToDbSyncStatus.COMPLETED, ())
+```
 
 - [ ] **Step 5: Extend API schemas**
 
@@ -1200,6 +1517,8 @@ Add fields:
 ```python
 latest_json_to_db_sync_id: str | None = None
 latest_json_to_db_sync_status: str | None = None
+json_to_db_sync_effective_status: str
+json_to_db_sync_blocking_reasons: tuple[str, ...] = ()
 ```
 
 to `DbRecomputeBoundaryResponse`.
@@ -1242,6 +1561,19 @@ boundary_response = client.get("/datasets/p5_seed_3_issuers_2_years/recompute-bo
 assert audit_response.json()["latest_json_to_db_sync"]["status"] == "completed"
 assert recompute_response.json()["latest_json_to_db_sync"]["sync_id"] == "sync-1"
 assert boundary_response.json()["latest_json_to_db_sync_status"] == "completed"
+assert boundary_response.json()["json_to_db_sync_effective_status"] == "completed"
+```
+
+Also seed a second recompute run without a matching sync record and assert:
+
+```python
+boundary_response = client.get("/datasets/p5_seed_3_issuers_2_years/recompute-boundary")
+
+assert boundary_response.json()["latest_json_to_db_sync_status"] == "completed"
+assert boundary_response.json()["json_to_db_sync_effective_status"] == "out_of_sync"
+assert "sync_recompute_run_mismatch" in boundary_response.json()[
+    "json_to_db_sync_blocking_reasons"
+]
 ```
 
 - [ ] **Step 8: Run API and boundary tests**
@@ -1482,7 +1814,7 @@ Expected: clean worktree except branch ahead count.
 
 ## Plan Self-Review
 
-- Spec coverage: Tasks cover sync contract, repository write boundary, service validation, idempotency, stale hash rejection, partial failure observability, read surface exposure, API schema serialization, tests, docs, and verification.
+- Spec coverage: Tasks cover sync contract, repository write boundary, service validation, idempotency, pending-first metadata, stale hash rejection, stale before refs, source artifact mismatch, malformed lifecycle audit, partial failure observability, out-of-sync read status, read surface exposure, API schema serialization, tests, docs, and verification.
 - Scope check: Plan does not implement DB-native recompute, HTTP-triggered recompute, async jobs, product workflow lifecycle, field coverage, LLM assessment, or UI.
 - Type consistency: Contract names stay consistent across tasks: `JsonToDbSyncRequest`, `JsonToDbSyncResult`, `JsonToDbSyncAuditView`, `JsonToDbSyncStatus`, and `sync_json_recompute_to_db`.
 - Execution boundary: Public HTTP write routes are not added. Existing audit, recompute run, and boundary routes remain read-only.
