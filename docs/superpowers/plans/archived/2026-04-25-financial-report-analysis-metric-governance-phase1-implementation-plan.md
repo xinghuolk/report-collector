@@ -1133,7 +1133,7 @@ review lifecycle decisions.
 In `docs/superpowers/specs/active/2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`, add this sentence under `## 14. Recommended Next Step`:
 
 ```markdown
-The Phase 1 implementation plan is `docs/superpowers/plans/active/2026-04-25-financial-report-analysis-metric-governance-phase1-implementation-plan.md`.
+The Phase 1 implementation plan is `docs/superpowers/plans/archived/2026-04-25-financial-report-analysis-metric-governance-phase1-implementation-plan.md`.
 ```
 
 - [ ] **Step 4: Run Ruff**

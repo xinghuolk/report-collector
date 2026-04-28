@@ -62,8 +62,10 @@ where fields like `revenue`, `total_assets`, `accounts_receiv`, or
 Separately,
 `financial_report_analysis.registries.metric_registry.MetricRegistry` can resolve
 raw labels to standard metrics or generate `custom::...` ids with
-`registry_status="provisional"`. This is the beginning of metric identity
-governance, but it is not yet a full lifecycle.
+`registry_status="provisional"`. This was the starting point for metric identity
+governance; the current implemented baseline now includes durable lifecycle
+registry behavior, review APIs, recompute audit, and controlled downstream
+consumption.
 
 ### 2.2 Existing Strengths
 
@@ -95,20 +97,21 @@ The original remaining gaps were governance gaps, not basic extraction gaps:
    do not consistently carry a governance metadata block that downstream
    services can enforce.
 
-3. **Automatic consumption policy is incomplete.**
-   Provisional/custom metrics can become canonical if they enter the pipeline.
-   `ReportAdapter`, `DerivationService`, P5 dataset assembly, and Turtle export
-   do not yet share a single policy for blocking unreviewed custom metrics.
+3. **Automatic consumption policy was incomplete.**
+   This gap is now closed for downstream consumption: P5 dataset, Turtle export,
+   and availability share an explicit policy for blocking non-consumable governed
+   facts. Remaining optional work should be scoped to `Explicit JSON-to-DB sync
+   bridge` or a separately approved custom-output contract.
 
 4. **Review surface is not metric-governance-specific.**
    Source-conflict review packets exist, but there is no dedicated surface that
    lists provisional metric candidates, evidence, suggested action, and
    lifecycle status.
 
-5. **Durable lifecycle is not yet implemented.**
-   There is no approved/mapped/deprecated/blacklisted workflow, no durable
-   mapping decision lookup, no shadow merge scoring, and no write API for metric
-   review decisions.
+5. **Durable lifecycle registry was missing.**
+   Durable lifecycle registry behavior, mapping decision lookup, and review
+   decision APIs are now implemented. Any further lifecycle work should be scoped
+   as a new focused enhancement, not treated as the missing baseline.
 
 Current implementation status:
 
@@ -369,9 +372,9 @@ Goal:
 - keep P5 dataset and Turtle behavior changes behind focused regressions that
   show exactly which lifecycle decision affected each output.
 
-Phase 4B is the recompute/output bridge. It should start with planning and audit
-signals, then add controlled consumption in the same phase only after each
-output-changing rule has deterministic tests.
+Phase 4B was designed as the recompute/output bridge. The implemented result
+started with planning and audit signals, then added controlled consumption with
+deterministic tests for each output-changing rule.
 
 Deferred unless a separate business need appears:
 
