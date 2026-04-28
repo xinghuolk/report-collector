@@ -25,6 +25,11 @@
 - `DB-Backed Extract Persistence And Lookup Slice` 已完成并收口。
 - `DB-Backed Extract To P5/Turtle Orchestration` 已完成并收口。
 - `3-5Y Persisted Dataset Availability View` 已完成并收口，设计文档已归档。
+- `Metric Governance Phase 1` 到 `Phase 4B` 已完成并收口，包括 metadata
+  guardrails、review surface、durable lifecycle registry、workflow/review API、
+  recompute audit、dry-run 和 controlled consumption。
+- 当前架构分析已收口在
+  `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`。
 - 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
 - `new-report-sample-onboarding-and-field-variance-process.md` 不再只是补充说明，而应视为后续字段 phase 的正式前置方法约束。
 - `2026-04-22-turtle-v015-financial-field-gap-analysis.md` 仍然是后续 coverage 需求的重要来源，但当前分支已经不再处于 pre-P5 的字段扩张阶段。
@@ -65,6 +70,11 @@
 - Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
 - Whole-document LLM assessment / diff review：只作为 review artifact，不进入 canonical facts 或 deterministic recompute 裁决链。
 - 3-5Y workflow/products：只有在业务明确需要自动补齐、job 状态、product artifact 生命周期或 approval workflow 时再启动。
+
+当前 active 文档状态收口记录在
+`2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`。如果
+后续执行者发现旧文档与当前实现状态冲突，应优先参考本路线图的当前状态快照和该
+reconciliation spec。
 
 ## 1. 目的
 
@@ -310,24 +320,31 @@ pdf
    - 当前不是“还有数据库层没做完”，而是单年抽取持久化与 3-5 年只读数据提供已经形成闭环。
    - availability view 已完成并归档；不要再围绕同一目标新开 active spec。
 
-2.1 **把 workflow/products 明确后置为 future scope。**
+3. **承认 metric governance Phase 1-4B 已完成。**
+   - 当前不是“只有 Phase 1 是 immediate target”，而是 metadata guardrails、
+     review surface、durable lifecycle、workflow API、recompute audit 和
+     controlled consumption 已形成 post-P4B baseline。
+   - 后续 governance 工作应从 downstream hardening、audit persistence 或 DB
+     recompute boundary 中选择 focused slice，而不是重复执行 Phase 1-4B。
+
+4. **把 workflow/products 明确后置为 future scope。**
    - 当前业务暂不需要 job 状态表、自动补齐、recompute 生命周期、product artifact 生命周期或 approval workflow。
    - 这些能力只在后续业务明确要求时再做 focused spec。
 
-3. **保持 recompute core 为 deterministic。**
+5. **保持 recompute core 为 deterministic。**
    - recompute 的主逻辑应只依赖 manifest、persisted extracted artifacts、dataset assembly rules 和版本化 contract。
    - LLM 不应参与 recompute 裁决，也不应直接改写 canonical facts。
 
-4. **把 LLM whole-document assessment 作为后续扩展，而不是当前阻塞项。**
+6. **把 LLM whole-document assessment 作为后续扩展，而不是当前阻塞项。**
    - 如果未来需要整份 PDF 对照评估，应作为 review / diff artifact 的可插拔扩展。
    - 它可以帮助发现系统漏抽、误抽和 scope 冲突，但不应成为主事实来源。
    - 这条能力应在总路线中保留正式位置，但默认排在 review / lineage / deterministic recompute 之后。
 
-5. **不要把 future workflow 当作当前 gap。**
+7. **不要把 future workflow 当作当前 gap。**
    - 当前最小数据提供目标不要求 async job handle、自动 acquisition、approval workflow 或产品生命周期。
    - gap 文档中的 workflow/product 内容应作为 future bucket 参考，不作为当前阻塞项。
 
-6. **后续新增字段 phase 必须建立在 post-P5 基础设施之上。**
+8. **后续新增字段 phase 必须建立在 post-P5 基础设施之上。**
    - 如果后面还要继续承接 `v0.15` gap list、parent scope 深挖或 broad notes bridge，应先有 review / lineage guardrails。
    - 否则新字段只会继续增加不可审计、不可重算的状态债务。
 

@@ -3,7 +3,7 @@
 > **Status:** Active umbrella spec
 > **Date:** 2026-04-25
 > **Scope Type:** Architecture and multi-phase roadmap
-> **Current Implementation Target:** Phase 1 only
+> **Current Implementation Status:** Phase 1-4B implemented baseline
 
 ## 1. Purpose
 
@@ -27,8 +27,10 @@ between deterministic supported metric mapping, metric identity resolution,
 custom/provisional lifecycle, automatic consumption rules, and human/agent review
 surfaces.
 
-This is an umbrella design. It intentionally covers the full lifecycle, but only
-Phase 1 is intended for immediate implementation.
+This is an umbrella design. It intentionally covers the full lifecycle. The
+original immediate target was Phase 1, but the current branch has implemented
+Phase 1 through Phase 4B. Treat the phase sections below as historical design
+rationale plus the implemented baseline, not as a pending Phase 1-only plan.
 
 ## 2. Current Architecture Analysis
 
@@ -80,9 +82,9 @@ The codebase already has several pieces that should be preserved:
 - review, lineage, recompute, and availability surfaces already exist for P5 and
   persisted artifacts.
 
-### 2.3 Current Gaps
+### 2.3 Original Governance Gaps And Current Status
 
-The remaining gaps are governance gaps, not basic extraction gaps:
+The original remaining gaps were governance gaps, not basic extraction gaps:
 
 1. **Registry roles are ambiguous.**
    `MetricRegistry` and `MetricMappingRegistry` solve different problems, but
@@ -107,6 +109,18 @@ The remaining gaps are governance gaps, not basic extraction gaps:
    There is no approved/mapped/deprecated/blacklisted workflow, no durable
    mapping decision lookup, no shadow merge scoring, and no write API for metric
    review decisions.
+
+Current implementation status:
+
+- Phase 1 added governance metadata and provisional/custom guardrails.
+- Phase 2 added a metric-governance-specific review surface.
+- Phase 3 added durable lifecycle registry behavior.
+- Phase 4A exposed lifecycle workflow and review API operations.
+- Phase 4B added recompute audit, dry-run, and controlled consumption.
+
+The remaining post-P4B work is no longer "implement durable lifecycle". It is
+to harden downstream consumers, persist lifecycle recompute audit snapshots when
+needed, and clarify the DB-backed recompute boundary.
 
 ## 3. Design Principles
 
@@ -220,8 +234,9 @@ Responsibility:
 - deprecate or blacklist unsupported metrics;
 - expose state for recompute and review.
 
-This is a future durable component. Phase 1 should not implement the durable
-registry.
+This component is now part of the implemented Phase 3 / Phase 4A baseline. The
+umbrella still documents the responsibility boundary because downstream
+consumers must not infer lifecycle state from metric id strings alone.
 
 ## 5. Lifecycle States
 
@@ -352,7 +367,7 @@ Phase 4B is the recompute/output bridge. It should start with planning and audit
 signals, then add controlled consumption in the same phase only after each
 output-changing rule has deterministic tests.
 
-Deferred from Phase 4 unless a separate business need appears:
+Deferred unless a separate business need appears:
 
 - durable approval workflow;
 - async job orchestration;
@@ -361,7 +376,8 @@ Deferred from Phase 4 unless a separate business need appears:
 
 ## 8. Phase 1 Detailed Scope
 
-Phase 1 should create a narrow but enforceable guardrail.
+Phase 1 created a narrow but enforceable guardrail. This section is retained as
+the implemented design contract.
 
 In scope:
 
@@ -414,8 +430,9 @@ a supported metric, it must remain a review signal.
 
 ## 10. Interaction With Storage
 
-Current storage already has `MetricRegistryEntryRecord`, but Phase 1 should not
-depend on durable registry state.
+Current storage includes durable metric lifecycle state used by the implemented
+Phase 3 / Phase 4A baseline. Phase 1 did not depend on durable registry state;
+later phases made it explicit.
 
 Future durable lifecycle state should preserve:
 
@@ -435,7 +452,7 @@ Future durable lifecycle state should preserve:
 
 ## 11. Interaction With API and P5/Turtle
 
-Phase 1 should protect existing API and P5/Turtle consumers:
+Phase 1 protects existing API and P5/Turtle consumers:
 
 - `key_facts` must not include provisional custom metrics.
 - derived TTM facts must not be built from provisional custom canonical facts.
@@ -444,7 +461,7 @@ Phase 1 should protect existing API and P5/Turtle consumers:
   facts should flow through.
 - analysis snapshots and review packets may include provisional review signals.
 
-## 12. Acceptance Criteria
+## 12. Phase 1 Acceptance Criteria
 
 Phase 1 is complete when:
 
@@ -478,19 +495,17 @@ This umbrella spec does not require immediate implementation of:
 
 ## 14. Recommended Next Step
 
-The Phase 1 implementation plan is `docs/superpowers/plans/active/2026-04-25-financial-report-analysis-metric-governance-phase1-implementation-plan.md`.
+Do not execute the old Phase 1 implementation path as the next step. Current
+status is tracked by:
 
-Write and execute a Phase 1 implementation plan:
+- `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
+- `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`
 
-```text
-Metric Governance Phase 1
--> registry boundary documentation
--> governance metadata helpers
--> FactNormalizer propagation
--> ConflictResolver / ValidationService guardrails
--> ReportAdapter defensive exclusion
--> focused unit and integration tests
-```
+Recommended post-P4B choices:
 
-Only after Phase 1 is complete should the project return to post-P5 field
-enhancement work or durable lifecycle workflow design.
+- downstream governance hardening in P5 dataset, Turtle export, and
+  availability read surfaces;
+- lifecycle recompute audit snapshot persistence;
+- DB-backed recompute boundary clarification;
+- one-field post-P5 onboarding only after the governance/source precedence gates
+  remain satisfied.

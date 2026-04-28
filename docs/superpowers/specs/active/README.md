@@ -6,4 +6,11 @@ Current active spec:
 
 This roadmap is the handoff entry point. Most older specs were completed or superseded by later implemented slices and now live in `../archived/`.
 
+Current status reconciliation:
+
+- `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
+
+Use the reconciliation spec when a document's original phase language conflicts
+with the current implemented baseline.
+
 When a new stage is needed, write a focused spec here only after checking the roadmap, latest git history, and current code state.
