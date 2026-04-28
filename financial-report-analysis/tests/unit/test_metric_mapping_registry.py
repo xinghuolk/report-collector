@@ -899,7 +899,7 @@ def test_metric_mapping_registry_rejects_fair_value_profit_metric_outside_income
         registry.match(
             table_kind="balance_sheet",
             normalized_row_label="fair value gains and losses",
-            value_time_shape="point_in_time",
+            value_time_shape="duration",
             statement_scope_guess="consolidated",
             market="HK",
         )
