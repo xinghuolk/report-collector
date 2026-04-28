@@ -87,8 +87,9 @@ unknown or unsupported field
 
 剩余风险：
 
-- DB-backed recompute 边界仍需要明确：未来到底是 JSON-first 加显式 DB sync，还是
-  DB-native recompute path。
+- DB-backed recompute boundary/readiness contract 已明确：当前仍是 JSON-first
+  canonical executor，DB-native recompute unsupported。后续风险转为 JSON-first
+  recompute 结果如何显式同步到 DB read surface。
 - 如果新增 post-P5 字段，仍需要先走 sample-onboarding diagnosis，避免绕过当前
   governance/source precedence gates。
 
@@ -127,11 +128,12 @@ unknown or unsupported field
 
 ## 建议的后续切片
 
-1. **DB-backed recompute boundary。**
-   当前推荐方向是先做 `boundary/readiness contract`：JSON-first recompute executor
-   继续作为唯一 canonical executor，DB 负责 persistence/readback/audit/boundary
-   readiness，并明确 DB-native unsupported。后续如产品需要，再进入 explicit
-   JSON-to-DB sync bridge；最后才评估 DB-native recompute executor。
+1. **Explicit JSON-to-DB sync bridge。**
+   DB-backed recompute boundary/readiness contract 已明确：当前仍是 JSON-first
+   canonical executor，DB-native recompute unsupported。下一步如果产品需要让
+   JSON-first recompute 结果稳定进入 DB read surface，应设计 explicit JSON-to-DB
+   sync bridge，包括 input hashes、before/after artifact references、overwrite
+   semantics 和 partial failure recovery。
 
 2. **One-field post-P5 onboarding slice。**
    从 gap list 中选择一个字段族，先执行 sample-onboarding diagnosis，再决定

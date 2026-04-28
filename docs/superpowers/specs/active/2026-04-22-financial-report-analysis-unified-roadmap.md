@@ -35,9 +35,10 @@
 - `Lifecycle Recompute Audit Persistence` 已完成并收口。Metric lifecycle recompute
   audit snapshot 现在会随 recompute run 持久化，并能通过 recompute run read surface
   与 dataset audit view/API 读回。
-- `DB-backed Recompute Boundary` 已进入当前设计阶段。当前推荐方向是
-  JSON-first recompute executor 继续作为唯一 canonical executor，DB 负责
-  persistence/readback/audit/boundary readiness，不在本阶段实现 DB-native recompute。
+- `DB-backed Recompute Boundary` 已完成 boundary/readiness contract。JSON-first
+  recompute executor 继续作为唯一 canonical executor；DB 负责
+  persistence/readback/audit/boundary readiness，并通过只读 endpoint 明确
+  DB-native recompute 在本阶段 unsupported。
 - 当前架构分析已收口在
   `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`。
 - 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
@@ -659,7 +660,7 @@ issuer + fiscal-year range
 候选顺序是：`DB-backed recompute boundary`，或一个经过 sample-onboarding diagnosis
 的 post-P5 单字段切片。
 
-`DB-backed recompute boundary` 的后续方向固定为三段：
+`DB-backed recompute boundary` 的后续方向固定为三段，其中第一段已经完成：
 
 - 先做 `boundary/readiness contract`，只读说明当前 dataset/run 必须走 JSON-first、
   仅支持 DB assembly，或明确 DB-native unsupported。

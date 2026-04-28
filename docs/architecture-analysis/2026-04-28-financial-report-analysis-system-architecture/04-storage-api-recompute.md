@@ -146,6 +146,15 @@ Phase 4B 增加了：
   snapshot 响应字段；
 - malformed lifecycle audit payload fail-fast。
 
+当前 DB-backed recompute boundary/readiness contract 增加了：
+
+- `p5/db_recompute_boundary.py` 的 `DbRecomputeBoundaryView`；
+- `RecomputeExecutionMode`，明确 `json_first_required`、`db_assembly_available` 和
+  `db_native_unsupported`；
+- `GET /datasets/{dataset_id}/recompute-boundary` 只读 endpoint；
+- endpoint 不触发 recompute，不创建 recompute run，不执行 DB-native recompute；
+- DB assembly path 继续只表示 persisted artifact assembly，不表示 recompute executor。
+
 ## 当前状态
 
 已实现：
@@ -156,6 +165,7 @@ Phase 4B 增加了：
 - review 和 lineage persistence；
 - recompute result model 和 readback；
 - lifecycle recompute audit snapshot persistence 和 readback；
+- DB-backed recompute boundary/readiness view 和只读 API；
 - offline/local P5 build 的 JSON repository；
 - 3-5Y persisted availability/data provider baseline。
 
@@ -169,17 +179,20 @@ Phase 4B 增加了：
 
 ## 风险与边界
 
-- JSON recompute 与 DB-backed API assembly 是不同执行路径。
+- JSON recompute 与 DB-backed API assembly 是不同执行路径；当前通过
+  `/datasets/{dataset_id}/recompute-boundary` 显式暴露该边界。
 - 许多 DB objects 仍是 JSON payload；高基数 fact queries 能力有限。
 - `save_p5_assembly_bundle` 重写 dataset snapshot 的 lineage，而不是保留完整
   lineage history。
 - API extract persistence 当前在持久化场景下假设 `pdf_path`。
-- Recompute run persistence 存储 result metadata 和可选 lifecycle audit snapshot，
-  但不执行 DB-native recompute。
+- Recompute run persistence 存储 result metadata 和可选 lifecycle audit snapshot；
+  recompute boundary endpoint 只读说明 JSON-first/DB assembly/DB-native unsupported
+  状态，但不执行 DB-native recompute。
 
 ## 建议的后续切片
 
-- 定义单一 DB-backed recompute executor，或明确 JSON-to-DB sync 边界。
+- 设计 explicit JSON-to-DB sync bridge，把 JSON-first recompute 结果、input hashes、
+  before/after artifact references 和 failure semantics 显式同步到 DB read surface。
 - 增加稳定 recompute run ids、input hashes 和 before/after artifact version
   references。
 - 如未来查询需求明确，再将高价值 audit fields 从 JSON payload 提升为

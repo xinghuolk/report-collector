@@ -1,6 +1,6 @@
 # 财报分析 DB-backed Recompute Boundary 设计
 
-> **状态:** Active design spec
+> **状态:** Implemented boundary/readiness contract
 > **日期:** 2026-04-28
 > **范围:** 明确 JSON-first recompute executor 与 DB repository/read surface 的长期边界
 
@@ -222,6 +222,10 @@ GET /datasets/{dataset_id}/recompute-boundary
 - lifecycle recompute 仍明确要求 JSON-first executor；
 - 调用者能看到 unsupported/blocking reasons，而不是误以为 DB 会自动 recompute；
 - 路线图包含后续方向：boundary/readiness -> JSON-to-DB sync bridge -> DB-native executor。
+
+实现收口后，`GET /datasets/{dataset_id}/recompute-boundary` 是只读 readiness surface。
+它返回 `json_first_required`、`db_assembly_available` 或 `db_native_unsupported`
+相关状态说明，但不触发 recompute，不写入 recompute run，也不执行 DB-native recompute。
 
 ## 8. 后续方向
 
