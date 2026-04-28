@@ -154,12 +154,12 @@ class _FakeRepository:
             raise self.preflight_exception
         return self.current_before_refs
 
-    def load_json_to_db_sync_result(self, sync_id: str) -> JsonToDbSyncAuditView:
-        self.operations.append("load_json_to_db_sync_result")
-        existing = self.existing_sync_by_id.get(sync_id)
-        if existing is None:
-            raise P5ArtifactRepositoryError(f"missing sync: {sync_id}")
-        return existing
+    def load_optional_json_to_db_sync_result(
+        self,
+        sync_id: str,
+    ) -> JsonToDbSyncAuditView | None:
+        self.operations.append("load_optional_json_to_db_sync_result")
+        return self.existing_sync_by_id.get(sync_id)
 
     def load_latest_json_to_db_sync_for_recompute_run(
         self,
@@ -375,7 +375,7 @@ def test_sync_skips_existing_completed_record_idempotently() -> None:
     assert repository.saved_bundle_count == 0
     assert repository.saved_recompute_count == 0
     assert repository.saved_syncs == []
-    assert repository.operations == ["load_json_to_db_sync_result"]
+    assert repository.operations == ["load_optional_json_to_db_sync_result"]
 
 
 def test_sync_uses_exact_sync_id_not_latest_recompute_record_for_idempotency() -> None:
@@ -410,7 +410,7 @@ def test_sync_uses_exact_sync_id_not_latest_recompute_record_for_idempotency() -
 
     assert result.status is JsonToDbSyncStatus.SKIPPED_IDEMPOTENT
     assert repository.saved_syncs == []
-    assert repository.operations == ["load_json_to_db_sync_result"]
+    assert repository.operations == ["load_optional_json_to_db_sync_result"]
 
 
 def test_sync_rejects_stale_input_hash_before_writing() -> None:
@@ -520,6 +520,18 @@ def test_sync_records_failed_metadata_when_preflight_repository_raises() -> None
     assert [view.status for view in repository.saved_syncs] == [
         JsonToDbSyncStatus.FAILED
     ]
+
+
+def test_sync_propagates_programming_error_during_preflight() -> None:
+    request = _request()
+    repository = _FakeRepository(preflight_exception=TypeError("programming bug"))
+
+    with pytest.raises(TypeError, match="programming bug"):
+        sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert repository.saved_syncs == []
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
 
 
 def test_sync_raises_unknown_state_when_completed_metadata_write_fails() -> None:

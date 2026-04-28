@@ -223,6 +223,8 @@ def test_json_to_db_sync_result_persists_and_loads_by_sync_id(
     loaded = repository.load_json_to_db_sync_result("sync-roundtrip")
     assert loaded == view
     assert loaded.status is JsonToDbSyncStatus.SKIPPED_IDEMPOTENT
+    assert repository.load_optional_json_to_db_sync_result("sync-roundtrip") == view
+    assert repository.load_optional_json_to_db_sync_result("missing-sync") is None
 
 
 def test_sync_service_writes_dataset_bundle_recompute_and_sync_metadata(

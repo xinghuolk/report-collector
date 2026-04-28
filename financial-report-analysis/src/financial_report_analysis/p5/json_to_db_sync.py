@@ -100,7 +100,10 @@ class JsonToDbSyncRepository(Protocol):
 
     def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]: ...
 
-    def load_json_to_db_sync_result(self, sync_id: str) -> JsonToDbSyncAuditView: ...
+    def load_optional_json_to_db_sync_result(
+        self,
+        sync_id: str,
+    ) -> JsonToDbSyncAuditView | None: ...
 
     def load_latest_json_to_db_sync_for_recompute_run(
         self,
@@ -240,7 +243,7 @@ def sync_json_recompute_to_db(
         stale_reasons = _stale_input_hash_reasons(repository, request)
         stale_reasons.extend(_db_source_artifact_reasons(repository, request))
         stale_reasons.extend(_stale_before_ref_reasons(repository, request))
-    except Exception as exc:
+    except P5ArtifactRepositoryError as exc:
         stale_reasons = [f"preflight_failed: {exc}"]
 
     if stale_reasons:
@@ -454,12 +457,7 @@ def _load_existing_sync_by_id(
     repository: JsonToDbSyncRepository,
     sync_id: str,
 ) -> JsonToDbSyncAuditView | None:
-    try:
-        return repository.load_json_to_db_sync_result(sync_id)
-    except P5ArtifactRepositoryError as exc:
-        if "missing" in str(exc).lower():
-            return None
-        raise
+    return repository.load_optional_json_to_db_sync_result(sync_id)
 
 
 def _stale_input_hash_reasons(

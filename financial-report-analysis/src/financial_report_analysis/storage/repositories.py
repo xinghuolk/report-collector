@@ -1487,6 +1487,16 @@ class SqlAlchemyP5ArtifactRepository:
                 )
             return _json_to_db_sync_view_from_record(record)
 
+    def load_optional_json_to_db_sync_result(
+        self,
+        sync_id: str,
+    ) -> JsonToDbSyncAuditView | None:
+        with Session(self.engine) as session:
+            record = session.get(JsonToDbSyncRecord, sync_id)
+            if record is None:
+                return None
+            return _json_to_db_sync_view_from_record(record)
+
     def load_latest_json_to_db_sync_for_dataset(
         self,
         dataset_id: str,
