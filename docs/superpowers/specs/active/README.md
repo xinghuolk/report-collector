@@ -1,8 +1,11 @@
 # Active Specs
 
-Current active spec:
+Current active specs:
 
 - `2026-04-22-financial-report-analysis-unified-roadmap.md`
+- `2026-04-24-financial-report-analysis-hk-09987-2025-extraction-recovery-design.md`
+- `2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`
+- `2026-04-28-financial-report-analysis-explicit-json-to-db-sync-bridge-design.md`
 
 This roadmap is the handoff entry point. Most older specs were completed or superseded by later implemented slices and now live in `../archived/`.
 
