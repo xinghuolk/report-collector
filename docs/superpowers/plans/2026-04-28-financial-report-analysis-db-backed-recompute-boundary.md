@@ -50,11 +50,15 @@ from typing import cast
 import pytest
 
 from financial_report_analysis.models import MetricLifecycleRecomputeAudit
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.db_recompute_boundary import (
     RecomputeExecutionMode,
     build_db_recompute_boundary_view,
 )
-from financial_report_analysis.storage.repositories import DatasetAuditView
+from financial_report_analysis.storage.repositories import (
+    DatasetAuditView,
+    SourceArtifactAuditRecord,
+)
 
 
 class _FakeRepository:
@@ -70,13 +74,33 @@ class _FakeRepository:
 def _audit_view(
     *,
     source_artifact_ids: tuple[str, ...] = ("artifact-1",),
+    source_artifact_count: int | None = None,
     latest_recompute_reason: str | None = None,
     lifecycle_audit_present: bool = False,
 ) -> DatasetAuditView:
+    artifact_count = (
+        len(source_artifact_ids)
+        if source_artifact_count is None
+        else source_artifact_count
+    )
+    source_artifacts = tuple(
+        SourceArtifactAuditRecord(
+            source_artifact_id=(
+                source_artifact_ids[index]
+                if index < len(source_artifact_ids)
+                else f"extra-artifact-{index}"
+            ),
+            report_id=None,
+            source_pdf_path=None,
+            manifest_entry_key=None,
+            extracted_review_surface=None,
+        )
+        for index in range(artifact_count)
+    )
     return DatasetAuditView(
         dataset_id="dataset-1",
         source_artifact_ids=source_artifact_ids,
-        source_artifacts=(),
+        source_artifacts=source_artifacts,
         dataset_review_surface=None,
         turtle_export_review_surface=None,
         latest_recompute_run_id=(
@@ -158,10 +182,29 @@ def test_multi_artifact_dataset_does_not_claim_db_assembly_available() -> None:
     )
 
 
-def test_empty_source_artifacts_fail_fast() -> None:
-    with pytest.raises(ValueError, match="dataset has no source artifacts"):
+def test_empty_source_artifacts_fail_fast_with_repository_error() -> None:
+    with pytest.raises(
+        P5ArtifactRepositoryError,
+        match="missing source artifacts for dataset in DB repository",
+    ):
         build_db_recompute_boundary_view(
             repository=_FakeRepository(_audit_view(source_artifact_ids=())),
+            dataset_id="dataset-1",
+        )
+
+
+def test_source_artifact_id_count_must_match_loaded_audit_records() -> None:
+    with pytest.raises(
+        P5ArtifactRepositoryError,
+        match="source artifact audit records do not match source artifact ids",
+    ):
+        build_db_recompute_boundary_view(
+            repository=_FakeRepository(
+                _audit_view(
+                    source_artifact_ids=("artifact-1",),
+                    source_artifact_count=0,
+                )
+            ),
             dataset_id="dataset-1",
         )
 ```
@@ -188,6 +231,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.storage.repositories import DatasetAuditView
 
 
@@ -232,7 +276,15 @@ def build_db_recompute_boundary_view(
     audit_view = repository.load_dataset_audit_view(dataset_id)
     source_artifact_ids = tuple(audit_view.source_artifact_ids)
     if not source_artifact_ids:
-        raise ValueError(f"dataset has no source artifacts: {dataset_id}")
+        raise P5ArtifactRepositoryError(
+            "missing source artifacts for dataset in DB repository: "
+            f"{dataset_id}"
+        )
+    if len(audit_view.source_artifacts) != len(source_artifact_ids):
+        raise P5ArtifactRepositoryError(
+            "source artifact audit records do not match source artifact ids "
+            f"for dataset in DB repository: {dataset_id}"
+        )
 
     normalized_reason = _normalize_reason(requested_reason)
     required_mode = _required_mode_for_reason(normalized_reason)

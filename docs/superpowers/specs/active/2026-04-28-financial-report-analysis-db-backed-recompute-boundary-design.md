@@ -96,8 +96,8 @@ class RecomputeExecutionMode(StrEnum):
 含义：
 
 - `json_first_required`：当前 reason 或输入依赖只能由 JSON-first executor 正确执行。
-- `db_assembly_available`：DB 中已有 extracted artifact，且只适合执行 persisted artifact assembly；
-  这仍不是 recompute executor。
+- `db_assembly_available`：DB audit view 已验证当前 dataset 引用的 persisted extracted
+  artifact 存在，且只适合执行 persisted artifact assembly；这仍不是 recompute executor。
 - `db_native_unsupported`：调用者要求 DB-native recompute，但当前系统明确不支持。
 
 配套 view model：
@@ -145,17 +145,18 @@ build_db_recompute_boundary_view(
   `latest_lifecycle_audit_present=True`；
 - 如果调用者传入 lifecycle/pipeline/source/pdf/manifest/dataset-contract 类 reason，返回
   `required_mode=json_first_required`；
-- 如果 DB 中存在 source artifacts 且只是单 artifact assembly 场景，可把
+- 如果 DB audit view 已验证 source artifacts 存在，且只是单 artifact assembly 场景，可把
   `db_assembly_available` 放入 `supported_modes`，但 blocking reasons 必须说明它不是
   DB-native recompute；
-- 不存在 dataset 或缺少 source artifact 时 fail fast，沿用现有 repository 错误风格。
+- 不存在 dataset 或缺少 source artifact 时 fail fast，沿用现有 repository 错误风格；
+- dataset 存在但 `source_artifact_ids` 为空时应返回 caller error，不应静默 fallback。
 
 ### 4.2 API read surface
 
 新增只读 endpoint：
 
 ```text
-GET /api/v1/datasets/{dataset_id}/recompute-boundary
+GET /datasets/{dataset_id}/recompute-boundary
 ```
 
 返回 `DbRecomputeBoundaryView` 的 JSON 形态。该 endpoint 不触发 recompute，不写 DB。
