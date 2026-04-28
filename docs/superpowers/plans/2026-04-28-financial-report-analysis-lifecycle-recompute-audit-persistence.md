@@ -360,7 +360,14 @@ extend imports:
 ```python
 from financial_report_analysis.models import (
     MetricLifecycleRecomputeAudit,
-    ...
+    MetricGovernanceDecision,
+    MetricGovernanceDecisionType,
+    MetricLifecycleAction,
+    MetricLifecycleCandidateLink,
+    MetricLifecycleConceptIdentity,
+    MetricLifecycleDecision,
+    MetricLifecycleEntry,
+    MetricLifecycleStatus,
 )
 from financial_report_analysis.p5.recompute import (
     metric_lifecycle_recompute_audit_from_payload,
@@ -429,7 +436,8 @@ Add repository method after `load_recompute_result(...)`:
         )
 ```
 
-Add private helper near the method:
+Add this private helper at module level, outside the
+`SqlAlchemyP5ArtifactRepository` class, near the other payload helper functions:
 
 ```python
 def _lifecycle_recompute_audit_from_result_payload(
@@ -669,23 +677,17 @@ Expected: FAIL because API schemas/routes do not expose the snapshot.
 
 - [ ] **Step 3: Add API schema fields**
 
-In `financial-report-analysis/src/financial_report_analysis/api/schemas.py`, update:
+In `financial-report-analysis/src/financial_report_analysis/api/schemas.py`, add this
+field to `DatasetAuditResponse` immediately after `latest_recompute_reason`:
 
 ```python
-class DatasetAuditResponse(BaseModel):
-    ...
-    latest_recompute_run_id: str | None
-    latest_recompute_reason: str | None
-    latest_lifecycle_recompute_audit: MetricLifecycleRecomputeAuditResponse | None = None
+latest_lifecycle_recompute_audit: MetricLifecycleRecomputeAuditResponse | None = None
 ```
 
-Update:
+Add this field to `RecomputeResultResponse` immediately after `diff_summary`:
 
 ```python
-class RecomputeResultResponse(BaseModel):
-    ...
-    diff_summary: RecomputeDiffSummaryResponse
-    lifecycle_recompute_audit: MetricLifecycleRecomputeAuditResponse | None = None
+lifecycle_recompute_audit: MetricLifecycleRecomputeAuditResponse | None = None
 ```
 
 - [ ] **Step 4: Wire API routes**
@@ -696,8 +698,9 @@ In `financial-report-analysis/src/financial_report_analysis/api/routes.py`, upda
 ```python
 def get_recompute_result(
     run_id: str,
-    repository: Any = Depends(get_storage_repository),
+    request: Request,
 ) -> RecomputeResultResponse:
+    repository = _require_storage_repository(request)
     view = _load_or_404(repository.load_recompute_run_audit_view, run_id)
     return _recompute_result_to_response(
         run_id,

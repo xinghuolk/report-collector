@@ -33,7 +33,7 @@ recompute run read surface 与 dataset audit view 中读回。它不改变 lifec
   `metric_lifecycle_decision_changed` reason 下要求传入 audit。
 - `apply_metric_lifecycle_consumption(...)` 会把 controlled consumption provenance 写入
   fact governance metadata。
-- `StorageBackedFinancialReportRepository.save_recompute_result(...)` 会持久化
+- `SqlAlchemyP5ArtifactRepository.save_recompute_result(...)` 会持久化
   recompute plan/result 到 `recompute_runs.result_json`。
 - `/recompute-runs/{run_id}` 和 `/datasets/{dataset_id}/audit` 已有 read surface。
 
@@ -69,7 +69,7 @@ recompute run read surface 与 dataset audit view 中读回。它不改变 lifec
 
 ### 4.1 保存 recompute result
 
-`StorageBackedFinancialReportRepository.save_recompute_result(...)` 增加可选参数：
+`SqlAlchemyP5ArtifactRepository.save_recompute_result(...)` 增加可选参数：
 
 ```python
 lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None = None
