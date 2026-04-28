@@ -128,6 +128,23 @@ def test_blacklisted_or_deprecated_metric_is_blocked_even_with_auto_allowed_flag
         assert decision.reason == f"blocked_registry_status:{registry_status}"
 
 
+def test_provisional_status_is_blocked_even_with_auto_allowed_flag() -> None:
+    decision = evaluate_downstream_fact_consumption(
+        _fact(
+            {
+                "registry_status": "provisional",
+                "metric_namespace": "standard",
+                "review_required": True,
+                "auto_analysis_allowed": True,
+                "governance_reason": "inconsistent_provisional_metadata",
+            }
+        )
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "blocked_registry_status:provisional"
+
+
 def test_custom_namespace_is_blocked_without_controlled_consumption() -> None:
     decision = evaluate_downstream_fact_consumption(
         _fact(

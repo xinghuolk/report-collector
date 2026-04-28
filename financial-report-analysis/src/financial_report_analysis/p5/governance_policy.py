@@ -7,7 +7,7 @@ from financial_report_analysis.registries.metric_governance import (
     METRIC_GOVERNANCE_EXTENSION_KEY,
 )
 
-_BLOCKED_REGISTRY_STATUSES = {"blacklisted", "deprecated"}
+_BLOCKED_REGISTRY_STATUSES = {"provisional", "blacklisted", "deprecated"}
 _ALLOWED_CONSUMPTION_ACTIONS = {"map_to_standard"}
 
 
@@ -45,12 +45,6 @@ def evaluate_downstream_fact_consumption(
 
     governance_metadata = dict(metadata)
     registry_status = governance_metadata.get("registry_status")
-    if registry_status in _BLOCKED_REGISTRY_STATUSES:
-        return DownstreamGovernanceDecision(
-            allowed=False,
-            reason=f"blocked_registry_status:{registry_status}",
-            governance_metadata=governance_metadata,
-        )
 
     lifecycle_consumption = governance_metadata.get("lifecycle_consumption")
     if isinstance(lifecycle_consumption, Mapping):
@@ -66,6 +60,13 @@ def evaluate_downstream_fact_consumption(
         return DownstreamGovernanceDecision(
             allowed=False,
             reason="auto_analysis_not_allowed",
+            governance_metadata=governance_metadata,
+        )
+
+    if registry_status in _BLOCKED_REGISTRY_STATUSES:
+        return DownstreamGovernanceDecision(
+            allowed=False,
+            reason=f"blocked_registry_status:{registry_status}",
             governance_metadata=governance_metadata,
         )
 
