@@ -1,11 +1,12 @@
 # 财报分析系统架构分析
 
 > 日期：2026-04-28
-> 范围：Metric Governance Phase 4B 完成后的当前系统架构分析
+> 范围：Metric Governance Phase 4B、downstream governance hardening 和
+> lifecycle recompute audit persistence 完成后的当前系统架构分析
 
 本目录汇总当前 `financial-report-analysis` 的系统架构。分析依据包括：
 active 统一路线图、metric governance umbrella、当前代码实现，以及最新
-Phase 4B 实现结果。
+downstream governance / lifecycle audit persistence 实现结果。
 
 ## 文档索引
 
@@ -29,7 +30,9 @@ Phase 4B 实现结果。
 - P5 dataset 与 Turtle export 生成；
 - storage-backed API runtime 和 DB persistence；
 - review、lineage、recompute，以及 3-5Y availability/read surfaces；
-- metric governance Phase 1 到 Phase 4B。
+- metric governance Phase 1 到 Phase 4B；
+- downstream governance hardening；
+- lifecycle recompute audit snapshot persistence 和 read surfaces。
 
 当前架构坚持 deterministic-first。LLM/Ollama fallback 只允许作为受限语义
 辅助，不能创建 canonical facts、lifecycle decisions 或 recompute decisions。
@@ -45,7 +48,7 @@ PDF
 -> derivation, validation, review packets
 -> persisted extracted artifact
 -> P5 dataset / Turtle export / API read surfaces
--> review, lineage, recompute, and lifecycle audit surfaces
+-> review, lineage, recompute, persisted lifecycle audit, and availability surfaces
 ```
 
 ## 当前架构边界

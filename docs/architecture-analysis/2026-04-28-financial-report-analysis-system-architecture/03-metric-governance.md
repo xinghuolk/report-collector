@@ -15,6 +15,7 @@ table semantics
 -> lifecycle recompute audit
 -> explicit recompute with controlled consumption
 -> dataset / Turtle rows with lifecycle provenance
+-> persisted recompute-run audit snapshot
 ```
 
 ## 注册表边界
@@ -123,6 +124,17 @@ Controlled consumption 将 provenance 写入：
 extensions.metric_governance.lifecycle_consumption
 ```
 
+Lifecycle recompute audit snapshot 现在会随 recompute run 持久化。持久化位置是
+`recompute_runs.result_json` 中的可选 `lifecycle_recompute_audit` payload，而不是
+新的 lifecycle audit table。读取面包括：
+
+- `SqlAlchemyP5ArtifactRepository.load_recompute_run_audit_view(...)`；
+- dataset audit view 的 `latest_lifecycle_recompute_audit`；
+- `/recompute-runs/{run_id}`；
+- `/datasets/{dataset_id}/audit`。
+
+这些读取面只展示 persisted snapshot，不重新查询 live lifecycle state。
+
 ## 当前状态
 
 已完成：
@@ -135,7 +147,8 @@ extensions.metric_governance.lifecycle_consumption
 - lifecycle recompute audit API；
 - controlled consumption overlay；
 - lifecycle recompute reason 与显式 fail-fast audit requirement；
-- dataset/API/Turtle lifecycle provenance。
+- dataset/API/Turtle lifecycle provenance；
+- recompute-run-scoped lifecycle audit snapshot persistence。
 
 ## 风险与边界
 
@@ -152,6 +165,6 @@ extensions.metric_governance.lifecycle_consumption
 
 - 对齐 `MetricMappingRegistry` 与 `MetricRegistry` 的命名和文档。
 - 明确定义 `approved_custom` 输出合同，或继续保持 review-only。
-- 如果输出 provenance 需要 durable run-level audit，则持久化 lifecycle
-  recompute audit snapshots。
+- 如果治理线继续推进，应优先明确 DB-backed recompute boundary，而不是重复设计
+  lifecycle audit snapshot persistence。
 - 如果真实数据出现过度 suppression，再增加更细粒度 blacklist suppression keys。

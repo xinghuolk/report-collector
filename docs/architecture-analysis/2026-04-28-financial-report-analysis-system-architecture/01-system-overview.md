@@ -57,6 +57,7 @@ MetricMappingRegistry / MetricRegistry
 -> lifecycle entry/link/decision
 -> lifecycle recompute audit
 -> controlled consumption during explicit recompute
+-> persisted lifecycle audit snapshot
 ```
 
 关键模块：
@@ -69,6 +70,8 @@ MetricMappingRegistry / MetricRegistry
 - `services/metric_lifecycle.py`：durable lifecycle service。
 - `services/metric_lifecycle_recompute.py`：recompute / dry-run audit。
 - `services/metric_lifecycle_consumption.py`：controlled output overlay。
+- `p5/recompute.py`：lifecycle audit payload serialization 和 explicit recompute
+  requirement。
 
 ## 存储与读取路径
 
@@ -81,7 +84,7 @@ MetricMappingRegistry / MetricRegistry
 
 DB runtime 在 `api/runtime.py` 初始化。`api/routes.py` 中的 API routes 负责
 读写 extracted artifacts、datasets、Turtle exports、review surfaces、lineage、
-recompute runs 和 metric governance state。
+recompute runs、lifecycle audit snapshots 和 metric governance state。
 
 ## 当前完成状态
 
@@ -94,7 +97,9 @@ recompute runs 和 metric governance state。
 - review 和 lineage surfaces；
 - deterministic recompute contracts；
 - 3-5Y persisted availability/data provider baseline；
-- metric governance Phase 1 到 Phase 4B。
+- metric governance Phase 1 到 Phase 4B；
+- downstream governance hardening；
+- lifecycle recompute audit persistence。
 
 当前尚未作为 production workflow 实现：
 

@@ -49,6 +49,7 @@ build_recompute_plan
 -> compare volatile-stripped JSON payloads
 -> P5RecomputeResult
 -> optional save_recompute_result
+-> optional lifecycle_recompute_audit snapshot in recompute run payload
 ```
 
 ## 运行时与 API
@@ -64,7 +65,7 @@ build_recompute_plan
 - dataset artifacts；
 - dataset audit；
 - Turtle export surfaces；
-- recompute run reads；
+- recompute run reads, including optional lifecycle audit snapshots；
 - metric governance review 和 lifecycle endpoints；
 - analysis extract。
 
@@ -91,6 +92,7 @@ surfaces 存入 SQLite-backed tables。很多 artifact 主体仍以 JSON payload
 - extracted artifact persistence；
 - P5 dataset/Turtle/review/lineage bundle persistence；
 - recompute result persistence；
+- recompute-run-scoped lifecycle audit snapshot persistence；
 - lifecycle registry persistence。
 
 关键读取职责：
@@ -101,6 +103,7 @@ surfaces 存入 SQLite-backed tables。很多 artifact 主体仍以 JSON payload
 - dataset audit；
 - lineage records；
 - recompute run lookup；
+- recompute run audit view；
 - metric governance review 和 lifecycle lookup。
 
 ## 审阅面
@@ -133,6 +136,16 @@ Phase 4B 增加了：
 - 向 `p5/runner.py` 注入 `artifact_transform_func`；
 - in-memory controlled consumption，不持久化 transformed extracted artifacts。
 
+当前 recompute audit persistence 增加了：
+
+- `MetricLifecycleRecomputeAudit` payload serialization；
+- `save_recompute_result(..., lifecycle_recompute_audit=...)`；
+- `load_recompute_run_audit_view(...)`；
+- dataset audit view 的 `latest_lifecycle_recompute_audit`；
+- `/recompute-runs/{run_id}` 和 `/datasets/{dataset_id}/audit` 的可选 audit
+  snapshot 响应字段；
+- malformed lifecycle audit payload fail-fast。
+
 ## 当前状态
 
 已实现：
@@ -142,6 +155,7 @@ Phase 4B 增加了：
 - P5 dataset/Turtle persistence；
 - review 和 lineage persistence；
 - recompute result model 和 readback；
+- lifecycle recompute audit snapshot persistence 和 readback；
 - offline/local P5 build 的 JSON repository；
 - 3-5Y persisted availability/data provider baseline。
 
@@ -160,13 +174,15 @@ Phase 4B 增加了：
 - `save_p5_assembly_bundle` 重写 dataset snapshot 的 lineage，而不是保留完整
   lineage history。
 - API extract persistence 当前在持久化场景下假设 `pdf_path`。
-- Recompute run persistence 存储 result metadata，但不执行 DB-native recompute。
+- Recompute run persistence 存储 result metadata 和可选 lifecycle audit snapshot，
+  但不执行 DB-native recompute。
 
 ## 建议的后续切片
 
 - 定义单一 DB-backed recompute executor，或明确 JSON-to-DB sync 边界。
 - 增加稳定 recompute run ids、input hashes 和 before/after artifact version
   references。
-- 将高价值 audit fields 从 JSON payload 提升为 relational columns。
+- 如未来查询需求明确，再将高价值 audit fields 从 JSON payload 提升为
+  relational columns。
 - 增加 recompute-run-scoped lineage history。
 - 在支持 URL-backed persistence 前，先设计 persisted `pdf_url` identity。
