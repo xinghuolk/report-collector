@@ -218,6 +218,40 @@ def test_fact_normalizer_adds_standard_metric_governance_metadata() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("raw_label", "expected_metric_id"),
+    [
+        (
+            "Selling, general and administrative expenses",
+            "selling_general_administrative",
+        ),
+        ("Fair value gains and losses", "fv_value_chg_gain"),
+        ("Non-operating income", "non_oper_income"),
+        ("Non-operating expenses", "non_oper_exp"),
+    ],
+)
+def test_fact_normalizer_treats_post_p5_profit_labels_as_standard_metrics(
+    raw_label: str,
+    expected_metric_id: str,
+) -> None:
+    candidate = _candidate(
+        fact_id=f"fact-{expected_metric_id}",
+        period_id="2025FY",
+        source_rank_hint=1,
+        numeric_value=10.0,
+        metric_id=raw_label,
+        metric_label_raw=raw_label,
+        extensions={},
+    )
+
+    normalized = FactNormalizer().normalize_candidates([candidate])[0]
+
+    assert normalized.metric_id == expected_metric_id
+    metadata = normalized.extensions[METRIC_GOVERNANCE_EXTENSION_KEY]
+    assert metadata["registry_status"] == "standard"
+    assert metadata["auto_analysis_allowed"] is True
+
+
 def test_fact_normalizer_adds_provisional_custom_metric_governance_metadata() -> None:
     normalizer = FactNormalizer()
 
