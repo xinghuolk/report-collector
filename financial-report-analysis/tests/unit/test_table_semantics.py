@@ -1487,3 +1487,95 @@ def test_normalize_row_label_supports_p4b_cash_health_families(
     semantics = normalize_table_semantics(_balance_sheet_table_with_row(raw_label))
 
     assert semantics.rows[0].normalized_row_label == expected
+
+
+def test_normalize_table_semantics_maps_post_p5_profit_enhancement_rows() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:profit-enhancement",
+            document_id="doc",
+            page_range=(18, 18),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-sga",
+                    row_index=1,
+                    label_raw="Selling, general and administrative expenses",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-fv",
+                    row_index=2,
+                    label_raw="Fair value gains and losses",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-non-oper-income",
+                    row_index=3,
+                    label_raw="营业外收入",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-non-oper-exp",
+                    row_index=4,
+                    label_raw="营业外支出",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "selling, general and administrative expenses",
+        "fair value gains and losses",
+        "non-operating income",
+        "non-operating expenses",
+    ]
+
+
+def test_normalize_table_semantics_keeps_profit_enhancement_false_positives_unmapped() -> None:
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:profit-enhancement-negative",
+            document_id="doc",
+            page_range=(19, 19),
+            table_kind="income_statement",
+            title_text="Consolidated Statement of Profit or Loss",
+            statement_scope_guess="consolidated",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-selling",
+                    row_index=1,
+                    label_raw="Selling expenses",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-admin",
+                    row_index=2,
+                    label_raw="Administrative expenses",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-other-income",
+                    row_index=3,
+                    label_raw="Other income",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        "selling expenses",
+        "administrative expenses",
+        "other income",
+    ]
