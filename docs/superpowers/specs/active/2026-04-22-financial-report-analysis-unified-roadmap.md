@@ -32,6 +32,9 @@
   3-5Y availability 现在不再只信任 upstream canonical purity，而是通过显式
   downstream consumption policy 阻断缺失治理 metadata、provisional/custom、
   deprecated/blacklisted 或未受控 lifecycle facts 进入稳定下游输出。
+- `Lifecycle Recompute Audit Persistence` 已完成并收口。Metric lifecycle recompute
+  audit snapshot 现在会随 recompute run 持久化，并能通过 recompute run read surface
+  与 dataset audit view/API 读回。
 - 当前架构分析已收口在
   `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`。
 - 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
@@ -71,8 +74,6 @@
 因此，下一步不宜再从数据库 umbrella spec、availability spec 或 workflow umbrella spec 直接写新的 implementation plan。只有当出现新的明确业务目标时，才从下面这些 future buckets 中选择一个最小切片：
 
 - Metric governance 与 custom/provisional lifecycle：把 registry 状态、review decision、canonical promotion 的长期方向拆成小的可验证 slice。
-- Lifecycle recompute audit persistence：当业务需要解释“哪些 lifecycle decision 影响了
-  哪次 dataset/Turtle output”时，持久化 run-level audit snapshot。
 - DB-backed recompute boundary：明确 recompute 是 JSON-first 加显式 DB sync，还是
   DB-native，避免长期保留两条含糊路径。
 - Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
@@ -567,10 +568,31 @@ pdf
 后续含义：
 
 - `Downstream Governance Hardening` 不再是下一步候选项。
-- 如果继续 governance 线，优先选择 lifecycle recompute audit persistence 或
-  DB-backed recompute boundary。
+- 如果继续 governance 线，优先选择 DB-backed recompute boundary，明确 JSON-first
+  recompute 与 DB repository 的长期边界。
 - 如果继续 Turtle 字段线，应从 one-field post-P5 onboarding slice 开始，并保留当前
   governance/source precedence gates。
+
+### Milestone I: Lifecycle Recompute Audit Persistence Closeout
+
+当前状态：
+
+- lifecycle recompute audit snapshot 会随 `recompute_runs.result_json` 持久化，不新增
+  DB table。
+- `load_recompute_result(...)` 保持向后兼容；`load_recompute_run_audit_view(...)` 能读回
+  recompute result 与可选 lifecycle audit snapshot。
+- dataset audit view 会从 latest recompute run 的 persisted snapshot 读出
+  `latest_lifecycle_recompute_audit`，不重新查询 live lifecycle state。
+- `/recompute-runs/{run_id}` 和 `/datasets/{dataset_id}/audit` 会暴露可选 lifecycle
+  audit snapshot；旧 run 没有 snapshot 时返回 `null`。
+- malformed lifecycle audit payload 会 fail fast，不静默丢弃损坏 item。
+
+后续含义：
+
+- `Lifecycle Recompute Audit Persistence` 不再是下一步候选项。
+- governance 线下一步应聚焦 `DB-backed recompute boundary`。
+- 字段线下一步应选择一个 post-P5 单字段/小字段族，并继续执行 sample-onboarding
+  diagnosis。
 
 ## 10. 非目标
 
@@ -627,5 +649,5 @@ issuer + fiscal-year range
 `financial-report-analysis-3-5y-persisted-dataset-availability-view-design` 已完成并归档。真实 PDF 可继续作为 seed smoke test，但 availability correctness 的第一层验证应使用 seeded DB / mocked extracted artifacts，避免每次收口都被完整 real-PDF matrix 和 Ollama fallback 成本拖住。
 
 在没有新增业务目标前，不需要新的 active implementation plan。若需要继续推进，当前最小
-候选顺序是：`lifecycle recompute audit persistence`、`DB-backed recompute boundary`、
-或一个经过 sample-onboarding diagnosis 的 post-P5 单字段切片。
+候选顺序是：`DB-backed recompute boundary`，或一个经过 sample-onboarding diagnosis
+的 post-P5 单字段切片。

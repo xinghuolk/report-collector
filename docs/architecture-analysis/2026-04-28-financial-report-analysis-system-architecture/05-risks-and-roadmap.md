@@ -42,6 +42,14 @@ Downstream governance hardening 也已完成：
 - 3-5Y availability 在 present 判定前检查同一 governance policy；
 - 缺失或 malformed governance metadata 默认 fail closed。
 
+Lifecycle recompute audit persistence 也已完成：
+
+- recompute run 可以持久化 lifecycle recompute audit snapshot；
+- recompute run read surface 和 dataset audit view/API 可以读回该 snapshot；
+- dataset audit view 读取 persisted snapshot，不重新推断 live lifecycle state；
+- 旧 recompute run 没有 snapshot 时保持 `null`；
+- malformed lifecycle audit payload 会 fail fast。
+
 ## 暂停门槛
 
 路线图定义了五类 pause gates：
@@ -79,8 +87,6 @@ unknown or unsupported field
 
 剩余风险：
 
-- Lifecycle recompute 的 audit snapshot 仍主要是运行时/测试层可见，尚未形成稳定的
-  run-level 持久化审计模型。
 - DB-backed recompute 边界仍需要明确：未来到底是 JSON-first 加显式 DB sync，还是
   DB-native recompute path。
 - 如果新增 post-P5 字段，仍需要先走 sample-onboarding diagnosis，避免绕过当前
@@ -121,19 +127,15 @@ unknown or unsupported field
 
 ## 建议的后续切片
 
-1. **Lifecycle recompute audit persistence。**
-   持久化 audit snapshots 或 run-level metadata，说明哪些 lifecycle decisions
-   影响了某次 dataset/Turtle output。
-
-2. **DB-backed recompute boundary。**
+1. **DB-backed recompute boundary。**
    明确 recompute 是继续 JSON-first 并显式 DB sync，还是变成 DB-native。避免
    长期保留两条含糊的 recompute paths。
 
-3. **One-field post-P5 onboarding slice。**
+2. **One-field post-P5 onboarding slice。**
    从 gap list 中选择一个字段族，先执行 sample-onboarding diagnosis，再决定
    是否扩展 deterministic semantics、registry mappings 或 review surfaces。
 
-4. **Whole-document LLM assessment/diff review。**
+3. **Whole-document LLM assessment/diff review。**
    只作为 review/gap-detection artifact，不直接产出 canonical facts，也不参与
    deterministic recompute 裁决。
 
