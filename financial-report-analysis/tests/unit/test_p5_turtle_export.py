@@ -76,3 +76,65 @@ def test_build_turtle_export_maps_canonical_ids_to_turtle_aliases() -> None:
     assert export.rows[1]["canonical_metric_id"] == "operating_cash_flow"
     assert export.rows[0]["lifecycle_consumption"] == provenance
     assert export.rows[1]["lifecycle_consumption"] is None
+
+
+def test_build_turtle_export_does_not_invent_values_for_missing_rows() -> None:
+    dataset = P5DatasetArtifact(
+        dataset_id="p5_seed",
+        dataset_version="1.0",
+        created_at="2026-04-23T00:00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("revenue",),
+        rows=(
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="revenue",
+                entity_scope="consolidated",
+                period_scope="unknown",
+                statement_type="metrics",
+                value=None,
+                currency=None,
+                unit=None,
+                quality_status=None,
+                missing_status="not_surfaced",
+                source_fact_id=None,
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id=None,
+            ),
+        ),
+        quality_summary={
+            "governance_blocked_fact_count": 1,
+            "governance_blocked_by_metric": {"revenue": 1},
+        },
+        source_artifacts=("CN_601919_2025",),
+    )
+
+    export = build_turtle_export(dataset)
+
+    assert export.rows == (
+        {
+            "issuer_id": "CN_601919",
+            "market": "CN",
+            "stock_code": "601919",
+            "fiscal_year": 2025,
+            "metric_id": "revenue",
+            "entity_scope": "consolidated",
+            "period_scope": "unknown",
+            "statement_type": "metrics",
+            "value": None,
+            "currency": None,
+            "unit": None,
+            "quality_status": None,
+            "missing_status": "not_surfaced",
+            "source_fact_id": None,
+            "source_artifact_id": "CN_601919_2025",
+            "evidence_bundle_id": None,
+            "lifecycle_consumption": None,
+            "canonical_metric_id": "revenue",
+            "turtle_field": "revenue",
+        },
+    )
