@@ -187,9 +187,11 @@ API 不新增 endpoint。已有 endpoint 直接带出 snapshot：
 
 ## 8. 后续顺序
 
-完成本 slice 后，下一步可以在两类工作中选择：
+完成本 slice 后，DB-backed recompute boundary/readiness 已作为后续切片完成。
+如果继续推进，下一步可以在两类工作中选择：
 
-- **DB-backed recompute boundary。** 明确 recompute 是 JSON-first 加 DB sync，还是
-  DB-native。
+- **Explicit JSON-to-DB sync bridge。** 如果产品需要让 JSON-first recompute
+  结果稳定进入 DB read surface，再设计显式同步边界；当前 DB-native recompute
+  仍不作为下一步默认目标。
 - **One-field post-P5 onboarding。** 从 Turtle v0.15 gap list 中选择一个字段族做
   sample-onboarding diagnosis，再决定是否扩展 deterministic semantics / registry。

@@ -341,8 +341,9 @@ pdf
    - 下游消费层已经补上显式 guardrail：P5 dataset 会过滤 non-consumable facts 并记录
      blocked summary，availability 不再把 blocked facts 标记为 present，Turtle export
      继续只继承 dataset rows。
-   - 后续 governance 工作应从 DB recompute boundary 中选择 focused slice，而不是
-     重复执行 Phase 1-4B、downstream hardening 或 lifecycle audit persistence。
+   - 后续 governance/storage 工作应选择 Explicit JSON-to-DB sync bridge，或其他
+     focused post-boundary slice，而不是重复执行 Phase 1-4B、downstream hardening
+     或 lifecycle audit persistence。
 
 4. **把 workflow/products 明确后置为 future scope。**
    - 当前业务暂不需要 job 状态表、自动补齐、recompute 生命周期、product artifact 生命周期或 approval workflow。

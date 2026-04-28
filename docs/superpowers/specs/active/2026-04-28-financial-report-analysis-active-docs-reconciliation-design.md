@@ -45,8 +45,9 @@ governance umbrella 顶部仍保留旧的 Phase 1-only implementation target。
 
 - metric governance Phase 1-4B 已完成；
 - 当前不再处于 pre-P5 coverage 或 DB baseline 建设阶段；
-- 下一步应先从 governance hardening、audit persistence、DB recompute boundary 或
-  one-field onboarding 中选择最小切片；
+- downstream governance hardening、lifecycle audit persistence 和 DB recompute
+  boundary/readiness 已完成；若继续 governance/storage 线，下一步候选应是
+  Explicit JSON-to-DB sync bridge，或 one-field onboarding；
 - workflow product、approval state machine、UI、async job 和 whole-document LLM
   assessment 仍是 future scope。
 
@@ -71,26 +72,20 @@ lifecycle registry、workflow API 和 controlled consumption 分阶段推进。�
 
 ## 4. 下一步候选切片
 
-完成文档收口后，后续不应马上默认扩字段。推荐按以下顺序选择：
+完成文档收口后，后续不应马上默认扩字段。Downstream governance hardening、
+lifecycle recompute audit persistence 和 DB recompute boundary/readiness 已完成；
+当前推荐从以下候选中选择：
 
-1. **Downstream governance hardening。**
-   在 P5 dataset、Turtle export 和 availability read surfaces 增加显式
-   governance assertions 或 filters，避免完全依赖 upstream canonical purity。
+1. **Explicit JSON-to-DB sync bridge。**
+   DB recompute boundary/readiness 已完成；如果产品需要让 JSON-first recompute
+   结果稳定进入 DB read surface，再设计显式同步边界，避免长期保留含糊路径。
 
-2. **Lifecycle recompute audit persistence。**
-   持久化 audit snapshots 或 run-level metadata，让每次 dataset/Turtle output
-   能说明受哪些 lifecycle decisions 影响。
-
-3. **DB-backed recompute boundary。**
-   明确 recompute 是 JSON-first + DB sync，还是 DB-native，避免长期保留含糊的
-   双路径。
-
-4. **One-field post-P5 onboarding。**
+2. **One-field post-P5 onboarding。**
    从 gap list 选择一个字段族，先执行 sample-onboarding diagnosis，再决定是否
    扩展 deterministic semantics、registry mappings 或 review surfaces。
 
-推荐优先级是 1。原因是它直接降低 silent-pollution 风险，且范围小于 audit
-persistence 或 DB recompute boundary。
+如果产品目标是让 recompute 结果稳定进入 DB read surface，推荐优先级是 1；
+如果产品目标是继续扩字段，则先选择 2 并执行 sample-onboarding diagnosis。
 
 ## 5. 非目标
 
