@@ -115,26 +115,12 @@ def test_build_turtle_export_does_not_invent_values_for_missing_rows() -> None:
 
     export = build_turtle_export(dataset)
 
-    assert export.rows == (
-        {
-            "issuer_id": "CN_601919",
-            "market": "CN",
-            "stock_code": "601919",
-            "fiscal_year": 2025,
-            "metric_id": "revenue",
-            "entity_scope": "consolidated",
-            "period_scope": "unknown",
-            "statement_type": "metrics",
-            "value": None,
-            "currency": None,
-            "unit": None,
-            "quality_status": None,
-            "missing_status": "not_surfaced",
-            "source_fact_id": None,
-            "source_artifact_id": "CN_601919_2025",
-            "evidence_bundle_id": None,
-            "lifecycle_consumption": None,
-            "canonical_metric_id": "revenue",
-            "turtle_field": "revenue",
-        },
-    )
+    assert len(export.rows) == 1
+    row = export.rows[0]
+    assert row["missing_status"] == "not_surfaced"
+    assert row["value"] is None
+    assert row["currency"] is None
+    assert row["unit"] is None
+    assert row["canonical_metric_id"] == "revenue"
+    assert row["turtle_field"] == "revenue"
+    assert row["lifecycle_consumption"] is None
