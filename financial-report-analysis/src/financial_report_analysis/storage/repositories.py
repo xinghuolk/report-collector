@@ -16,6 +16,7 @@ from financial_report_analysis.models import (
     MetricLifecycleConceptIdentity,
     MetricLifecycleDecision,
     MetricLifecycleEntry,
+    MetricLifecycleRecomputeAudit,
     MetricLifecycleStatus,
 )
 from financial_report_analysis.models.table import ParsedTable
@@ -46,6 +47,8 @@ from financial_report_analysis.p5.models import (
     P5TurtleExportReviewSurface,
 )
 from financial_report_analysis.p5.recompute import (
+    metric_lifecycle_recompute_audit_from_payload,
+    metric_lifecycle_recompute_audit_to_payload,
     recompute_diff_summary_to_payload,
     recompute_result_from_payload,
     recompute_result_to_payload,
@@ -146,6 +149,13 @@ class DatasetAuditView:
     turtle_export_review_surface: P5TurtleExportReviewSurface | None
     latest_recompute_run_id: str | None
     latest_recompute_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RecomputeRunAuditView:
+    run_id: str
+    result: P5RecomputeResult
+    lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +316,17 @@ class InMemoryEvidenceRepository:
                 key=lambda link: (link.sort_order, link.evidence_item_id),
             )
         )
+
+
+def _lifecycle_recompute_audit_from_result_payload(
+    payload: dict[str, object],
+) -> MetricLifecycleRecomputeAudit | None:
+    audit_payload = payload.get("lifecycle_recompute_audit")
+    if audit_payload is None:
+        return None
+    if not isinstance(audit_payload, dict):
+        raise P5ArtifactRepositoryError("lifecycle_recompute_audit must be an object")
+    return metric_lifecycle_recompute_audit_from_payload(audit_payload)
 
 
 @dataclass(slots=True)
@@ -1112,6 +1133,7 @@ class SqlAlchemyP5ArtifactRepository:
         run_id: str,
         plan: P5RecomputePlan,
         result: P5RecomputeResult,
+        lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None = None,
     ) -> str:
         target_artifact_ids_json = json.dumps(
             list(plan.target_artifact_ids),
@@ -1123,8 +1145,13 @@ class SqlAlchemyP5ArtifactRepository:
             ensure_ascii=False,
             sort_keys=True,
         )
+        result_payload = recompute_result_to_payload(result)
+        if lifecycle_recompute_audit is not None:
+            result_payload["lifecycle_recompute_audit"] = (
+                metric_lifecycle_recompute_audit_to_payload(lifecycle_recompute_audit)
+            )
         result_json = json.dumps(
-            recompute_result_to_payload(result),
+            result_payload,
             ensure_ascii=False,
             sort_keys=True,
         )
@@ -1160,6 +1187,22 @@ class SqlAlchemyP5ArtifactRepository:
                 )
             payload = json.loads(record.result_json)
         return recompute_result_from_payload(payload)
+
+    def load_recompute_run_audit_view(self, run_id: str) -> RecomputeRunAuditView:
+        with Session(self.engine) as session:
+            record = session.get(RecomputeRunRecord, run_id)
+            if record is None or record.result_json is None:
+                raise P5ArtifactRepositoryError(
+                    f"missing recompute result in DB repository: {run_id}"
+                )
+            payload = json.loads(record.result_json)
+        return RecomputeRunAuditView(
+            run_id=run_id,
+            result=recompute_result_from_payload(payload),
+            lifecycle_recompute_audit=_lifecycle_recompute_audit_from_result_payload(
+                payload
+            ),
+        )
 
     def load_dataset_audit_view(self, dataset_id: str) -> DatasetAuditView:
         dataset = self.load_dataset_artifact(dataset_id)

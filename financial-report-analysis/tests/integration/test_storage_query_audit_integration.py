@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from financial_report_analysis.models import (
+    MetricLifecycleRecomputeAudit,
+    MetricLifecycleRecomputeAuditItem,
+    MetricLifecycleRecomputeAuditSummary,
+)
 from financial_report_analysis.p5.lineage import build_dataset_lineage
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
@@ -224,3 +229,103 @@ def test_storage_backed_query_and_audit_contracts_work_on_seed_dataset(
     )
     assert audit_view.latest_recompute_run_id == "recompute-run-1"
     assert audit_view.latest_recompute_reason == "pipeline_version_changed"
+
+
+def test_recompute_run_persists_lifecycle_recompute_audit_snapshot(
+    tmp_path: Path,
+) -> None:
+    repository, dataset = _seed_repository_dataset(tmp_path)
+    plan = P5RecomputePlan(
+        manifest_id="manifest-1",
+        dataset_id=dataset.dataset_id,
+        target_artifact_ids=dataset.source_artifacts,
+        rebuild_dataset=True,
+        rebuild_turtle_export=True,
+        reason="metric_lifecycle_decision_changed",
+    )
+    result = P5RecomputeResult(
+        manifest_id="manifest-1",
+        extracted_artifact_ids=dataset.source_artifacts,
+        dataset_path=tmp_path / "dataset.json",
+        turtle_export_path=tmp_path / "turtle.json",
+        diff_summary=P5RecomputeDiffSummary(
+            reason="metric_lifecycle_decision_changed",
+            target_artifact_ids=dataset.source_artifacts,
+            dataset_changed=True,
+            turtle_export_changed=True,
+            rebuilt_dataset=True,
+            rebuilt_turtle_export=True,
+        ),
+    )
+    audit = _lifecycle_audit()
+
+    repository.save_recompute_result(
+        run_id="lifecycle-recompute-run-1",
+        plan=plan,
+        result=result,
+        lifecycle_recompute_audit=audit,
+    )
+
+    view = repository.load_recompute_run_audit_view("lifecycle-recompute-run-1")
+
+    assert view.run_id == "lifecycle-recompute-run-1"
+    assert view.result == result
+    assert view.lifecycle_recompute_audit == audit
+
+
+def _seed_repository_dataset(
+    tmp_path: Path,
+) -> tuple[SqlAlchemyP5ArtifactRepository, P5DatasetArtifact]:
+    engine = create_sqlite_engine(tmp_path / "storage.db")
+    initialize_database(engine)
+    repository = SqlAlchemyP5ArtifactRepository(engine)
+    service = HistoricalIngestionService(engine)
+    entries = (
+        _entry(tmp_path, issuer_id="CN_601919", stock_code="601919", fiscal_year=2025),
+        _entry(tmp_path, issuer_id="CN_600519", stock_code="600519", fiscal_year=2025),
+        _entry(tmp_path, issuer_id="CN_000333", stock_code="000333", fiscal_year=2025),
+    )
+    manifest = P5Manifest(
+        manifest_id="p5_seed_manifest",
+        manifest_version="1.0",
+        entries=entries,
+    )
+    service.register_manifest(manifest)
+    artifacts = tuple(_artifact(entry) for entry in entries)
+    for artifact in artifacts:
+        repository.save_extracted_artifact(artifact)
+    dataset = _dataset(artifacts)
+    repository.save_dataset_artifact(dataset)
+    repository.save_turtle_export(_turtle_export(dataset))
+    return repository, dataset
+
+
+def _lifecycle_audit() -> MetricLifecycleRecomputeAudit:
+    return MetricLifecycleRecomputeAudit(
+        items=(
+            MetricLifecycleRecomputeAuditItem(
+                review_item_id="CN_601919_2025:custom_receivables",
+                artifact_id="CN_601919_2025",
+                issuer_id="CN_601919",
+                fiscal_year=2025,
+                report_type="annual",
+                candidate_metric_id="custom::receivables",
+                raw_label="应收款项融资",
+                lifecycle_entry_id="metric-lifecycle:1",
+                current_status="mapped_to_standard",
+                latest_decision_id="metric-lifecycle-decision:1",
+                latest_decision_action="map_to_standard",
+                target_metric_id="accounts_receiv",
+                recompute_needed=True,
+                consumption_action="map_to_standard",
+                conflict_state="none",
+                reason="lifecycle decision affects automatic outputs",
+            ),
+        ),
+        summary=MetricLifecycleRecomputeAuditSummary(
+            review_item_count=1,
+            artifact_count=1,
+            recompute_needed_count=1,
+            dry_run_conflict_count=0,
+        ),
+    )
