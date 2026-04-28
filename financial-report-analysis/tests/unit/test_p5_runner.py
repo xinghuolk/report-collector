@@ -57,7 +57,16 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-1",
-                "extensions": {"period_scope": "duration"},
+                "extensions": {
+                    "period_scope": "duration",
+                    "metric_governance": {
+                        "registry_status": "standard",
+                        "metric_namespace": "standard",
+                        "review_required": False,
+                        "auto_analysis_allowed": True,
+                        "governance_reason": "standard_metric",
+                    },
+                },
             },
         ),
         derived_facts=(),
