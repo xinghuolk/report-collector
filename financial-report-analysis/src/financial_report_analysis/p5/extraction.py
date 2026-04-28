@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -197,4 +197,4 @@ def _to_json_like(value: Any) -> Any:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(tz=UTC).replace(microsecond=0).isoformat()
+    return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()

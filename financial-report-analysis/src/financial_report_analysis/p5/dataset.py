@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, cast
 
 from financial_report_analysis.p5.models import (
@@ -423,4 +423,4 @@ def _missing_status_value(value: object) -> MissingStatus:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(tz=UTC).replace(microsecond=0).isoformat()
+    return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()

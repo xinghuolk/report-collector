@@ -44,7 +44,7 @@ class JsonToDbSyncRequest:
     lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None
     input_hashes: Mapping[str, str]
     before_refs: Mapping[str, str]
-    requested_by: str
+    requested_by: str | None
     sync_reason: str
 
 
@@ -101,6 +101,7 @@ def build_json_to_db_sync_id(request: JsonToDbSyncRequest) -> str:
     payload_hash = compute_payload_hash(
         {
             "before_refs": dict(request.before_refs),
+            "after_refs": _derived_after_refs(request),
             "input_hashes": dict(request.input_hashes),
             "source_artifact_ids": request.dataset.source_artifacts,
         }
@@ -120,6 +121,9 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
     if request.dataset.dataset_id != request.plan.dataset_id:
         raise P5ArtifactRepositoryError("dataset id mismatch for JSON-to-DB sync request")
 
+    if request.plan.manifest_id != request.recompute_result.manifest_id:
+        raise P5ArtifactRepositoryError("manifest id mismatch for JSON-to-DB sync request")
+
     if request.dataset_review_surface is None:
         raise P5ArtifactRepositoryError(
             "after dataset review surface is required for JSON-to-DB sync"
@@ -135,6 +139,11 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
     ):
         raise P5ArtifactRepositoryError(
             "dataset id mismatch between dataset and turtle export"
+        )
+
+    if request.turtle_export is None and request.turtle_export_review_surface is not None:
+        raise P5ArtifactRepositoryError(
+            "turtle export is required when turtle export review surface is present"
         )
 
     if request.turtle_export_review_surface is not None and (
@@ -157,11 +166,54 @@ def _validate_input_hashes(request: JsonToDbSyncRequest) -> None:
         )
 
 
+def _derived_after_refs(request: JsonToDbSyncRequest) -> dict[str, Any]:
+    return {
+        "dataset": {
+            "dataset_id": request.dataset.dataset_id,
+            "dataset_version": request.dataset.dataset_version,
+        },
+        "dataset_review_surface": (
+            None
+            if request.dataset_review_surface is None
+            else {
+                "dataset_id": request.dataset_review_surface.dataset_id,
+                "dataset_version": request.dataset_review_surface.dataset_version,
+            }
+        ),
+        "lineage_count": len(request.lineage_records),
+        "recompute_result_paths": {
+            "dataset_path": request.recompute_result.dataset_path,
+            "turtle_export_path": request.recompute_result.turtle_export_path,
+        },
+        "turtle_export": (
+            None
+            if request.turtle_export is None
+            else {
+                "dataset_id": request.turtle_export.dataset_id,
+                "dataset_version": request.turtle_export.dataset_version,
+            }
+        ),
+        "turtle_export_review_surface": (
+            None
+            if request.turtle_export_review_surface is None
+            else {
+                "dataset_id": request.turtle_export_review_surface.dataset_id,
+                "dataset_version": request.turtle_export_review_surface.dataset_version,
+            }
+        ),
+    }
+
+
 def _validate_source_artifact_match(request: JsonToDbSyncRequest) -> None:
     dataset_artifacts = request.dataset.source_artifacts
     if dataset_artifacts != request.recompute_result.extracted_artifact_ids:
         raise P5ArtifactRepositoryError(
             "source artifact mismatch between dataset and recompute result"
+        )
+
+    if set(request.plan.target_artifact_ids) != set(dataset_artifacts):
+        raise P5ArtifactRepositoryError(
+            "plan target artifacts must match dataset source artifacts"
         )
 
     if dataset_artifacts != request.dataset_review_surface.source_artifact_ids:

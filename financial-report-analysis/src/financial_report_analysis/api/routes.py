@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -484,7 +484,7 @@ def write_metric_governance_decision(
         target_metric_id=decision_request.target_metric_id,
         reason=decision_request.reason,
         actor=decision_request.actor,
-        created_at=datetime.now(UTC).isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     repository.save_metric_governance_decision(decision)
     refreshed_item = _load_metric_governance_review_item_or_404(
@@ -743,7 +743,7 @@ def _metric_lifecycle_candidate_link_from_review_item(
     *,
     actor: str,
 ) -> MetricLifecycleCandidateLink:
-    timestamp = datetime.now(UTC).isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     return MetricLifecycleCandidateLink(
         candidate_link_id=f"metric-lifecycle-candidate-link:{uuid4().hex}",
         lifecycle_entry_id=lifecycle_entry_id,

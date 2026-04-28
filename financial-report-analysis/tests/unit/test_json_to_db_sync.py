@@ -22,6 +22,8 @@ from financial_report_analysis.p5.models import (
     P5RecomputeDiffSummary,
     P5RecomputePlan,
     P5RecomputeResult,
+    P5TurtleExport,
+    P5TurtleExportReviewSurface,
 )
 
 
@@ -120,6 +122,45 @@ def test_sync_id_is_deterministic_for_run_dataset_and_hashes() -> None:
     )
 
 
+def test_sync_id_changes_when_input_hashes_change() -> None:
+    request = _request()
+    changed_request = replace(request, input_hashes={"artifact-1": "hash-2"})
+
+    assert build_json_to_db_sync_id(request) != build_json_to_db_sync_id(
+        changed_request
+    )
+
+
+def test_sync_id_changes_when_before_refs_change() -> None:
+    request = _request()
+    changed_request = replace(
+        request,
+        before_refs={"dataset": "dataset-hash-2", "recompute_run": "none"},
+    )
+
+    assert build_json_to_db_sync_id(request) != build_json_to_db_sync_id(
+        changed_request
+    )
+
+
+def test_sync_id_changes_when_after_identity_changes() -> None:
+    request = _request()
+    changed_request = replace(
+        request,
+        dataset=replace(_dataset(), dataset_version="2.0"),
+    )
+
+    assert build_json_to_db_sync_id(request) != build_json_to_db_sync_id(
+        changed_request
+    )
+
+
+def test_request_accepts_null_requested_by() -> None:
+    request = replace(_request(), requested_by=None)
+
+    assert request.requested_by is None
+
+
 def test_payload_hash_is_order_insensitive_for_dict_keys() -> None:
     assert compute_payload_hash({"b": 2, "a": 1}) == compute_payload_hash(
         {"a": 1, "b": 2}
@@ -170,6 +211,16 @@ def test_validate_rejects_dataset_id_mismatch() -> None:
         validate_json_to_db_sync_request(invalid_request)
 
 
+def test_validate_rejects_manifest_id_mismatch() -> None:
+    invalid_request = replace(
+        _request(),
+        recompute_result=replace(_result(), manifest_id="other-manifest"),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="manifest id mismatch"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
 def test_validate_rejects_source_artifact_mismatch_between_dataset_and_result() -> None:
     invalid_request = replace(
         _request(),
@@ -180,11 +231,66 @@ def test_validate_rejects_source_artifact_mismatch_between_dataset_and_result() 
         validate_json_to_db_sync_request(invalid_request)
 
 
+def test_validate_rejects_plan_target_artifact_mismatch() -> None:
+    invalid_request = replace(
+        _request(),
+        plan=replace(_plan(), target_artifact_ids=("artifact-2",)),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="plan target artifacts"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
 def test_validate_rejects_input_hash_source_artifact_mismatch() -> None:
     invalid_request = replace(_request(), input_hashes={"artifact-2": "hash-2"})
 
     with pytest.raises(P5ArtifactRepositoryError, match="input hash source artifacts"):
         validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_turtle_review_surface_without_turtle_export() -> None:
+    invalid_request = replace(
+        _request(),
+        turtle_export=None,
+        turtle_export_review_surface=P5TurtleExportReviewSurface(
+            dataset_id="dataset-1",
+            dataset_version="1.0",
+            source_artifact_ids=("artifact-1",),
+            row_count=0,
+            present_row_count=0,
+            missing_row_count=0,
+            alias_count=0,
+        ),
+    )
+
+    with pytest.raises(
+        P5ArtifactRepositoryError,
+        match="turtle export is required when turtle export review surface is present",
+    ):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_accepts_matching_turtle_export_and_review_surface() -> None:
+    request = replace(
+        _request(),
+        turtle_export=P5TurtleExport(
+            dataset_id="dataset-1",
+            dataset_version="1.0",
+            created_at="2026-04-28T00:00:00+00:00",
+            rows=(),
+        ),
+        turtle_export_review_surface=P5TurtleExportReviewSurface(
+            dataset_id="dataset-1",
+            dataset_version="1.0",
+            source_artifact_ids=("artifact-1",),
+            row_count=0,
+            present_row_count=0,
+            missing_row_count=0,
+            alias_count=0,
+        ),
+    )
+
+    validate_json_to_db_sync_request(request)
 
 
 def test_validate_rejects_missing_dataset_before_ref() -> None:
