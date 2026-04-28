@@ -1,6 +1,7 @@
 # Active Plans
 
-There are no active implementation plans after the 2026-04-24 DB-backed 3-5Y data provider closeout.
+There are no active implementation plans after the 2026-04-28 DB-backed
+recompute boundary/readiness closeout.
 
 Before creating a new plan, read:
 

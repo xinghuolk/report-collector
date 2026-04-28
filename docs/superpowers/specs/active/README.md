@@ -6,11 +6,14 @@ Current active spec:
 
 This roadmap is the handoff entry point. Most older specs were completed or superseded by later implemented slices and now live in `../archived/`.
 
-Current status reconciliation:
+Current status reconciliation and architecture umbrella:
 
 - `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
-- `2026-04-28-financial-report-analysis-downstream-governance-hardening-design.md`
-- `2026-04-28-financial-report-analysis-db-backed-recompute-boundary-design.md`
+- `2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`
+
+Recently completed specs, including downstream governance hardening, lifecycle
+audit persistence, DB-backed recompute boundary/readiness, and Metric Governance
+Phase 2-4B, have been moved to `../archived/`.
 
 Use the reconciliation spec when a document's original phase language conflicts
 with the current implemented baseline.

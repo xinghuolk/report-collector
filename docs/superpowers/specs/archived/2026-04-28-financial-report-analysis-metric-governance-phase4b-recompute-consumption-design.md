@@ -4,7 +4,7 @@
 > **Date:** 2026-04-28
 > **Scope Type:** Narrow design and implementation target
 > **Parent Spec:** `docs/superpowers/specs/active/2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`
-> **Depends On:** `docs/superpowers/specs/active/2026-04-27-financial-report-analysis-metric-governance-phase4a-workflow-review-api-design.md`
+> **Depends On:** `docs/superpowers/specs/archived/2026-04-27-financial-report-analysis-metric-governance-phase4a-workflow-review-api-design.md`
 > **Implements:** Metric governance umbrella Phase 4B
 
 ## 1. Purpose

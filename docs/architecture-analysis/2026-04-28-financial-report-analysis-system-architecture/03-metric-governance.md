@@ -165,6 +165,6 @@ Lifecycle recompute audit snapshot 现在会随 recompute run 持久化。持久
 
 - 对齐 `MetricMappingRegistry` 与 `MetricRegistry` 的命名和文档。
 - 明确定义 `approved_custom` 输出合同，或继续保持 review-only。
-- 如果治理线继续推进，应优先明确 DB-backed recompute boundary，而不是重复设计
-  lifecycle audit snapshot persistence。
+- 如果治理线继续推进，应优先评估 Explicit JSON-to-DB sync bridge，而不是重复设计
+  lifecycle audit snapshot persistence 或 DB-backed recompute boundary/readiness。
 - 如果真实数据出现过度 suppression，再增加更细粒度 blacklist suppression keys。
