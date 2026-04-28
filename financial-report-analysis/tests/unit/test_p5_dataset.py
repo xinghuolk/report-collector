@@ -131,6 +131,85 @@ def test_assemble_dataset_emits_present_rows_and_missing_status_rows(
     assert dataset.quality_summary["duplicate_fact_conflicts"] == []
 
 
+def test_assemble_dataset_includes_post_p5_profit_metric_rows(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-selling-general-administrative",
+                "metric_id": "selling_general_administrative",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": -120.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-sga",
+                "extensions": _standard_extensions("duration"),
+            },
+            {
+                "fact_id": "fact-fv-value-chg-gain",
+                "metric_id": "fv_value_chg_gain",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 18.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-fv-gain",
+                "extensions": _standard_extensions("duration"),
+            },
+            {
+                "fact_id": "fact-non-oper-income",
+                "metric_id": "non_oper_income",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 6.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-non-oper-income",
+                "extensions": _standard_extensions("duration"),
+            },
+            {
+                "fact_id": "fact-non-oper-exp",
+                "metric_id": "non_oper_exp",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": -3.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-non-oper-exp",
+                "extensions": _standard_extensions("duration"),
+            },
+        ),
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    rows_by_metric = {row.metric_id: row for row in dataset.rows}
+    assert {
+        "selling_general_administrative",
+        "fv_value_chg_gain",
+        "non_oper_income",
+        "non_oper_exp",
+    }.issubset(rows_by_metric)
+    assert rows_by_metric["selling_general_administrative"].value == -120.0
+    assert rows_by_metric["fv_value_chg_gain"].statement_type == "income_statement"
+
+
 def test_assemble_dataset_preserves_lifecycle_consumption_provenance(
     tmp_path: Path,
 ) -> None:

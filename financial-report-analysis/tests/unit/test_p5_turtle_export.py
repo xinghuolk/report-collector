@@ -78,6 +78,66 @@ def test_build_turtle_export_maps_canonical_ids_to_turtle_aliases() -> None:
     assert export.rows[1]["lifecycle_consumption"] is None
 
 
+def test_build_turtle_export_passes_through_post_p5_profit_fields() -> None:
+    dataset = P5DatasetArtifact(
+        dataset_id="p5_seed",
+        dataset_version="1.0",
+        created_at="2026-04-23T00:00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("fv_value_chg_gain", "selling_general_administrative"),
+        rows=(
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="selling_general_administrative",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="income_statement",
+                value=-120.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="fact-selling-general-administrative",
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id="bundle-sga",
+            ),
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="fv_value_chg_gain",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="income_statement",
+                value=18.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="fact-fv-value-chg-gain",
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id="bundle-fv-gain",
+            ),
+        ),
+        quality_summary={},
+        source_artifacts=("CN_601919_2025",),
+    )
+
+    export = build_turtle_export(dataset)
+
+    rows = {row["canonical_metric_id"]: row for row in export.rows}
+    assert (
+        rows["selling_general_administrative"]["turtle_field"]
+        == "selling_general_administrative"
+    )
+    assert rows["fv_value_chg_gain"]["turtle_field"] == "fv_value_chg_gain"
+
+
 def test_build_turtle_export_does_not_invent_values_for_missing_rows() -> None:
     dataset = P5DatasetArtifact(
         dataset_id="p5_seed",
