@@ -60,7 +60,21 @@ def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
         document={"document_id": str(entry.pdf_path), "pdf_path": str(entry.pdf_path)},
         document_metadata={},
         candidate_facts=(),
-        canonical_facts=({"fact_id": f"canonical-{entry.artifact_id}", "metric_id": "revenue"},),
+        canonical_facts=(
+            {
+                "fact_id": f"canonical-{entry.artifact_id}",
+                "metric_id": "revenue",
+                "extensions": {
+                    "metric_governance": {
+                        "registry_status": "standard",
+                        "metric_namespace": "standard",
+                        "review_required": False,
+                        "auto_analysis_allowed": True,
+                        "governance_reason": "standard_metric",
+                    },
+                },
+            },
+        ),
         derived_facts=(),
         validation_report={"overall_status": "ok", "issues": []},
         review_packets=(),
