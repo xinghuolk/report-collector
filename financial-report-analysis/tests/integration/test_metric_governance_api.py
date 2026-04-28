@@ -133,6 +133,11 @@ class _KeyErrorArtifactRepository:
         raise KeyError(artifact_id)
 
 
+class _AttributeErrorArtifactRepository:
+    def load_extracted_artifact(self, artifact_id: str) -> P5ExtractedArtifact:
+        raise AttributeError(f"corrupt extracted artifact: {artifact_id}")
+
+
 def test_metric_governance_lifecycle_entry_endpoint_creates_linked_state(
     tmp_path: Path,
 ) -> None:
@@ -464,6 +469,15 @@ def test_lifecycle_recompute_dry_run_loader_ignores_missing_artifact() -> None:
     assert artifact is None
 
 
+def test_lifecycle_recompute_dry_run_loader_ignores_missing_capability() -> None:
+    artifact = _load_artifact_for_lifecycle_dry_run(
+        object(),
+        "missing-artifact",
+    )
+
+    assert artifact is None
+
+
 def test_lifecycle_recompute_dry_run_loader_preserves_repository_errors() -> None:
     with pytest.raises(P5ArtifactRepositoryError, match="invalid extracted artifact"):
         _load_artifact_for_lifecycle_dry_run(
@@ -476,6 +490,14 @@ def test_lifecycle_recompute_dry_run_loader_preserves_key_error() -> None:
     with pytest.raises(KeyError):
         _load_artifact_for_lifecycle_dry_run(
             _KeyErrorArtifactRepository(),
+            "corrupt-artifact",
+        )
+
+
+def test_lifecycle_recompute_dry_run_loader_preserves_attribute_error() -> None:
+    with pytest.raises(AttributeError, match="corrupt extracted artifact"):
+        _load_artifact_for_lifecycle_dry_run(
+            _AttributeErrorArtifactRepository(),
             "corrupt-artifact",
         )
 

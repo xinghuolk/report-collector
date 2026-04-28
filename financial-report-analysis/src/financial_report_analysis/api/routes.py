@@ -623,8 +623,12 @@ def _load_artifact_for_lifecycle_dry_run(
 ) -> P5ExtractedArtifact | None:
     try:
         load_artifact = getattr(repository, "load_extracted_artifact")
+    except AttributeError:
+        return None
+
+    try:
         return load_artifact(artifact_id)
-    except (AttributeError, FileNotFoundError):
+    except FileNotFoundError:
         return None
     except P5ArtifactRepositoryError as exc:
         if str(exc).startswith("missing "):
