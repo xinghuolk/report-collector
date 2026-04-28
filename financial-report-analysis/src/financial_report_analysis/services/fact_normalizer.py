@@ -34,6 +34,31 @@ _DEFAULT_STANDARD_METRICS: dict[str, list[str]] = {
         "毛利润",
         "毛利",
     ],
+    "selling_general_administrative": [
+        "Selling, general and administrative expenses",
+        "Selling general and administrative expenses",
+        "Selling and administrative expenses",
+        "Selling and distribution expenses and administrative expenses",
+        "销售及行政开支",
+        "销售及分销开支及行政开支",
+    ],
+    "fv_value_chg_gain": [
+        "Fair value change gain",
+        "Fair value changes",
+        "Fair value gains and losses",
+        "Net fair value gains on financial assets",
+        "Fair value changes of financial instruments",
+        "公允价值变动收益",
+    ],
+    "non_oper_income": [
+        "Non-operating income",
+        "营业外收入",
+    ],
+    "non_oper_exp": [
+        "Non-operating expenses",
+        "Non-operating expense",
+        "营业外支出",
+    ],
     "operating_cash_flow": [
         "Operating cash flow",
         "Net cash from operating activities",

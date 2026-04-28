@@ -3450,6 +3450,131 @@ def test_analyze_report_promotes_gross_profit_to_canonical_facts() -> None:
     assert {fact.metric_id for fact in result.canonical_facts} >= {"gross_profit"}
 
 
+def test_analyze_report_promotes_post_p5_profit_enhancement_to_canonical_facts() -> (
+    None
+):
+    candidate_facts = build_table_candidate_facts(
+        [
+            NormalizedTableSemantics(
+                table_id="table-income-profit-enhancement",
+                document_id="doc-1",
+                page_range=(1, 1),
+                table_kind="income_statement",
+                title_text="Consolidated Income Statement",
+                statement_scope_guess="consolidated",
+                table_unit="thousand",
+                table_currency="HKD",
+                unit_semantic_source="deterministic",
+                currency_semantic_source="deterministic",
+                columns=[
+                    NormalizedTableColumn(
+                        column_id="column-1",
+                        header_text="2025",
+                        period_id="2025FY",
+                        comparison_axis="current",
+                        value_time_shape="duration",
+                        is_current=True,
+                        is_comparison=False,
+                    )
+                ],
+                rows=[
+                    NormalizedTableRow(
+                        row_id="row-sga",
+                        label_raw="Selling, general and administrative expenses",
+                        normalized_row_label=(
+                            "selling, general and administrative expenses"
+                        ),
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=1,
+                                column_index=1,
+                                raw_text="-120",
+                                numeric_value=-120.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-fv",
+                        label_raw="Fair value gains and losses",
+                        normalized_row_label="fair value gains and losses",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=2,
+                                column_index=1,
+                                raw_text="18",
+                                numeric_value=18.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-non-oper-income",
+                        label_raw="Non-operating income",
+                        normalized_row_label="non-operating income",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=3,
+                                column_index=1,
+                                raw_text="6",
+                                numeric_value=6.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                    NormalizedTableRow(
+                        row_id="row-non-oper-exp",
+                        label_raw="Non-operating expenses",
+                        normalized_row_label="non-operating expenses",
+                        values=[
+                            NormalizedTableCellValue(
+                                row_index=4,
+                                column_index=1,
+                                raw_text="-3",
+                                numeric_value=-3.0,
+                                period_id="2025FY",
+                                comparison_axis="current",
+                                value_time_shape="duration",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        registry=load_metric_registry(),
+        document_id="doc-1",
+        market="HK",
+    )
+
+    result = analyze_report(
+        {"document_id": "doc-1", "market": "HK", "language": "en"},
+        {"candidate_facts": candidate_facts},
+    )
+
+    canonical_by_metric = {fact.metric_id: fact for fact in result.canonical_facts}
+    assert set(canonical_by_metric) >= {
+        "selling_general_administrative",
+        "fv_value_chg_gain",
+        "non_oper_income",
+        "non_oper_exp",
+    }
+    for metric_id in (
+        "selling_general_administrative",
+        "fv_value_chg_gain",
+        "non_oper_income",
+        "non_oper_exp",
+    ):
+        metadata = canonical_by_metric[metric_id].extensions["metric_governance"]
+        assert metadata["registry_status"] == "standard"
+        assert metadata["auto_analysis_allowed"] is True
+
+
 def test_analyze_report_promotes_cash_flow_primary_sections_to_canonical_facts() -> (
     None
 ):
