@@ -60,6 +60,27 @@ def _dataset_review_surface() -> P5DatasetReviewSurface:
     )
 
 
+def _turtle_export() -> P5TurtleExport:
+    return P5TurtleExport(
+        dataset_id="dataset-1",
+        dataset_version="1.0",
+        created_at="2026-04-28T00:00:00+00:00",
+        rows=(),
+    )
+
+
+def _turtle_export_review_surface() -> P5TurtleExportReviewSurface:
+    return P5TurtleExportReviewSurface(
+        dataset_id="dataset-1",
+        dataset_version="1.0",
+        source_artifact_ids=("artifact-1",),
+        row_count=0,
+        present_row_count=0,
+        missing_row_count=0,
+        alias_count=0,
+    )
+
+
 def _plan() -> P5RecomputePlan:
     return P5RecomputePlan(
         manifest_id="manifest-1",
@@ -95,8 +116,8 @@ def _request() -> JsonToDbSyncRequest:
         recompute_result=_result(),
         dataset=_dataset(),
         dataset_review_surface=_dataset_review_surface(),
-        turtle_export=None,
-        turtle_export_review_surface=None,
+        turtle_export=_turtle_export(),
+        turtle_export_review_surface=_turtle_export_review_surface(),
         lineage_records=(),
         lifecycle_recompute_audit=None,
         input_hashes={"artifact-1": "hash-1"},
@@ -573,6 +594,53 @@ def test_validate_rejects_empty_source_artifacts() -> None:
         validate_json_to_db_sync_request(invalid_request)
 
 
+def test_validate_rejects_blank_recompute_run_id() -> None:
+    invalid_request = replace(_request(), recompute_run_id=" \t")
+
+    with pytest.raises(P5ArtifactRepositoryError, match="recompute run id"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_blank_dataset_id() -> None:
+    invalid_request = replace(
+        _request(),
+        dataset=replace(_dataset(), dataset_id=" "),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="dataset id"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_blank_plan_dataset_id() -> None:
+    invalid_request = replace(
+        _request(),
+        plan=replace(_plan(), dataset_id=" "),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="dataset id"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_blank_plan_manifest_id() -> None:
+    invalid_request = replace(
+        _request(),
+        plan=replace(_plan(), manifest_id=" "),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="manifest id"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_blank_recompute_result_manifest_id() -> None:
+    invalid_request = replace(
+        _request(),
+        recompute_result=replace(_result(), manifest_id=" "),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="manifest id"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
 def test_validate_rejects_dataset_id_mismatch() -> None:
     invalid_request = replace(
         _request(),
@@ -635,11 +703,16 @@ def test_validate_allows_plan_target_subset_of_dataset_source_artifacts() -> Non
         _dataset_review_surface(),
         source_artifact_ids=("artifact-1", "artifact-2"),
     )
+    turtle_surface = replace(
+        _turtle_export_review_surface(),
+        source_artifact_ids=("artifact-1", "artifact-2"),
+    )
     result = replace(_result(), extracted_artifact_ids=("artifact-1", "artifact-2"))
     request = replace(
         _request(),
         dataset=dataset,
         dataset_review_surface=review_surface,
+        turtle_export_review_surface=turtle_surface,
         recompute_result=result,
         input_hashes={"artifact-1": "hash-1", "artifact-2": "hash-2"},
     )
@@ -655,8 +728,18 @@ def test_validate_rejects_input_hash_source_artifact_mismatch() -> None:
 
 
 def test_validate_rejects_turtle_review_surface_without_turtle_export() -> None:
+    result = replace(
+        _result(),
+        diff_summary=replace(
+            _result().diff_summary,
+            turtle_export_changed=False,
+            rebuilt_turtle_export=False,
+        ),
+    )
     invalid_request = replace(
         _request(),
+        plan=replace(_plan(), rebuild_turtle_export=False),
+        recompute_result=result,
         turtle_export=None,
         turtle_export_review_surface=P5TurtleExportReviewSurface(
             dataset_id="dataset-1",
@@ -676,25 +759,81 @@ def test_validate_rejects_turtle_review_surface_without_turtle_export() -> None:
         validate_json_to_db_sync_request(invalid_request)
 
 
-def test_validate_accepts_matching_turtle_export_and_review_surface() -> None:
-    request = replace(
+@pytest.mark.parametrize(
+    "request_update",
+    (
+        {"turtle_export": None},
+        {"turtle_export_review_surface": None},
+    ),
+)
+def test_validate_rejects_missing_turtle_payload_when_plan_rebuilds_turtle(
+    request_update: dict[str, object],
+) -> None:
+    invalid_request = replace(_request(), **request_update)
+
+    with pytest.raises(P5ArtifactRepositoryError, match="after turtle export"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+@pytest.mark.parametrize(
+    ("diff_summary", "request_update", "message"),
+    (
+        (
+            replace(
+                _result().diff_summary,
+                turtle_export_changed=False,
+                rebuilt_turtle_export=True,
+            ),
+            {"turtle_export": None},
+            "after turtle export",
+        ),
+        (
+            replace(
+                _result().diff_summary,
+                turtle_export_changed=True,
+                rebuilt_turtle_export=False,
+            ),
+            {"turtle_export_review_surface": None},
+            "turtle export review surface",
+        ),
+    ),
+)
+def test_validate_rejects_missing_turtle_payload_when_result_changes_turtle(
+    diff_summary: P5RecomputeDiffSummary,
+    request_update: dict[str, object],
+    message: str,
+) -> None:
+    result = replace(_result(), diff_summary=diff_summary)
+    invalid_request = replace(
         _request(),
-        turtle_export=P5TurtleExport(
-            dataset_id="dataset-1",
-            dataset_version="1.0",
-            created_at="2026-04-28T00:00:00+00:00",
-            rows=(),
-        ),
-        turtle_export_review_surface=P5TurtleExportReviewSurface(
-            dataset_id="dataset-1",
-            dataset_version="1.0",
-            source_artifact_ids=("artifact-1",),
-            row_count=0,
-            present_row_count=0,
-            missing_row_count=0,
-            alias_count=0,
-        ),
+        plan=replace(_plan(), rebuild_turtle_export=False),
+        recompute_result=result,
+        **request_update,
     )
+
+    with pytest.raises(P5ArtifactRepositoryError, match=message):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_sync_rejects_missing_turtle_payload_before_writing() -> None:
+    invalid_request = replace(
+        _request(),
+        turtle_export=None,
+        turtle_export_review_surface=None,
+    )
+    repository = _FakeRepository()
+
+    with pytest.raises(P5ArtifactRepositoryError, match="after turtle export"):
+        sync_json_recompute_to_db(repository=repository, request=invalid_request)
+
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+    assert repository.saved_syncs == []
+    assert repository.operations == []
+
+
+def test_validate_accepts_matching_turtle_export_and_review_surface() -> None:
+    request = _request()
 
     validate_json_to_db_sync_request(request)
 

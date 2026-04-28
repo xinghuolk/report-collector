@@ -28,6 +28,7 @@ from financial_report_analysis.p5.models import (
     P5RecomputeDiffSummary,
     P5RecomputePlan,
     P5RecomputeResult,
+    P5TurtleExport,
 )
 from financial_report_analysis.storage.database import create_sqlite_engine, initialize_database
 from financial_report_analysis.storage.models import JsonToDbSyncRecord
@@ -267,6 +268,46 @@ def test_sync_service_writes_dataset_bundle_recompute_and_sync_metadata(
         **expected_after_refs,
         "recompute_run_id": request.recompute_run_id,
     }
+
+
+def test_sync_service_rejects_missing_rebuilt_turtle_payload_before_writes(
+    tmp_path: Path,
+) -> None:
+    repository, request = _seed_sync_request(tmp_path)
+    existing_turtle_export = P5TurtleExport(
+        dataset_id=request.dataset.dataset_id,
+        dataset_version="1.0",
+        created_at="2026-04-28T00:00:00+00:00",
+        rows=({"metric_id": "revenue", "value": 100.0},),
+        alias_map={"revenue": "revenue"},
+    )
+    repository.save_turtle_export(existing_turtle_export)
+    rebuilt_result = replace(
+        request.recompute_result,
+        diff_summary=replace(
+            request.recompute_result.diff_summary,
+            turtle_export_changed=True,
+            rebuilt_turtle_export=True,
+        ),
+    )
+    invalid_request = replace(
+        request,
+        plan=replace(request.plan, rebuild_turtle_export=True),
+        recompute_result=rebuilt_result,
+        turtle_export=None,
+        turtle_export_review_surface=None,
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="after turtle export"):
+        sync_json_recompute_to_db(repository=repository, request=invalid_request)
+
+    assert repository.load_turtle_export(request.dataset.dataset_id) == (
+        existing_turtle_export
+    )
+    assert (
+        repository.load_latest_json_to_db_sync_for_dataset(request.dataset.dataset_id)
+        is None
+    )
 
 
 def test_json_to_db_sync_latest_loaders_order_by_created_at_then_sync_id(

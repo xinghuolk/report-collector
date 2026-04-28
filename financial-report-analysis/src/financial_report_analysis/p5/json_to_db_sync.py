@@ -174,6 +174,12 @@ def build_json_to_db_sync_id(request: JsonToDbSyncRequest) -> str:
 
 
 def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
+    _require_non_blank(request.recompute_run_id, "recompute run id")
+    _require_non_blank(request.dataset.dataset_id, "dataset id")
+    _require_non_blank(request.plan.dataset_id, "dataset id")
+    _require_non_blank(request.plan.manifest_id, "manifest id")
+    _require_non_blank(request.recompute_result.manifest_id, "manifest id")
+
     if not request.dataset.source_artifacts:
         raise P5ArtifactRepositoryError("source artifacts are required for JSON-to-DB sync")
 
@@ -192,6 +198,8 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
         raise P5ArtifactRepositoryError(
             "dataset id mismatch between dataset and review surface"
         )
+
+    _validate_required_turtle_after_payload(request)
 
     if request.turtle_export is not None and (
         request.turtle_export.dataset_id != request.dataset.dataset_id
@@ -216,6 +224,35 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
     _validate_source_artifact_match(request)
     _validate_before_refs(request.before_refs)
     _validate_lifecycle_recompute_audit(request.lifecycle_recompute_audit)
+
+
+def _require_non_blank(value: str, field_name: str) -> None:
+    if not value.strip():
+        raise P5ArtifactRepositoryError(
+            f"{field_name} is required for JSON-to-DB sync"
+        )
+
+
+def _validate_required_turtle_after_payload(request: JsonToDbSyncRequest) -> None:
+    diff_summary = request.recompute_result.diff_summary
+    turtle_after_required = (
+        request.plan.rebuild_turtle_export
+        or diff_summary.rebuilt_turtle_export
+        or diff_summary.turtle_export_changed
+    )
+    if not turtle_after_required:
+        return
+
+    if request.turtle_export is None:
+        raise P5ArtifactRepositoryError(
+            "after turtle export is required when JSON-to-DB sync rebuilds "
+            "or changes the turtle export"
+        )
+    if request.turtle_export_review_surface is None:
+        raise P5ArtifactRepositoryError(
+            "after turtle export review surface is required when JSON-to-DB "
+            "sync rebuilds or changes the turtle export"
+        )
 
 
 def sync_json_recompute_to_db(
