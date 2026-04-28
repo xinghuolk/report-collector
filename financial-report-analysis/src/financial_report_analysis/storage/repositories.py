@@ -114,6 +114,7 @@ from .models import (
     TurtleExportReviewSurfaceRecord,
     ValidationIssueRecord,
     ValidationReportRecord,
+    _utc_iso_timestamp,
 )
 
 
@@ -338,24 +339,103 @@ def _lifecycle_recompute_audit_from_result_payload(
 def _json_to_db_sync_view_from_record(
     record: JsonToDbSyncRecord,
 ) -> JsonToDbSyncAuditView:
+    try:
+        status = JsonToDbSyncStatus(record.status)
+    except ValueError as exc:
+        raise P5ArtifactRepositoryError(
+            f"invalid JSON-to-DB sync record {record.sync_id} field status: "
+            f"{record.status}"
+        ) from exc
+
     return JsonToDbSyncAuditView(
         sync_id=record.sync_id,
         recompute_run_id=record.recompute_run_id,
         dataset_id=record.dataset_id,
-        status=JsonToDbSyncStatus(record.status),
-        input_hashes=cast(dict[str, str], json.loads(record.input_hashes_json)),
-        before_refs=cast(dict[str, str], json.loads(record.before_refs_json)),
-        after_refs=cast(dict[str, str], json.loads(record.after_refs_json)),
-        written_refs=cast(dict[str, str], json.loads(record.written_refs_json)),
-        skipped_refs=cast(dict[str, str], json.loads(record.skipped_refs_json)),
+        status=status,
+        input_hashes=_json_to_db_sync_mapping_field(
+            record,
+            "input_hashes",
+            record.input_hashes_json,
+        ),
+        before_refs=_json_to_db_sync_mapping_field(
+            record,
+            "before_refs",
+            record.before_refs_json,
+        ),
+        after_refs=_json_to_db_sync_mapping_field(
+            record,
+            "after_refs",
+            record.after_refs_json,
+        ),
+        written_refs=_json_to_db_sync_mapping_field(
+            record,
+            "written_refs",
+            record.written_refs_json,
+        ),
+        skipped_refs=_json_to_db_sync_mapping_field(
+            record,
+            "skipped_refs",
+            record.skipped_refs_json,
+        ),
         blocking_reasons=tuple(
-            cast(list[str], json.loads(record.blocking_reasons_json))
+            _json_to_db_sync_string_list_field(
+                record,
+                "blocking_reasons",
+                record.blocking_reasons_json,
+            )
         ),
         requested_by=record.requested_by,
         sync_reason=record.sync_reason,
         created_at=record.created_at,
         completed_at=record.completed_at,
     )
+
+
+def _json_to_db_sync_json_field(
+    record: JsonToDbSyncRecord,
+    field_name: str,
+    raw_value: str,
+) -> object:
+    try:
+        return json.loads(raw_value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise P5ArtifactRepositoryError(
+            f"invalid JSON-to-DB sync record {record.sync_id} field {field_name}: "
+            "invalid JSON"
+        ) from exc
+
+
+def _json_to_db_sync_mapping_field(
+    record: JsonToDbSyncRecord,
+    field_name: str,
+    raw_value: str,
+) -> dict[str, str]:
+    payload = _json_to_db_sync_json_field(record, field_name, raw_value)
+    if not isinstance(payload, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in payload.items()
+    ):
+        raise P5ArtifactRepositoryError(
+            f"invalid JSON-to-DB sync record {record.sync_id} field {field_name}: "
+            "expected dict[str, str]"
+        )
+    return cast(dict[str, str], payload)
+
+
+def _json_to_db_sync_string_list_field(
+    record: JsonToDbSyncRecord,
+    field_name: str,
+    raw_value: str,
+) -> list[str]:
+    payload = _json_to_db_sync_json_field(record, field_name, raw_value)
+    if not isinstance(payload, list) or not all(
+        isinstance(item, str) for item in payload
+    ):
+        raise P5ArtifactRepositoryError(
+            f"invalid JSON-to-DB sync record {record.sync_id} field {field_name}: "
+            "expected list[str]"
+        )
+    return cast(list[str], payload)
 
 
 @dataclass(slots=True)
@@ -1350,6 +1430,7 @@ class SqlAlchemyP5ArtifactRepository:
             ensure_ascii=False,
             sort_keys=True,
         )
+        created_at = view.created_at or _utc_iso_timestamp()
 
         with Session(self.engine) as session:
             record = session.get(JsonToDbSyncRecord, view.sync_id)
@@ -1367,7 +1448,7 @@ class SqlAlchemyP5ArtifactRepository:
                     blocking_reasons_json=blocking_reasons_json,
                     requested_by=view.requested_by,
                     sync_reason=view.sync_reason,
-                    created_at=view.created_at,
+                    created_at=created_at,
                     completed_at=view.completed_at,
                 )
                 session.add(record)
@@ -1383,7 +1464,7 @@ class SqlAlchemyP5ArtifactRepository:
                 record.blocking_reasons_json = blocking_reasons_json
                 record.requested_by = view.requested_by
                 record.sync_reason = view.sync_reason
-                record.created_at = view.created_at
+                record.created_at = created_at
                 record.completed_at = view.completed_at
             session.commit()
         return view.sync_id

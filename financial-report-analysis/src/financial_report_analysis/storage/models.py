@@ -217,7 +217,12 @@ class JsonToDbSyncRecord(Base):
     )
     requested_by: Mapped[str | None] = mapped_column(String(128))
     sync_reason: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[str | None] = mapped_column(String(64), index=True)
+    created_at: Mapped[str] = mapped_column(
+        String(64),
+        default=_utc_iso_timestamp,
+        nullable=False,
+        index=True,
+    )
     completed_at: Mapped[str | None] = mapped_column(String(64))
 
 
