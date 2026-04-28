@@ -160,7 +160,14 @@ def test_assemble_dataset_preserves_lifecycle_consumption_provenance(
                 "evidence_bundle_id": "bundle-1",
                 "extensions": {
                     "period_scope": "duration",
-                    "metric_governance": {"lifecycle_consumption": provenance},
+                    "metric_governance": {
+                        "registry_status": "standard",
+                        "metric_namespace": "standard",
+                        "review_required": False,
+                        "auto_analysis_allowed": True,
+                        "governance_reason": "standard_metric",
+                        "lifecycle_consumption": provenance,
+                    },
                 },
             },
             {
