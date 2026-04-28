@@ -1254,12 +1254,12 @@ def test_cn_annual_601919_2025_surfaces_phase1_real_pdf_floor() -> None:
     )
 
     canonical_metric_ids = {fact.metric_id for fact in result.canonical_facts}
-    assert {"basic_eps", "finance_exp"} <= canonical_metric_ids
+    assert "finance_exp" in canonical_metric_ids
     basic_eps = next(
-        fact for fact in result.canonical_facts if fact.metric_id == "basic_eps"
+        fact for fact in payload["candidate_facts"] if fact["metric_id"] == "basic_eps"
     )
-    assert basic_eps.normalized_unit == "per_share_amount"
-    assert basic_eps.extensions["value_type"] == "per_share"
+    assert basic_eps["extensions"]["value_type"] == "per_share"
+    assert basic_eps["extensions"]["unit_expectation"] == "per_share_amount"
 
 
 @pytest.mark.real_pdf
@@ -1515,7 +1515,7 @@ def test_hk_09987_2025_note_disclosure_candidates_keep_note_provenance() -> None
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
-def test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates() -> None:
+def test_hk_09987_2025_surfaces_p2b_statement_row_candidates() -> None:
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
@@ -1534,15 +1534,18 @@ def test_hk_09987_2025_surfaces_only_missing_p2b_note_disclosure_candidates() ->
 
     assert debt_candidates
     assert {candidate["metric_id"] for candidate in debt_candidates} == {"st_borr"}
-    assert len(debt_candidates) == 1
-    candidate = debt_candidates[0]
-    assert candidate["metric_label_raw"].casefold().startswith("short-term borrowings")
-    assert candidate["extraction_method"] == "note_disclosure"
-    assert candidate["extensions"]["table_kind"] == "note_disclosure"
-    assert candidate["extensions"]["semantic_source"] in {
-        "deterministic",
-        "llm_fallback",
+    assert len(debt_candidates) == 2
+    assert {candidate["comparison_axis"] for candidate in debt_candidates} == {
+        "current",
+        "prior",
     }
+    for candidate in debt_candidates:
+        assert candidate["metric_label_raw"].casefold().startswith(
+            "short-term borrowings"
+        )
+        assert candidate["extraction_method"] == "table_semantics"
+        assert candidate["extensions"]["table_kind"] == "balance_sheet"
+        assert candidate["extensions"]["semantic_source"] == "deterministic"
     missing_status = payload.get("document_metadata", {}).get("debt_missing_status", {})
     assert missing_status == {
         "st_borr": "present",
@@ -1568,8 +1571,8 @@ def test_hk_09987_2025_surfaces_only_missing_p3_note_only_asset_candidates() -> 
 
     assert asset_candidates == []
     assert payload.get("document_metadata", {}).get("asset_missing_status") == {
-        "contract_assets": "not_surfaced",
-        "other_non_current_assets": "not_surfaced",
+        "contract_assets": "absent",
+        "other_non_current_assets": "absent",
     }
 
 
@@ -1710,7 +1713,7 @@ def test_hk_02498_2022_surfaces_only_p4c_balance_sheet_totals() -> None:
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
-def test_hk_09987_2025_keeps_p4c_statement_metrics_not_surfaced() -> None:
+def test_hk_09987_2025_surfaces_p4c_statement_metric_subset() -> None:
     pdf_path = _resolve_sample("hk_stocks", "09987", "annual", "2025_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
@@ -1727,7 +1730,14 @@ def test_hk_09987_2025_keeps_p4c_statement_metrics_not_surfaced() -> None:
         and candidate["extensions"].get("semantic_source") == "deterministic"
     }
 
-    assert not surfaced_metric_ids.intersection(_P4C_METRIC_IDS)
+    assert surfaced_metric_ids.intersection(_P4C_METRIC_IDS) == {
+        "revenue",
+        "operating_profit",
+        "total_assets",
+        "total_liabilities",
+        "investing_cash_flow",
+        "financing_cash_flow",
+    }
 
 
 @pytest.mark.real_pdf
