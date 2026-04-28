@@ -218,7 +218,9 @@ def metric_lifecycle_recompute_audit_from_payload(
     summary_payload = payload["summary"]
     if not isinstance(summary_payload, dict):
         raise ValueError("lifecycle recompute audit summary must be an object")
-    item_payloads = payload.get("items", ())
+    if "items" not in payload:
+        raise ValueError("lifecycle recompute audit items are required")
+    item_payloads = payload["items"]
     if not isinstance(item_payloads, list):
         raise ValueError("lifecycle recompute audit items must be a list")
     for index, item in enumerate(item_payloads):
@@ -244,6 +246,10 @@ def metric_lifecycle_recompute_audit_from_payload(
 def _metric_lifecycle_recompute_audit_item_from_payload(
     payload: dict[str, object],
 ) -> MetricLifecycleRecomputeAuditItem:
+    recompute_needed = payload["recompute_needed"]
+    if not isinstance(recompute_needed, bool):
+        raise ValueError("lifecycle recompute audit item recompute_needed must be a bool")
+
     return MetricLifecycleRecomputeAuditItem(
         review_item_id=str(payload["review_item_id"]),
         artifact_id=str(payload["artifact_id"]),
@@ -269,7 +275,7 @@ def _metric_lifecycle_recompute_audit_item_from_payload(
             if payload.get("target_metric_id") is not None
             else None
         ),
-        recompute_needed=bool(payload["recompute_needed"]),
+        recompute_needed=recompute_needed,
         consumption_action=str(payload["consumption_action"]),  # type: ignore[arg-type]
         conflict_state=str(payload["conflict_state"]),  # type: ignore[arg-type]
         reason=str(payload["reason"]),

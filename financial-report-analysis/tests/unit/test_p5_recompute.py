@@ -396,6 +396,27 @@ def test_metric_lifecycle_recompute_audit_payload_rejects_malformed_item() -> No
         metric_lifecycle_recompute_audit_from_payload(payload)
 
 
+def test_metric_lifecycle_recompute_audit_payload_rejects_missing_items() -> None:
+    payload = metric_lifecycle_recompute_audit_to_payload(_lifecycle_audit())
+    del payload["items"]
+
+    with pytest.raises(ValueError, match="lifecycle recompute audit items are required"):
+        metric_lifecycle_recompute_audit_from_payload(payload)
+
+
+def test_metric_lifecycle_recompute_audit_payload_rejects_non_bool_recompute_needed() -> None:
+    payload = metric_lifecycle_recompute_audit_to_payload(_lifecycle_audit())
+    item = payload["items"][0]
+    assert isinstance(item, dict)
+    item["recompute_needed"] = "false"
+
+    with pytest.raises(
+        ValueError,
+        match="lifecycle recompute audit item recompute_needed must be a bool",
+    ):
+        metric_lifecycle_recompute_audit_from_payload(payload)
+
+
 def _lifecycle_audit() -> MetricLifecycleRecomputeAudit:
     item = MetricLifecycleRecomputeAuditItem(
         review_item_id=build_review_item_id("CN_601919_2025", "candidate-1"),
