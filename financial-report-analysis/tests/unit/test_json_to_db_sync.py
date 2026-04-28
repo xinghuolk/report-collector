@@ -14,6 +14,7 @@ from financial_report_analysis.p5.json_to_db_sync import (
     JsonToDbSyncStatus,
     build_json_to_db_sync_id,
     compute_payload_hash,
+    sync_json_recompute_to_db,
     validate_json_to_db_sync_request,
 )
 from financial_report_analysis.p5.models import (
@@ -99,6 +100,69 @@ def _request() -> JsonToDbSyncRequest:
         requested_by="test",
         sync_reason="test-sync",
     )
+
+
+class _FakeRepository:
+    def __init__(
+        self,
+        *,
+        existing_sync: JsonToDbSyncAuditView | None = None,
+        artifact_hashes: dict[str, str] | None = None,
+        db_source_artifact_ids: tuple[str, ...] = ("artifact-1",),
+        current_before_refs: dict[str, str] | None = None,
+        fail_bundle: bool = False,
+        fail_recompute: bool = False,
+    ) -> None:
+        self.existing_sync = existing_sync
+        self.artifact_hashes = artifact_hashes or {"artifact-1": "hash-1"}
+        self.db_source_artifact_ids = db_source_artifact_ids
+        self.current_before_refs = current_before_refs or {
+            "dataset": "dataset-hash-1",
+            "recompute_run": "none",
+        }
+        self.fail_bundle = fail_bundle
+        self.fail_recompute = fail_recompute
+        self.saved_sync: JsonToDbSyncAuditView | None = None
+        self.saved_syncs: list[JsonToDbSyncAuditView] = []
+        self.saved_bundle_count = 0
+        self.saved_recompute_count = 0
+
+    def load_dataset_audit_view(self, dataset_id: str) -> object:
+        return type(
+            "AuditView",
+            (),
+            {"source_artifact_ids": self.db_source_artifact_ids},
+        )()
+
+    def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]:
+        return self.current_before_refs
+
+    def load_latest_json_to_db_sync_for_recompute_run(
+        self,
+        recompute_run_id: str,
+    ) -> JsonToDbSyncAuditView | None:
+        return self.existing_sync
+
+    def compute_extracted_artifact_hash(self, artifact_id: str) -> str:
+        return self.artifact_hashes[artifact_id]
+
+    def save_p5_assembly_bundle(self, **kwargs: object) -> int:
+        self.saved_bundle_count += 1
+        if self.fail_bundle:
+            raise RuntimeError("bundle write failed")
+        lineage_records = cast(tuple[object, ...], kwargs["lineage_records"])
+        return len(lineage_records)
+
+    def save_recompute_result(self, **kwargs: object) -> str:
+        self.saved_recompute_count += 1
+        if self.fail_recompute:
+            raise RuntimeError("recompute write failed")
+        return cast(str, kwargs["run_id"])
+
+    def save_json_to_db_sync_result(self, view: JsonToDbSyncAuditView) -> str:
+        self.saved_sync = view
+        self.saved_syncs.append(view)
+        return cast(str, view.sync_id)
 
 
 def test_status_values_are_stable() -> None:
@@ -201,6 +265,121 @@ def test_audit_view_carries_complete_sync_metadata() -> None:
     assert view.input_hashes == {"artifact-1": "hash-1"}
     assert view.after_refs == {"dataset": "dataset-hash-2"}
     assert view.requested_by == "test"
+
+
+def test_sync_skips_existing_completed_record_idempotently() -> None:
+    request = _request()
+    existing = JsonToDbSyncAuditView(
+        sync_id=build_json_to_db_sync_id(request),
+        recompute_run_id=request.recompute_run_id,
+        dataset_id=request.dataset.dataset_id,
+        status=JsonToDbSyncStatus.COMPLETED,
+        input_hashes=dict(request.input_hashes),
+        before_refs=dict(request.before_refs),
+        after_refs={"dataset": "dataset-1"},
+        written_refs={"dataset": "dataset-1"},
+        skipped_refs={},
+        blocking_reasons=(),
+        requested_by="test",
+        sync_reason="test-sync",
+        created_at="2026-04-28T00:00:00+00:00",
+        completed_at="2026-04-28T00:00:01+00:00",
+    )
+    repository = _FakeRepository(existing_sync=existing)
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.SKIPPED_IDEMPOTENT
+    assert result.skipped_refs == {"sync_id": existing.sync_id}
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+    assert repository.saved_syncs == []
+
+
+def test_sync_rejects_stale_input_hash_before_writing() -> None:
+    request = _request()
+    repository = _FakeRepository(artifact_hashes={"artifact-1": "new-hash"})
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.blocking_reasons == ("stale_input_hash: artifact-1",)
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+    assert repository.saved_sync is not None
+    assert repository.saved_sync.status is JsonToDbSyncStatus.FAILED
+
+
+def test_sync_rejects_db_source_artifact_mismatch_before_writing() -> None:
+    request = _request()
+    repository = _FakeRepository(db_source_artifact_ids=("artifact-2",))
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.blocking_reasons == ("db_source_artifact_mismatch",)
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+
+
+def test_sync_rejects_stale_before_ref_before_writing() -> None:
+    request = _request()
+    repository = _FakeRepository(
+        current_before_refs={"dataset": "dataset-hash-2", "recompute_run": "none"}
+    )
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.blocking_reasons == ("stale_before_ref: dataset",)
+    assert repository.saved_bundle_count == 0
+    assert repository.saved_recompute_count == 0
+
+
+def test_sync_writes_pending_metadata_before_payload_writes() -> None:
+    request = _request()
+    repository = _FakeRepository()
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.COMPLETED
+    assert [view.status for view in repository.saved_syncs] == [
+        JsonToDbSyncStatus.PENDING,
+        JsonToDbSyncStatus.COMPLETED,
+    ]
+    assert repository.saved_bundle_count == 1
+    assert repository.saved_recompute_count == 1
+
+
+def test_sync_records_failed_metadata_when_bundle_write_fails() -> None:
+    request = _request()
+    repository = _FakeRepository(fail_bundle=True)
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.FAILED
+    assert result.written_refs == {}
+    assert result.blocking_reasons == ("bundle write failed",)
+    assert [view.status for view in repository.saved_syncs] == [
+        JsonToDbSyncStatus.PENDING,
+        JsonToDbSyncStatus.FAILED,
+    ]
+
+
+def test_sync_records_partial_metadata_when_recompute_write_fails() -> None:
+    request = _request()
+    repository = _FakeRepository(fail_recompute=True)
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.PARTIAL
+    assert result.written_refs["dataset"] == request.dataset.dataset_id
+    assert "recompute_run" not in result.written_refs
+    assert result.blocking_reasons == ("recompute write failed",)
+    assert [view.status for view in repository.saved_syncs] == [
+        JsonToDbSyncStatus.PENDING,
+        JsonToDbSyncStatus.PARTIAL,
+    ]
 
 
 def test_validate_rejects_empty_source_artifacts() -> None:

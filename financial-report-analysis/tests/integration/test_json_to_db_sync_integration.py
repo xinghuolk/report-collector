@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session
 
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
+from financial_report_analysis.p5.artifact_repository import extracted_artifact_to_payload
 from financial_report_analysis.p5.json_to_db_sync import (
     JsonToDbSyncAuditView,
+    JsonToDbSyncRequest,
     JsonToDbSyncStatus,
+    compute_payload_hash,
+    sync_json_recompute_to_db,
+)
+from financial_report_analysis.p5.models import (
+    P5DatasetArtifact,
+    P5DatasetReviewSurface,
+    P5DatasetRow,
+    P5ExtractedArtifact,
+    P5ManifestEntry,
+    P5RecomputeDiffSummary,
+    P5RecomputePlan,
+    P5RecomputeResult,
 )
 from financial_report_analysis.storage.database import create_sqlite_engine, initialize_database
 from financial_report_analysis.storage.models import JsonToDbSyncRecord
@@ -47,6 +62,149 @@ def _sync_view(
     )
 
 
+def _entry(tmp_path: Path) -> P5ManifestEntry:
+    pdf_path = tmp_path / "CN_601919_2025.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    return P5ManifestEntry(
+        issuer_id="CN_601919",
+        market="CN",
+        stock_code="601919",
+        fiscal_year=2025,
+        report_type="annual",
+        pdf_path=pdf_path,
+        source="report",
+        company_name="测试公司",
+        report_language="zh",
+    )
+
+
+def _artifact(entry: P5ManifestEntry) -> P5ExtractedArtifact:
+    return P5ExtractedArtifact(
+        artifact_id=entry.artifact_id,
+        artifact_version="1.0",
+        pipeline_version="p5-v1",
+        manifest_entry=entry,
+        source_pdf_path=entry.pdf_path,
+        document={"document_id": str(entry.pdf_path), "pdf_path": str(entry.pdf_path)},
+        document_metadata={},
+        candidate_facts=(),
+        canonical_facts=({"fact_id": f"canonical-{entry.artifact_id}"},),
+        derived_facts=(),
+        validation_report={"overall_status": "ok", "issues": []},
+        review_packets=(),
+        quality_gate="pass",
+        missing_status={},
+        created_at="2026-04-28T00:00:00+00:00",
+    )
+
+
+def _dataset(
+    artifact: P5ExtractedArtifact,
+    *,
+    dataset_version: str = "1.0",
+    value: float = 100.0,
+) -> P5DatasetArtifact:
+    return P5DatasetArtifact(
+        dataset_id="dataset-1",
+        dataset_version=dataset_version,
+        created_at="2026-04-28T00:00:00+00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("revenue",),
+        rows=(
+            P5DatasetRow(
+                issuer_id=artifact.manifest_entry.issuer_id,
+                market=artifact.manifest_entry.market,
+                stock_code=artifact.manifest_entry.stock_code,
+                fiscal_year=artifact.manifest_entry.fiscal_year,
+                metric_id="revenue",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="income_statement",
+                value=value,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id=f"canonical-{artifact.artifact_id}",
+                source_artifact_id=artifact.artifact_id,
+                evidence_bundle_id=f"bundle-{artifact.artifact_id}",
+            ),
+        ),
+        quality_summary={"present_row_count": 1, "missing_row_count": 0},
+        source_artifacts=(artifact.artifact_id,),
+    )
+
+
+def _dataset_review_surface(dataset: P5DatasetArtifact) -> P5DatasetReviewSurface:
+    return P5DatasetReviewSurface(
+        dataset_id=dataset.dataset_id,
+        dataset_version=dataset.dataset_version,
+        issuer_count=dataset.issuer_count,
+        period_count=len(dataset.periods),
+        pipeline_versions=("p5-v1",),
+        source_artifact_ids=dataset.source_artifacts,
+        present_row_count=1,
+        missing_row_count=0,
+        review_required_artifact_ids=(),
+    )
+
+
+def _seed_sync_request(
+    tmp_path: Path,
+) -> tuple[SqlAlchemyP5ArtifactRepository, JsonToDbSyncRequest]:
+    repository = _repository(tmp_path)
+    artifact = _artifact(_entry(tmp_path))
+    repository.save_extracted_artifact(artifact)
+    before_dataset = _dataset(artifact, dataset_version="1.0", value=100.0)
+    repository.save_dataset_artifact(before_dataset)
+    after_dataset = replace(before_dataset, dataset_version="2.0", rows=())
+    plan = P5RecomputePlan(
+        manifest_id="manifest-1",
+        dataset_id=after_dataset.dataset_id,
+        target_artifact_ids=after_dataset.source_artifacts,
+        rebuild_dataset=True,
+        rebuild_turtle_export=False,
+        reason="pipeline_version_changed",
+    )
+    recompute_result = P5RecomputeResult(
+        manifest_id="manifest-1",
+        extracted_artifact_ids=after_dataset.source_artifacts,
+        dataset_path=tmp_path / "dataset.json",
+        turtle_export_path=tmp_path / "turtle.json",
+        diff_summary=P5RecomputeDiffSummary(
+            reason="pipeline_version_changed",
+            target_artifact_ids=after_dataset.source_artifacts,
+            dataset_changed=True,
+            turtle_export_changed=False,
+            rebuilt_dataset=True,
+            rebuilt_turtle_export=False,
+        ),
+    )
+    request = JsonToDbSyncRequest(
+        recompute_run_id="sync-service-recompute-run-1",
+        plan=plan,
+        recompute_result=recompute_result,
+        dataset=after_dataset,
+        dataset_review_surface=_dataset_review_surface(after_dataset),
+        turtle_export=None,
+        turtle_export_review_surface=None,
+        lineage_records=(),
+        lifecycle_recompute_audit=None,
+        input_hashes={
+            artifact.artifact_id: compute_payload_hash(
+                extracted_artifact_to_payload(artifact)
+            )
+        },
+        before_refs=repository.load_current_json_to_db_before_refs(
+            before_dataset.dataset_id
+        ),
+        requested_by="integration-test",
+        sync_reason="integration success",
+    )
+    return repository, request
+
+
 def test_json_to_db_sync_result_persists_and_loads_by_sync_id(
     tmp_path: Path,
 ) -> None:
@@ -61,6 +219,29 @@ def test_json_to_db_sync_result_persists_and_loads_by_sync_id(
     loaded = repository.load_json_to_db_sync_result("sync-roundtrip")
     assert loaded == view
     assert loaded.status is JsonToDbSyncStatus.SKIPPED_IDEMPOTENT
+
+
+def test_sync_service_writes_dataset_bundle_recompute_and_sync_metadata(
+    tmp_path: Path,
+) -> None:
+    repository, request = _seed_sync_request(tmp_path)
+
+    result = sync_json_recompute_to_db(repository=repository, request=request)
+
+    assert result.status is JsonToDbSyncStatus.COMPLETED
+    assert repository.load_dataset_artifact(request.dataset.dataset_id) == request.dataset
+    assert repository.load_dataset_review_surface(request.dataset.dataset_id) == (
+        request.dataset_review_surface
+    )
+    assert repository.load_recompute_result(request.recompute_run_id) == (
+        request.recompute_result
+    )
+    latest = repository.load_latest_json_to_db_sync_for_dataset(
+        request.dataset.dataset_id
+    )
+    assert latest is not None
+    assert latest.sync_id == result.sync_id
+    assert latest.status is JsonToDbSyncStatus.COMPLETED
 
 
 def test_json_to_db_sync_latest_loaders_order_by_created_at_then_sync_id(

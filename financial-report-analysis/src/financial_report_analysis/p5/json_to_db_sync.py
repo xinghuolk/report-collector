@@ -6,10 +6,13 @@ from enum import Enum
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 from financial_report_analysis.models import MetricLifecycleRecomputeAudit
-from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
+from financial_report_analysis.p5.artifact_repository import (
+    P5ArtifactRepositoryError,
+    dataset_artifact_to_payload,
+)
 from financial_report_analysis.p5.models import (
     P5ArtifactLineage,
     P5DatasetArtifact,
@@ -80,6 +83,40 @@ class JsonToDbSyncAuditView:
     sync_reason: str | None
     created_at: str | None
     completed_at: str | None
+
+
+class JsonToDbSyncRepository(Protocol):
+    def load_dataset_audit_view(self, dataset_id: str) -> Any: ...
+
+    def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]: ...
+
+    def load_latest_json_to_db_sync_for_recompute_run(
+        self,
+        recompute_run_id: str,
+    ) -> JsonToDbSyncAuditView | None: ...
+
+    def compute_extracted_artifact_hash(self, artifact_id: str) -> str: ...
+
+    def save_p5_assembly_bundle(
+        self,
+        *,
+        dataset: P5DatasetArtifact,
+        dataset_review_surface: P5DatasetReviewSurface,
+        lineage_records: tuple[P5ArtifactLineage, ...],
+        turtle_export: P5TurtleExport | None = None,
+        turtle_export_review_surface: P5TurtleExportReviewSurface | None = None,
+    ) -> int: ...
+
+    def save_recompute_result(
+        self,
+        *,
+        run_id: str,
+        plan: P5RecomputePlan,
+        result: P5RecomputeResult,
+        lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None = None,
+    ) -> str: ...
+
+    def save_json_to_db_sync_result(self, view: JsonToDbSyncAuditView) -> str: ...
 
 
 def utc_now_iso() -> str:
@@ -157,6 +194,105 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
     _validate_source_artifact_match(request)
     _validate_before_refs(request.before_refs)
     _validate_lifecycle_recompute_audit(request.lifecycle_recompute_audit)
+
+
+def sync_json_recompute_to_db(
+    *,
+    repository: JsonToDbSyncRepository,
+    request: JsonToDbSyncRequest,
+) -> JsonToDbSyncResult:
+    validate_json_to_db_sync_request(request)
+    dataset_review_surface = request.dataset_review_surface
+    if dataset_review_surface is None:
+        raise P5ArtifactRepositoryError(
+            "after dataset review surface is required for JSON-to-DB sync"
+        )
+
+    sync_id = build_json_to_db_sync_id(request)
+    existing = repository.load_latest_json_to_db_sync_for_recompute_run(
+        request.recompute_run_id
+    )
+    if _is_same_completed_sync(existing, sync_id, request):
+        return _result_from_view(
+            existing,
+            status=JsonToDbSyncStatus.SKIPPED_IDEMPOTENT,
+            skipped_refs={"sync_id": existing.sync_id or sync_id},
+        )
+
+    stale_reasons = _stale_input_hash_reasons(repository, request)
+    stale_reasons.extend(_db_source_artifact_reasons(repository, request))
+    stale_reasons.extend(_stale_before_ref_reasons(repository, request))
+    if stale_reasons:
+        view = _build_sync_view(
+            request=request,
+            sync_id=sync_id,
+            status=JsonToDbSyncStatus.FAILED,
+            after_refs={},
+            written_refs={},
+            skipped_refs={},
+            blocking_reasons=tuple(stale_reasons),
+            completed_at=utc_now_iso(),
+        )
+        repository.save_json_to_db_sync_result(view)
+        return _result_from_view(view)
+
+    after_refs = _after_refs_for_request(request)
+    pending_view = _build_sync_view(
+        request=request,
+        sync_id=sync_id,
+        status=JsonToDbSyncStatus.PENDING,
+        after_refs=after_refs,
+        written_refs={},
+        skipped_refs={},
+        blocking_reasons=(),
+        completed_at=None,
+    )
+    repository.save_json_to_db_sync_result(pending_view)
+
+    written_refs: dict[str, str] = {}
+    try:
+        repository.save_p5_assembly_bundle(
+            dataset=request.dataset,
+            dataset_review_surface=dataset_review_surface,
+            lineage_records=request.lineage_records,
+            turtle_export=request.turtle_export,
+            turtle_export_review_surface=request.turtle_export_review_surface,
+        )
+        written_refs.update(after_refs)
+        repository.save_recompute_result(
+            run_id=request.recompute_run_id,
+            plan=request.plan,
+            result=request.recompute_result,
+            lifecycle_recompute_audit=request.lifecycle_recompute_audit,
+        )
+        written_refs["recompute_run"] = request.recompute_run_id
+    except Exception as exc:
+        status = JsonToDbSyncStatus.PARTIAL if written_refs else JsonToDbSyncStatus.FAILED
+        view = _build_sync_view(
+            request=request,
+            sync_id=sync_id,
+            status=status,
+            after_refs=after_refs,
+            written_refs=written_refs,
+            skipped_refs={},
+            blocking_reasons=(str(exc),),
+            completed_at=utc_now_iso(),
+        )
+        repository.save_json_to_db_sync_result(view)
+        return _result_from_view(view)
+
+    view = _build_sync_view(
+        request=request,
+        sync_id=sync_id,
+        status=JsonToDbSyncStatus.COMPLETED,
+        after_refs=after_refs,
+        written_refs=written_refs,
+        skipped_refs={},
+        blocking_reasons=(),
+        completed_at=utc_now_iso(),
+    )
+    repository.save_json_to_db_sync_result(view)
+    return _result_from_view(view)
 
 
 def _validate_input_hashes(request: JsonToDbSyncRequest) -> None:
@@ -258,6 +394,125 @@ def _validate_lifecycle_recompute_audit(
         raise P5ArtifactRepositoryError(
             "malformed lifecycle recompute audit for JSON-to-DB sync"
         )
+
+
+def _is_same_completed_sync(
+    existing: JsonToDbSyncAuditView | None,
+    sync_id: str,
+    request: JsonToDbSyncRequest,
+) -> bool:
+    return (
+        existing is not None
+        and existing.sync_id == sync_id
+        and existing.status is JsonToDbSyncStatus.COMPLETED
+        and existing.input_hashes == dict(request.input_hashes)
+        and existing.before_refs == dict(request.before_refs)
+    )
+
+
+def _stale_input_hash_reasons(
+    repository: JsonToDbSyncRepository,
+    request: JsonToDbSyncRequest,
+) -> list[str]:
+    reasons: list[str] = []
+    for artifact_id, expected_hash in sorted(request.input_hashes.items()):
+        actual_hash = repository.compute_extracted_artifact_hash(artifact_id)
+        if actual_hash != expected_hash:
+            reasons.append(f"stale_input_hash: {artifact_id}")
+    return reasons
+
+
+def _db_source_artifact_reasons(
+    repository: JsonToDbSyncRepository,
+    request: JsonToDbSyncRequest,
+) -> list[str]:
+    audit_view = repository.load_dataset_audit_view(request.dataset.dataset_id)
+    if tuple(audit_view.source_artifact_ids) != tuple(request.dataset.source_artifacts):
+        return ["db_source_artifact_mismatch"]
+    return []
+
+
+def _stale_before_ref_reasons(
+    repository: JsonToDbSyncRepository,
+    request: JsonToDbSyncRequest,
+) -> list[str]:
+    current_refs = repository.load_current_json_to_db_before_refs(
+        request.dataset.dataset_id
+    )
+    reasons: list[str] = []
+    for ref_name, expected_ref in sorted(request.before_refs.items()):
+        if current_refs.get(ref_name) != expected_ref:
+            reasons.append(f"stale_before_ref: {ref_name}")
+    return reasons
+
+
+def _after_refs_for_request(request: JsonToDbSyncRequest) -> dict[str, str]:
+    refs = {
+        "dataset": request.dataset.dataset_id,
+        "dataset_hash": compute_payload_hash(dataset_artifact_to_payload(request.dataset)),
+    }
+    if request.turtle_export is not None:
+        refs["turtle_export"] = request.turtle_export.dataset_id
+    if request.lineage_records:
+        refs["lineage_records"] = str(len(request.lineage_records))
+    return refs
+
+
+def _build_sync_view(
+    *,
+    request: JsonToDbSyncRequest,
+    sync_id: str,
+    status: JsonToDbSyncStatus,
+    after_refs: Mapping[str, str],
+    written_refs: Mapping[str, str],
+    skipped_refs: Mapping[str, str],
+    blocking_reasons: tuple[str, ...],
+    completed_at: str | None,
+) -> JsonToDbSyncAuditView:
+    return JsonToDbSyncAuditView(
+        sync_id=sync_id,
+        recompute_run_id=request.recompute_run_id,
+        dataset_id=request.dataset.dataset_id,
+        status=status,
+        input_hashes=dict(request.input_hashes),
+        before_refs=dict(request.before_refs),
+        after_refs=dict(after_refs),
+        written_refs=dict(written_refs),
+        skipped_refs=dict(skipped_refs),
+        blocking_reasons=blocking_reasons,
+        requested_by=request.requested_by,
+        sync_reason=request.sync_reason,
+        created_at=utc_now_iso(),
+        completed_at=completed_at,
+    )
+
+
+def _result_from_view(
+    view: JsonToDbSyncAuditView,
+    *,
+    status: JsonToDbSyncStatus | None = None,
+    skipped_refs: Mapping[str, str] | None = None,
+) -> JsonToDbSyncResult:
+    if view.sync_id is None or view.recompute_run_id is None:
+        raise P5ArtifactRepositoryError("JSON-to-DB sync view is missing identity fields")
+    if view.created_at is None:
+        raise P5ArtifactRepositoryError("JSON-to-DB sync view is missing created_at")
+    return JsonToDbSyncResult(
+        sync_id=view.sync_id,
+        recompute_run_id=view.recompute_run_id,
+        dataset_id=view.dataset_id,
+        status=view.status if status is None else status,
+        written_refs=dict(view.written_refs),
+        skipped_refs=(
+            dict(view.skipped_refs) if skipped_refs is None else dict(skipped_refs)
+        ),
+        blocking_reasons=view.blocking_reasons,
+        input_hashes=dict(view.input_hashes),
+        before_refs=dict(view.before_refs),
+        after_refs=dict(view.after_refs),
+        created_at=view.created_at,
+        completed_at=view.completed_at,
+    )
 
 
 def _to_jsonable(payload: Any) -> Any:

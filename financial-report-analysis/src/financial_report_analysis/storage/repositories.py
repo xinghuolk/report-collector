@@ -34,6 +34,7 @@ from financial_report_analysis.p5.artifact_repository import (
 from financial_report_analysis.p5.json_to_db_sync import (
     JsonToDbSyncAuditView,
     JsonToDbSyncStatus,
+    compute_payload_hash,
 )
 from financial_report_analysis.p5.lineage import (
     artifact_lineage_from_payload,
@@ -860,6 +861,10 @@ class SqlAlchemyP5ArtifactRepository:
             payload = json.loads(record.payload_json)
         return extracted_artifact_from_payload(payload)
 
+    def compute_extracted_artifact_hash(self, artifact_id: str) -> str:
+        artifact = self.load_extracted_artifact(artifact_id)
+        return compute_payload_hash(extracted_artifact_to_payload(artifact))
+
     def save_dataset_artifact(self, dataset: P5DatasetArtifact) -> str:
         payload_json = json.dumps(
             dataset_artifact_to_payload(dataset),
@@ -894,6 +899,10 @@ class SqlAlchemyP5ArtifactRepository:
                 )
             payload = json.loads(record.payload_json)
         return dataset_artifact_from_payload(payload)
+
+    def compute_dataset_artifact_hash(self, dataset_id: str) -> str:
+        dataset = self.load_dataset_artifact(dataset_id)
+        return compute_payload_hash(dataset_artifact_to_payload(dataset))
 
     def save_turtle_export(self, turtle_export: P5TurtleExport) -> str:
         payload_json = json.dumps(
@@ -1513,6 +1522,15 @@ class SqlAlchemyP5ArtifactRepository:
             if record is None:
                 return None
             return _json_to_db_sync_view_from_record(record)
+
+    def load_current_json_to_db_before_refs(self, dataset_id: str) -> dict[str, str]:
+        latest_sync = self.load_latest_json_to_db_sync_for_dataset(dataset_id)
+        return {
+            "dataset": self.compute_dataset_artifact_hash(dataset_id),
+            "recompute_run": (
+                latest_sync.recompute_run_id if latest_sync is not None else "none"
+            ),
+        }
 
     def save_metric_governance_decision(
         self,
