@@ -171,6 +171,7 @@ def _derived_after_refs(request: JsonToDbSyncRequest) -> dict[str, Any]:
         "dataset": {
             "dataset_id": request.dataset.dataset_id,
             "dataset_version": request.dataset.dataset_version,
+            "payload_hash": compute_payload_hash(request.dataset),
         },
         "dataset_review_surface": (
             None
@@ -178,12 +179,15 @@ def _derived_after_refs(request: JsonToDbSyncRequest) -> dict[str, Any]:
             else {
                 "dataset_id": request.dataset_review_surface.dataset_id,
                 "dataset_version": request.dataset_review_surface.dataset_version,
+                "payload_hash": compute_payload_hash(request.dataset_review_surface),
             }
         ),
-        "lineage_count": len(request.lineage_records),
-        "recompute_result_paths": {
-            "dataset_path": request.recompute_result.dataset_path,
-            "turtle_export_path": request.recompute_result.turtle_export_path,
+        "lineage_records": {
+            "count": len(request.lineage_records),
+            "payload_hash": compute_payload_hash(request.lineage_records),
+        },
+        "recompute_result": {
+            "payload_hash": compute_payload_hash(request.recompute_result),
         },
         "turtle_export": (
             None
@@ -191,6 +195,7 @@ def _derived_after_refs(request: JsonToDbSyncRequest) -> dict[str, Any]:
             else {
                 "dataset_id": request.turtle_export.dataset_id,
                 "dataset_version": request.turtle_export.dataset_version,
+                "payload_hash": compute_payload_hash(request.turtle_export),
             }
         ),
         "turtle_export_review_surface": (
@@ -199,6 +204,9 @@ def _derived_after_refs(request: JsonToDbSyncRequest) -> dict[str, Any]:
             else {
                 "dataset_id": request.turtle_export_review_surface.dataset_id,
                 "dataset_version": request.turtle_export_review_surface.dataset_version,
+                "payload_hash": compute_payload_hash(
+                    request.turtle_export_review_surface
+                ),
             }
         ),
     }
@@ -211,9 +219,18 @@ def _validate_source_artifact_match(request: JsonToDbSyncRequest) -> None:
             "source artifact mismatch between dataset and recompute result"
         )
 
-    if set(request.plan.target_artifact_ids) != set(dataset_artifacts):
+    sorted_plan_targets = tuple(sorted(request.plan.target_artifact_ids))
+    sorted_diff_targets = tuple(
+        sorted(request.recompute_result.diff_summary.target_artifact_ids)
+    )
+    if sorted_plan_targets != sorted_diff_targets:
         raise P5ArtifactRepositoryError(
-            "plan target artifacts must match dataset source artifacts"
+            "diff summary target artifacts must match plan target artifacts"
+        )
+
+    if not set(request.plan.target_artifact_ids).issubset(set(dataset_artifacts)):
+        raise P5ArtifactRepositoryError(
+            "plan target artifacts must be a subset of dataset source artifacts"
         )
 
     if dataset_artifacts != request.dataset_review_surface.source_artifact_ids:

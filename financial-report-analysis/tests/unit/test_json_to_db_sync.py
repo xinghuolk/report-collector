@@ -155,6 +155,18 @@ def test_sync_id_changes_when_after_identity_changes() -> None:
     )
 
 
+def test_sync_id_changes_when_after_payload_changes_without_identity_change() -> None:
+    request = _request()
+    changed_request = replace(
+        request,
+        dataset=replace(_dataset(), quality_summary={"quality": "changed"}),
+    )
+
+    assert build_json_to_db_sync_id(request) != build_json_to_db_sync_id(
+        changed_request
+    )
+
+
 def test_request_accepts_null_requested_by() -> None:
     request = replace(_request(), requested_by=None)
 
@@ -239,6 +251,40 @@ def test_validate_rejects_plan_target_artifact_mismatch() -> None:
 
     with pytest.raises(P5ArtifactRepositoryError, match="plan target artifacts"):
         validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_diff_summary_target_artifact_mismatch() -> None:
+    invalid_request = replace(
+        _request(),
+        recompute_result=replace(
+            _result(),
+            diff_summary=replace(
+                _result().diff_summary,
+                target_artifact_ids=("artifact-2",),
+            ),
+        ),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="diff summary target artifacts"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_allows_plan_target_subset_of_dataset_source_artifacts() -> None:
+    dataset = replace(_dataset(), source_artifacts=("artifact-1", "artifact-2"))
+    review_surface = replace(
+        _dataset_review_surface(),
+        source_artifact_ids=("artifact-1", "artifact-2"),
+    )
+    result = replace(_result(), extracted_artifact_ids=("artifact-1", "artifact-2"))
+    request = replace(
+        _request(),
+        dataset=dataset,
+        dataset_review_surface=review_surface,
+        recompute_result=result,
+        input_hashes={"artifact-1": "hash-1", "artifact-2": "hash-2"},
+    )
+
+    validate_json_to_db_sync_request(request)
 
 
 def test_validate_rejects_input_hash_source_artifact_mismatch() -> None:
