@@ -134,6 +134,9 @@ Response shape:
 The audit endpoint is read-only. With `dry_run=false`, it only reports lifecycle
 state impact. With `dry_run=true`, it also evaluates candidate/canonical facts
 to report whether controlled consumption would map, suppress, skip, or conflict.
+The dry-run audit is the source of truth for `already_present`, `conflict`,
+`missing_candidate`, and `missing_target` decisions. Controlled consumption
+must consume audit actions and must not invent a second reporting contract.
 
 ## 7. Consumption Rules
 
@@ -151,6 +154,10 @@ When a linked lifecycle entry is `mapped_to_standard`:
 - if a matching standard canonical fact exists with a different value, report
   `conflict` and do not overwrite;
 - add provenance under `extensions.metric_governance.lifecycle_consumption`.
+
+If dry-run reports `already_present`, `conflict`, `missing_candidate`, or
+`missing_target`, controlled consumption must not add or overwrite canonical
+facts for that item.
 
 Minimum provenance:
 
@@ -202,6 +209,8 @@ For this reason:
   `recompute_needed=true`;
 - `execute_recompute_plan` applies lifecycle consumption only when the caller
   passes an explicit lifecycle consumption context;
+- `execute_recompute_plan` fails fast if this reason is used without a
+  lifecycle consumption context;
 - normal recompute reasons continue to behave as they do today.
 
 This keeps P4B opt-in and avoids changing existing recompute behavior.
