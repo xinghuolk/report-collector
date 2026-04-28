@@ -1,6 +1,6 @@
 # 财报分析 Explicit JSON-to-DB Sync Bridge 设计
 
-> **状态:** Active phase spec
+> **状态:** Implemented baseline, archived
 > **日期:** 2026-04-28
 > **范围类型:** DB/recompute 边界增强
 > **上游基线:** DB-backed recompute boundary/readiness contract 已完成
@@ -381,3 +381,15 @@ Regression tests：
 - DB-native recompute executor feasibility。
 
 这些都不是本阶段的一部分。
+
+## 12. 实现状态
+
+当前分支已实现 explicit JSON-to-DB sync bridge baseline：
+
+- JSON-first recompute 仍是唯一 canonical executor。
+- sync service 校验 source artifact hashes、dataset identity、after payloads 和
+  recompute run identity。
+- sync metadata 持久化到 DB，并通过 dataset audit、recompute run read 和
+  recompute boundary views 读回。
+- stale input hash fail closed。
+- partial failure 可观测，read surfaces 不把 partial sync 误报为 completed。

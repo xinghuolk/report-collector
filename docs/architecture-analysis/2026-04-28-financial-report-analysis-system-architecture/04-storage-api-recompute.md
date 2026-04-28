@@ -155,6 +155,14 @@ Phase 4B 增加了：
 - endpoint 不触发 recompute，不创建 recompute run，不执行 DB-native recompute；
 - DB assembly path 继续只表示 persisted artifact assembly，不表示 recompute executor。
 
+当前 explicit JSON-to-DB sync bridge 增加了：
+
+- `p5/json_to_db_sync.py` 的 sync contract 和 service；
+- JSON-first recompute after payloads 到 DB read surface 的显式同步；
+- persisted sync metadata；
+- dataset audit、recompute run read 和 recompute boundary views 的 sync status；
+- stale input hash fail-closed 和 partial failure observability。
+
 ## 当前状态
 
 已实现：
@@ -166,6 +174,7 @@ Phase 4B 增加了：
 - recompute result model 和 readback；
 - lifecycle recompute audit snapshot persistence 和 readback；
 - DB-backed recompute boundary/readiness view 和只读 API；
+- explicit JSON-to-DB sync bridge baseline；
 - offline/local P5 build 的 JSON repository；
 - 3-5Y persisted availability/data provider baseline。
 
@@ -187,12 +196,12 @@ Phase 4B 增加了：
 - API extract persistence 当前在持久化场景下假设 `pdf_path`。
 - Recompute run persistence 存储 result metadata 和可选 lifecycle audit snapshot；
   recompute boundary endpoint 只读说明 JSON-first/DB assembly/DB-native unsupported
-  状态，但不执行 DB-native recompute。
+  状态，并暴露 JSON-to-DB sync status，但不执行 DB-native recompute。
 
 ## 建议的后续切片
 
-- 设计 explicit JSON-to-DB sync bridge，把 JSON-first recompute 结果、input hashes、
-  before/after artifact references 和 failure semantics 显式同步到 DB read surface。
+- 在 explicit JSON-to-DB sync bridge baseline 之上，后续才评估
+  HTTP-triggered recompute/job boundary。
 - 增加稳定 recompute run ids、input hashes 和 before/after artifact version
   references。
 - 如未来查询需求明确，再将高价值 audit fields 从 JSON payload 提升为
