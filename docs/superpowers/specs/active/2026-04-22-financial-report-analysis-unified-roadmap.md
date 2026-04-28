@@ -607,7 +607,7 @@ pdf
 
 本文不做以下事情：
 
-- 不替代当前 active P2B plan。
+- 不替代历史 P2B plan；P2B 已完成并归档。
 - 不要求立即实现所有 workstreams。
 - 不要求在下一个字段 phase 前做大型 storage 重写。
 - 不要求现在就详细规划所有 Turtle phases。

@@ -103,10 +103,10 @@ The original remaining gaps were governance gaps, not basic extraction gaps:
    facts. Remaining optional work should be scoped to `Explicit JSON-to-DB sync
    bridge` or a separately approved custom-output contract.
 
-4. **Review surface is not metric-governance-specific.**
-   Source-conflict review packets exist, but there is no dedicated surface that
-   lists provisional metric candidates, evidence, suggested action, and
-   lifecycle status.
+4. **Review surface needed to become metric-governance-specific.**
+   This gap is now closed by the Phase 2 review surface and later lifecycle
+   state enrichment. Source-conflict review packets still exist, but governance
+   candidates now have a dedicated review path.
 
 5. **Durable lifecycle registry was missing.**
    Durable lifecycle registry behavior, mapping decision lookup, and review
@@ -304,7 +304,9 @@ should normally produce a blocked/review signal if encountered again.
 | `deprecated` | review only | blocked by default | blocked | blocked | blocked | review |
 | `blacklisted` | blocked/review only | blocked | blocked | blocked | blocked | review/fail depending on severity |
 
-Phase 1 implements the `standard` and `provisional_custom` parts only.
+Phase 1 originally implemented the `standard` and `provisional_custom` guardrail
+subset. Later phases added lifecycle decisions and controlled consumption for
+the remaining statuses.
 
 ## 7. Phase Roadmap
 
