@@ -1,6 +1,6 @@
 # 财报分析 Lifecycle Recompute Audit Persistence 设计
 
-> **状态:** Active design spec
+> **状态:** Implemented and closed
 > **日期:** 2026-04-28
 > **范围:** metric lifecycle recompute audit snapshot 的持久化与 read surface
 
@@ -10,7 +10,7 @@
 Phase 4B 能生成 `MetricLifecycleRecomputeAudit`，并能在 lifecycle recompute 时通过
 `lifecycle_consumption` provenance 改写下游输出。
 
-剩余问题是：这份 audit 目前主要存在于 API 响应、测试输入或 recompute 调用参数中。
+原始问题是：这份 audit 曾主要存在于 API 响应、测试输入或 recompute 调用参数中。
 当 dataset/Turtle output 已经被 recompute run 重新生成后，系统只能看到 latest
 recompute run 和 diff summary，不能稳定回答：
 
@@ -18,9 +18,9 @@ recompute run 和 diff summary，不能稳定回答：
 这次 dataset/Turtle 输出到底受哪些 lifecycle review item / decision 影响？
 ```
 
-本 spec 的目标是把 lifecycle recompute audit snapshot 持久化到 recompute run，并在
-recompute run read surface 与 dataset audit view 中读回。它不改变 lifecycle decision
-写入 API，不引入 async job，不重构 DB-native recompute。
+本 spec 已把 lifecycle recompute audit snapshot 持久化到 recompute run，并在
+recompute run read surface 与 dataset audit view 中读回。它没有改变 lifecycle decision
+写入 API，没有引入 async job，也没有重构 DB-native recompute。
 
 ## 2. 当前状态
 
@@ -34,15 +34,17 @@ recompute run read surface 与 dataset audit view 中读回。它不改变 lifec
 - `apply_metric_lifecycle_consumption(...)` 会把 controlled consumption provenance 写入
   fact governance metadata。
 - `SqlAlchemyP5ArtifactRepository.save_recompute_result(...)` 会持久化
-  recompute plan/result 到 `recompute_runs.result_json`。
-- `/recompute-runs/{run_id}` 和 `/datasets/{dataset_id}/audit` 已有 read surface。
+  recompute plan/result 和可选 lifecycle audit snapshot 到
+  `recompute_runs.result_json`。
+- `/recompute-runs/{run_id}` 和 `/datasets/{dataset_id}/audit` 已有 lifecycle
+  audit snapshot read surface。
 
-当前缺口：
+已关闭缺口：
 
-- `save_recompute_result(...)` 没有保存 lifecycle audit snapshot。
-- `load_recompute_result(...)` 只返回 `P5RecomputeResult`，无法读回 audit。
-- `DatasetAuditView` 只暴露 latest recompute run id/reason，不暴露 latest lifecycle audit。
-- API schemas 没有 lifecycle audit snapshot 字段。
+- `save_recompute_result(...)` 已支持保存可选 lifecycle audit snapshot。
+- `load_recompute_run_audit_view(...)` 能读回 recompute result 与可选 audit。
+- `DatasetAuditView` 已暴露 latest recompute run id/reason 和 latest lifecycle audit。
+- API schemas 已包含可选 lifecycle audit snapshot 字段。
 
 ## 3. 设计原则
 

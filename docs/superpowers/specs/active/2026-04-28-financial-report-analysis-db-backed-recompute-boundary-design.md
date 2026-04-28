@@ -44,13 +44,14 @@ workflow state。
 - `p5/db_assembly_service.py::build_db_p5_outputs_for_artifact(...)` 能从一个已持久化 extracted
   artifact 组装 dataset/Turtle/review/lineage，并写入 DB。
 
-当前缺口：
+实现前缺口与当前结果：
 
-- `db_assembly_service` 是 DB-backed assembly，不是 recompute executor；它没有接受
-  `P5RecomputePlan`，也不产生 `P5RecomputeResult` diff summary。
-- DB read surface 能展示 recompute result，但不能说明某个 dataset 当前是否支持 DB-native
-  recompute、是否必须走 JSON-first、或为什么被阻断。
-- 路线图只说“明确 JSON-first + DB sync 还是 DB-native”，但没有给后续方向的阶段顺序。
+- `db_assembly_service` 仍被明确限定为 DB-backed assembly，不是 recompute executor；
+  boundary/readiness view 现在负责暴露该边界，避免把 assembly 误读为 recompute。
+- DB read surface 现在能说明 dataset 是否必须走 JSON-first、是否只支持 DB assembly，
+  以及 DB-native recompute 在本阶段 unsupported 的 blocking reasons。
+- 路线图顺序已收口为：boundary/readiness contract 已完成，后续如有产品需要再进入
+  Explicit JSON-to-DB sync bridge，最后才评估 DB-native executor。
 
 ## 3. 设计决策
 
