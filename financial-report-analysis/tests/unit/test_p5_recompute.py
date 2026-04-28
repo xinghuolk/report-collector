@@ -385,6 +385,17 @@ def test_metric_lifecycle_recompute_audit_payload_round_trips() -> None:
     assert payload["items"][0]["current_status"] == "mapped_to_standard"
 
 
+def test_metric_lifecycle_recompute_audit_payload_rejects_malformed_item() -> None:
+    payload = metric_lifecycle_recompute_audit_to_payload(_lifecycle_audit())
+    payload["items"] = [payload["items"][0], "not-an-object"]
+
+    with pytest.raises(
+        ValueError,
+        match="lifecycle recompute audit item at index 1 must be an object",
+    ):
+        metric_lifecycle_recompute_audit_from_payload(payload)
+
+
 def _lifecycle_audit() -> MetricLifecycleRecomputeAudit:
     item = MetricLifecycleRecomputeAuditItem(
         review_item_id=build_review_item_id("CN_601919_2025", "candidate-1"),

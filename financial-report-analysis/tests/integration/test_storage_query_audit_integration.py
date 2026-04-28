@@ -236,7 +236,7 @@ def test_recompute_run_persists_lifecycle_recompute_audit_snapshot(
 ) -> None:
     repository, dataset = _seed_repository_dataset(tmp_path)
     plan = P5RecomputePlan(
-        manifest_id="manifest-1",
+        manifest_id="p5_seed_manifest",
         dataset_id=dataset.dataset_id,
         target_artifact_ids=dataset.source_artifacts,
         rebuild_dataset=True,
@@ -244,7 +244,7 @@ def test_recompute_run_persists_lifecycle_recompute_audit_snapshot(
         reason="metric_lifecycle_decision_changed",
     )
     result = P5RecomputeResult(
-        manifest_id="manifest-1",
+        manifest_id="p5_seed_manifest",
         extracted_artifact_ids=dataset.source_artifacts,
         dataset_path=tmp_path / "dataset.json",
         turtle_export_path=tmp_path / "turtle.json",

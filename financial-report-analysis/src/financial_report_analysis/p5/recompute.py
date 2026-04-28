@@ -221,12 +221,16 @@ def metric_lifecycle_recompute_audit_from_payload(
     item_payloads = payload.get("items", ())
     if not isinstance(item_payloads, list):
         raise ValueError("lifecycle recompute audit items must be a list")
+    for index, item in enumerate(item_payloads):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"lifecycle recompute audit item at index {index} must be an object"
+            )
 
     return MetricLifecycleRecomputeAudit(
         items=tuple(
             _metric_lifecycle_recompute_audit_item_from_payload(item)
             for item in item_payloads
-            if isinstance(item, dict)
         ),
         summary=MetricLifecycleRecomputeAuditSummary(
             review_item_count=int(summary_payload["review_item_count"]),
