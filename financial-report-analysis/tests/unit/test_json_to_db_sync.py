@@ -9,6 +9,7 @@ import pytest
 from financial_report_analysis.models import MetricLifecycleRecomputeAudit
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncAuditView,
     JsonToDbSyncRequest,
     JsonToDbSyncStatus,
     build_json_to_db_sync_id,
@@ -125,6 +126,30 @@ def test_payload_hash_is_order_insensitive_for_dict_keys() -> None:
     )
 
 
+def test_audit_view_carries_complete_sync_metadata() -> None:
+    view = JsonToDbSyncAuditView(
+        sync_id="json-to-db-sync:dataset-1:recompute-run-1:hash",
+        recompute_run_id="recompute-run-1",
+        dataset_id="dataset-1",
+        status=JsonToDbSyncStatus.COMPLETED,
+        input_hashes={"artifact-1": "hash-1"},
+        before_refs={"dataset": "dataset-hash-1"},
+        after_refs={"dataset": "dataset-hash-2"},
+        written_refs={"dataset": "dataset-hash-2"},
+        skipped_refs={},
+        blocking_reasons=(),
+        requested_by="test",
+        sync_reason="test-sync",
+        created_at="2026-04-28T00:00:00+00:00",
+        completed_at="2026-04-28T00:00:01+00:00",
+    )
+
+    assert view.dataset_id == "dataset-1"
+    assert view.input_hashes == {"artifact-1": "hash-1"}
+    assert view.after_refs == {"dataset": "dataset-hash-2"}
+    assert view.requested_by == "test"
+
+
 def test_validate_rejects_empty_source_artifacts() -> None:
     invalid_request = replace(
         _request(),
@@ -152,6 +177,13 @@ def test_validate_rejects_source_artifact_mismatch_between_dataset_and_result() 
     )
 
     with pytest.raises(P5ArtifactRepositoryError, match="source artifact mismatch"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_input_hash_source_artifact_mismatch() -> None:
+    invalid_request = replace(_request(), input_hashes={"artifact-2": "hash-2"})
+
+    with pytest.raises(P5ArtifactRepositoryError, match="input hash source artifacts"):
         validate_json_to_db_sync_request(invalid_request)
 
 

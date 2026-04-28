@@ -66,12 +66,19 @@ class JsonToDbSyncResult:
 
 @dataclass(frozen=True, slots=True)
 class JsonToDbSyncAuditView:
-    dataset_id: str
-    latest_recompute_run_id: str | None
     sync_id: str | None
     recompute_run_id: str | None
+    dataset_id: str
     status: JsonToDbSyncStatus
+    input_hashes: Mapping[str, str]
+    before_refs: Mapping[str, str]
+    after_refs: Mapping[str, str]
+    written_refs: Mapping[str, str]
+    skipped_refs: Mapping[str, str]
     blocking_reasons: tuple[str, ...]
+    requested_by: str | None
+    sync_reason: str | None
+    created_at: str | None
     completed_at: str | None
 
 
@@ -137,9 +144,17 @@ def validate_json_to_db_sync_request(request: JsonToDbSyncRequest) -> None:
             "dataset id mismatch between dataset and turtle review surface"
         )
 
+    _validate_input_hashes(request)
     _validate_source_artifact_match(request)
     _validate_before_refs(request.before_refs)
     _validate_lifecycle_recompute_audit(request.lifecycle_recompute_audit)
+
+
+def _validate_input_hashes(request: JsonToDbSyncRequest) -> None:
+    if set(request.input_hashes) != set(request.dataset.source_artifacts):
+        raise P5ArtifactRepositoryError(
+            "input hash source artifacts must match dataset source artifacts"
+        )
 
 
 def _validate_source_artifact_match(request: JsonToDbSyncRequest) -> None:
