@@ -222,10 +222,36 @@ def _seed_runtime(client: TestClient, tmp_path: Path) -> None:
             recompute_run_id="recompute-run-1",
             dataset_id=dataset.dataset_id,
             status=JsonToDbSyncStatus.COMPLETED,
-            input_hashes={"dataset": "hash-before"},
-            before_refs={"dataset": "before"},
-            after_refs={"dataset": "after"},
-            written_refs={"dataset": dataset.dataset_id},
+            input_hashes={
+                "dataset_payload_hash": "dataset-payload-hash-before",
+                "dataset_review_surface_hash": "dataset-review-hash-before",
+                "lineage_payload_hash": "lineage-hash-before",
+                "recompute_result_hash": "recompute-result-hash-before",
+            },
+            before_refs={
+                "dataset_id": dataset.dataset_id,
+                "recompute_run_id": "recompute-run-1",
+                "dataset_payload_hash": "dataset-payload-hash-before",
+                "dataset_review_surface_hash": "dataset-review-hash-before",
+                "lineage_payload_hash": "lineage-hash-before",
+                "recompute_result_hash": "recompute-result-hash-before",
+            },
+            after_refs={
+                "dataset_id": dataset.dataset_id,
+                "recompute_run_id": "recompute-run-1",
+                "dataset_payload_hash": "dataset-payload-hash-after",
+                "dataset_review_surface_hash": "dataset-review-hash-after",
+                "lineage_payload_hash": "lineage-hash-after",
+                "recompute_result_hash": "recompute-result-hash-after",
+            },
+            written_refs={
+                "dataset_id": dataset.dataset_id,
+                "recompute_run_id": "recompute-run-1",
+                "dataset_payload_hash": "dataset-payload-hash-after",
+                "dataset_review_surface_hash": "dataset-review-hash-after",
+                "lineage_payload_hash": "lineage-hash-after",
+                "recompute_result_hash": "recompute-result-hash-after",
+            },
             skipped_refs={},
             blocking_reasons=(),
             requested_by="test",
@@ -283,6 +309,17 @@ def test_storage_backed_routes_return_seeded_objects(tmp_path: Path) -> None:
     assert audit_response.status_code == 200
     assert audit_response.json()["latest_recompute_run_id"] == "recompute-run-1"
     assert audit_response.json()["latest_json_to_db_sync"]["status"] == "completed"
+    assert set(audit_response.json()["latest_json_to_db_sync"]["after_refs"]) == {
+        "dataset_id",
+        "recompute_run_id",
+        "dataset_payload_hash",
+        "dataset_review_surface_hash",
+        "lineage_payload_hash",
+        "recompute_result_hash",
+    }
+    assert "dataset" not in audit_response.json()["latest_json_to_db_sync"][
+        "after_refs"
+    ]
     assert len(audit_response.json()["source_artifacts"]) == 3
 
     recompute_response = client.get("/recompute-runs/recompute-run-1")
@@ -290,6 +327,9 @@ def test_storage_backed_routes_return_seeded_objects(tmp_path: Path) -> None:
     assert recompute_response.json()["run_id"] == "recompute-run-1"
     assert recompute_response.json()["diff_summary"]["reason"] == "pipeline_version_changed"
     assert recompute_response.json()["latest_json_to_db_sync"]["sync_id"] == "sync-1"
+    assert recompute_response.json()["latest_json_to_db_sync"]["written_refs"][
+        "recompute_run_id"
+    ] == "recompute-run-1"
 
     boundary_response = client.get(
         "/datasets/p5_seed_3_issuers_2_years/recompute-boundary"
@@ -298,6 +338,44 @@ def test_storage_backed_routes_return_seeded_objects(tmp_path: Path) -> None:
     assert boundary_response.json()["latest_json_to_db_sync_status"] == "completed"
     assert (
         boundary_response.json()["json_to_db_sync_effective_status"] == "completed"
+    )
+
+
+def test_storage_backed_routes_report_invalid_latest_sync_shape(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(storage_db_path=tmp_path / "runtime.db"),
+        raise_server_exceptions=False,
+    )
+    _seed_runtime(client, tmp_path)
+    repository = client.app.state.runtime.storage_repository
+    assert repository is not None
+
+    repository.save_json_to_db_sync_result(
+        JsonToDbSyncAuditView(
+            sync_id="sync-2",
+            recompute_run_id="recompute-run-1",
+            dataset_id="p5_seed_3_issuers_2_years",
+            status=JsonToDbSyncStatus.COMPLETED,
+            input_hashes={"dataset_payload_hash": "dataset-payload-hash-after"},
+            before_refs={"dataset_id": "p5_seed_3_issuers_2_years"},
+            after_refs={"dataset_id": "p5_seed_3_issuers_2_years"},
+            written_refs={"dataset_id": "p5_seed_3_issuers_2_years"},
+            skipped_refs={},
+            blocking_reasons=(),
+            requested_by="test",
+            sync_reason=None,
+            created_at="2026-04-28T00:00:02+00:00",
+            completed_at="2026-04-28T00:00:03+00:00",
+        )
+    )
+
+    response = client.get("/datasets/p5_seed_3_issuers_2_years/audit")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == (
+        "latest JSON-to-DB sync view is missing persisted identity field: sync_reason"
     )
 
 

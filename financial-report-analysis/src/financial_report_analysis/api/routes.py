@@ -215,7 +215,7 @@ def get_dataset_audit(
 ) -> DatasetAuditResponse:
     repository = _require_storage_repository(request)
     audit_view = _load_or_404(repository.load_dataset_audit_view, dataset_id)
-    return _dataset_audit_to_response(audit_view)
+    return _serialize_repository_view(_dataset_audit_to_response, audit_view)
 
 
 @router.get(
@@ -247,7 +247,8 @@ def get_recompute_result(
 ) -> RecomputeResultResponse:
     repository = _require_storage_repository(request)
     view = _load_or_404(repository.load_recompute_run_audit_view, run_id)
-    return _recompute_result_to_response(
+    return _serialize_repository_view(
+        _recompute_result_to_response,
         run_id,
         view.result,
         lifecycle_recompute_audit=view.lifecycle_recompute_audit,
@@ -635,16 +636,27 @@ def _load_or_404(loader: Any, *args: Any, **kwargs: Any) -> Any:
     try:
         return loader(*args, **kwargs)
     except P5ArtifactRepositoryError as exc:
-        detail = str(exc)
-        if not detail.startswith("missing "):
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=detail,
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise _repository_error_to_http(exc) from exc
+
+
+def _serialize_repository_view(serializer: Any, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return serializer(*args, **kwargs)
+    except P5ArtifactRepositoryError as exc:
+        raise _repository_error_to_http(exc) from exc
+
+
+def _repository_error_to_http(exc: P5ArtifactRepositoryError) -> HTTPException:
+    detail = str(exc)
+    if not detail.startswith("missing "):
+        return HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
-        ) from exc
+        )
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=detail,
+    )
 
 
 def _load_artifact_for_lifecycle_dry_run(
@@ -1221,7 +1233,7 @@ def _json_to_db_sync_to_response(view: Any) -> JsonToDbSyncStatusResponse:
 def _required_persisted_sync_field(view: Any, field_name: str) -> str:
     value = getattr(view, field_name)
     if value is None:
-        raise ValueError(
+        raise P5ArtifactRepositoryError(
             "latest JSON-to-DB sync view is missing persisted identity field: "
             f"{field_name}"
         )
