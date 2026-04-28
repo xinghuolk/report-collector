@@ -157,6 +157,7 @@ class DatasetAuditView:
     latest_recompute_run_id: str | None
     latest_recompute_reason: str | None
     latest_lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None
+    latest_json_to_db_sync: JsonToDbSyncAuditView | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +165,7 @@ class RecomputeRunAuditView:
     run_id: str
     result: P5RecomputeResult
     lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None
+    latest_json_to_db_sync: JsonToDbSyncAuditView | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1320,6 +1322,9 @@ class SqlAlchemyP5ArtifactRepository:
             lifecycle_recompute_audit=_lifecycle_recompute_audit_from_result_payload(
                 payload
             ),
+            latest_json_to_db_sync=(
+                self.load_latest_json_to_db_sync_for_recompute_run(run_id)
+            ),
         )
 
     def load_dataset_audit_view(self, dataset_id: str) -> DatasetAuditView:
@@ -1402,6 +1407,9 @@ class SqlAlchemyP5ArtifactRepository:
                 _lifecycle_recompute_audit_from_result_payload(latest_payload)
                 if latest_payload is not None
                 else None
+            ),
+            latest_json_to_db_sync=self.load_latest_json_to_db_sync_for_dataset(
+                dataset_id
             ),
         )
 

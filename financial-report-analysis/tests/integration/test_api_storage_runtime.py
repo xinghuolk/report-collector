@@ -13,6 +13,10 @@ from financial_report_analysis.models import (
     MetricLifecycleRecomputeAuditSummary,
 )
 from financial_report_analysis.p5.lineage import build_dataset_lineage
+from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncAuditView,
+    JsonToDbSyncStatus,
+)
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
     P5DatasetRow,
@@ -212,6 +216,24 @@ def _seed_runtime(client: TestClient, tmp_path: Path) -> None:
             ),
         ),
     )
+    repository.save_json_to_db_sync_result(
+        JsonToDbSyncAuditView(
+            sync_id="sync-1",
+            recompute_run_id="recompute-run-1",
+            dataset_id=dataset.dataset_id,
+            status=JsonToDbSyncStatus.COMPLETED,
+            input_hashes={"dataset": "hash-before"},
+            before_refs={"dataset": "before"},
+            after_refs={"dataset": "after"},
+            written_refs={"dataset": dataset.dataset_id},
+            skipped_refs={},
+            blocking_reasons=(),
+            requested_by="test",
+            sync_reason="pipeline_version_changed",
+            created_at="2026-04-28T00:00:00+00:00",
+            completed_at="2026-04-28T00:00:01+00:00",
+        )
+    )
 
 
 def _recompute_run_count(client: TestClient) -> int:
@@ -260,12 +282,23 @@ def test_storage_backed_routes_return_seeded_objects(tmp_path: Path) -> None:
     audit_response = client.get("/datasets/p5_seed_3_issuers_2_years/audit")
     assert audit_response.status_code == 200
     assert audit_response.json()["latest_recompute_run_id"] == "recompute-run-1"
+    assert audit_response.json()["latest_json_to_db_sync"]["status"] == "completed"
     assert len(audit_response.json()["source_artifacts"]) == 3
 
     recompute_response = client.get("/recompute-runs/recompute-run-1")
     assert recompute_response.status_code == 200
     assert recompute_response.json()["run_id"] == "recompute-run-1"
     assert recompute_response.json()["diff_summary"]["reason"] == "pipeline_version_changed"
+    assert recompute_response.json()["latest_json_to_db_sync"]["sync_id"] == "sync-1"
+
+    boundary_response = client.get(
+        "/datasets/p5_seed_3_issuers_2_years/recompute-boundary"
+    )
+    assert boundary_response.status_code == 200
+    assert boundary_response.json()["latest_json_to_db_sync_status"] == "completed"
+    assert (
+        boundary_response.json()["json_to_db_sync_effective_status"] == "completed"
+    )
 
 
 def test_storage_runtime_exposes_lifecycle_recompute_audit_snapshot(
@@ -358,8 +391,61 @@ def test_storage_runtime_exposes_read_only_recompute_boundary(
             "DB assembly is currently limited to persisted single-artifact assembly "
             "and is not a recompute executor",
         ],
+        "latest_json_to_db_sync_id": "sync-1",
+        "latest_json_to_db_sync_status": "completed",
+        "json_to_db_sync_effective_status": "completed",
+        "json_to_db_sync_blocking_reasons": [],
     }
     assert _recompute_run_count(client) == before_run_count
+
+
+def test_storage_runtime_marks_completed_sync_out_of_sync_for_newer_recompute(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(storage_db_path=tmp_path / "runtime.db"))
+    _seed_runtime(client, tmp_path)
+    repository = client.app.state.runtime.storage_repository
+    assert repository is not None
+    dataset = repository.load_dataset_artifact("p5_seed_3_issuers_2_years")
+
+    repository.save_recompute_result(
+        run_id="recompute-run-2",
+        plan=P5RecomputePlan(
+            manifest_id="p5_seed_manifest",
+            dataset_id=dataset.dataset_id,
+            target_artifact_ids=dataset.source_artifacts,
+            rebuild_dataset=True,
+            rebuild_turtle_export=True,
+            reason="pipeline_version_changed",
+        ),
+        result=P5RecomputeResult(
+            manifest_id="p5_seed_manifest",
+            extracted_artifact_ids=dataset.source_artifacts,
+            dataset_path=Path("data/p5/datasets/p5_seed_3_issuers_2_years.json"),
+            turtle_export_path=Path(
+                "data/p5/datasets/p5_seed_3_issuers_2_years_turtle_export.json"
+            ),
+            diff_summary=P5RecomputeDiffSummary(
+                reason="pipeline_version_changed",
+                target_artifact_ids=dataset.source_artifacts,
+                dataset_changed=True,
+                turtle_export_changed=True,
+                rebuilt_dataset=True,
+                rebuilt_turtle_export=True,
+            ),
+        ),
+    )
+
+    response = client.get("/datasets/p5_seed_3_issuers_2_years/recompute-boundary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["latest_recompute_run_id"] == "recompute-run-2"
+    assert payload["latest_json_to_db_sync_status"] == "completed"
+    assert payload["json_to_db_sync_effective_status"] == "out_of_sync"
+    assert "sync_recompute_run_mismatch" in payload[
+        "json_to_db_sync_blocking_reasons"
+    ]
 
 
 def test_dataset_availability_route_returns_read_only_multi_year_view(

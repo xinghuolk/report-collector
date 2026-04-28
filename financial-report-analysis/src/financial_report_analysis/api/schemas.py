@@ -533,6 +533,25 @@ class SourceArtifactAuditResponse(BaseModel):
     extracted_review_surface: ExtractedReviewSurfaceResponse | None
 
 
+class JsonToDbSyncStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sync_id: str
+    recompute_run_id: str
+    dataset_id: str
+    status: str
+    input_hashes: dict[str, str]
+    before_refs: dict[str, str]
+    after_refs: dict[str, str]
+    written_refs: dict[str, str]
+    skipped_refs: dict[str, str]
+    blocking_reasons: tuple[str, ...]
+    requested_by: str | None = None
+    sync_reason: str
+    created_at: str
+    completed_at: str | None = None
+
+
 class DatasetAuditResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -546,6 +565,7 @@ class DatasetAuditResponse(BaseModel):
     latest_lifecycle_recompute_audit: (
         MetricLifecycleRecomputeAuditResponse | None
     ) = None
+    latest_json_to_db_sync: JsonToDbSyncStatusResponse | None = None
 
 
 class DbRecomputeBoundaryResponse(BaseModel):
@@ -559,6 +579,10 @@ class DbRecomputeBoundaryResponse(BaseModel):
     supported_modes: tuple[str, ...]
     required_mode: str
     blocking_reasons: tuple[str, ...]
+    latest_json_to_db_sync_id: str | None = None
+    latest_json_to_db_sync_status: str | None = None
+    json_to_db_sync_effective_status: str
+    json_to_db_sync_blocking_reasons: tuple[str, ...] = ()
 
 
 class RecomputeDiffSummaryResponse(BaseModel):
@@ -582,3 +606,4 @@ class RecomputeResultResponse(BaseModel):
     turtle_export_path: str
     diff_summary: RecomputeDiffSummaryResponse
     lifecycle_recompute_audit: MetricLifecycleRecomputeAuditResponse | None = None
+    latest_json_to_db_sync: JsonToDbSyncStatusResponse | None = None

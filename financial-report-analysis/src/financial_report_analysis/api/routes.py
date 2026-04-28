@@ -64,6 +64,7 @@ from financial_report_analysis.api.schemas import (
     ExtractedReviewSurfaceResponse,
     HealthResponse,
     IssuerReportsResponse,
+    JsonToDbSyncStatusResponse,
     ManifestEntryResponse,
     MetricGovernanceDecisionAnnotationResponse,
     MetricGovernanceDecisionRequest,
@@ -250,6 +251,7 @@ def get_recompute_result(
         run_id,
         view.result,
         lifecycle_recompute_audit=view.lifecycle_recompute_audit,
+        latest_json_to_db_sync=view.latest_json_to_db_sync,
     )
 
 
@@ -1185,7 +1187,45 @@ def _dataset_audit_to_response(audit_view: Any) -> DatasetAuditResponse:
             if audit_view.latest_lifecycle_recompute_audit is not None
             else None
         ),
+        latest_json_to_db_sync=(
+            _json_to_db_sync_to_response(audit_view.latest_json_to_db_sync)
+            if audit_view.latest_json_to_db_sync is not None
+            else None
+        ),
     )
+
+
+def _json_to_db_sync_to_response(view: Any) -> JsonToDbSyncStatusResponse:
+    sync_id = _required_persisted_sync_field(view, "sync_id")
+    recompute_run_id = _required_persisted_sync_field(view, "recompute_run_id")
+    sync_reason = _required_persisted_sync_field(view, "sync_reason")
+    created_at = _required_persisted_sync_field(view, "created_at")
+    return JsonToDbSyncStatusResponse(
+        sync_id=sync_id,
+        recompute_run_id=recompute_run_id,
+        dataset_id=view.dataset_id,
+        status=view.status.value,
+        input_hashes=dict(view.input_hashes),
+        before_refs=dict(view.before_refs),
+        after_refs=dict(view.after_refs),
+        written_refs=dict(view.written_refs),
+        skipped_refs=dict(view.skipped_refs),
+        blocking_reasons=view.blocking_reasons,
+        requested_by=view.requested_by,
+        sync_reason=sync_reason,
+        created_at=created_at,
+        completed_at=view.completed_at,
+    )
+
+
+def _required_persisted_sync_field(view: Any, field_name: str) -> str:
+    value = getattr(view, field_name)
+    if value is None:
+        raise ValueError(
+            "latest JSON-to-DB sync view is missing persisted identity field: "
+            f"{field_name}"
+        )
+    return value
 
 
 def _db_recompute_boundary_to_response(
@@ -1200,6 +1240,14 @@ def _db_recompute_boundary_to_response(
         supported_modes=tuple(mode.value for mode in view.supported_modes),
         required_mode=view.required_mode.value,
         blocking_reasons=view.blocking_reasons,
+        latest_json_to_db_sync_id=view.latest_json_to_db_sync_id,
+        latest_json_to_db_sync_status=(
+            view.latest_json_to_db_sync_status.value
+            if view.latest_json_to_db_sync_status is not None
+            else None
+        ),
+        json_to_db_sync_effective_status=view.json_to_db_sync_effective_status.value,
+        json_to_db_sync_blocking_reasons=view.json_to_db_sync_blocking_reasons,
     )
 
 
@@ -1207,6 +1255,7 @@ def _recompute_result_to_response(
     run_id: str,
     result: P5RecomputeResult,
     lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None = None,
+    latest_json_to_db_sync: Any | None = None,
 ) -> RecomputeResultResponse:
     return RecomputeResultResponse(
         run_id=run_id,
@@ -1225,6 +1274,11 @@ def _recompute_result_to_response(
         lifecycle_recompute_audit=(
             _metric_lifecycle_recompute_audit_to_response(lifecycle_recompute_audit)
             if lifecycle_recompute_audit is not None
+            else None
+        ),
+        latest_json_to_db_sync=(
+            _json_to_db_sync_to_response(latest_json_to_db_sync)
+            if latest_json_to_db_sync is not None
             else None
         ),
     )

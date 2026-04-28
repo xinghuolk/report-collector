@@ -10,6 +10,10 @@ from financial_report_analysis.p5.db_recompute_boundary import (
     RecomputeExecutionMode,
     build_db_recompute_boundary_view,
 )
+from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncAuditView,
+    JsonToDbSyncStatus,
+)
 from financial_report_analysis.storage.repositories import (
     DatasetAuditView,
     SourceArtifactAuditRecord,
@@ -74,6 +78,81 @@ def _audit_view(
             else None
         ),
     )
+
+
+def _sync_view(
+    status: JsonToDbSyncStatus,
+    *,
+    recompute_run_id: str = "recompute-run-1",
+) -> JsonToDbSyncAuditView:
+    return JsonToDbSyncAuditView(
+        sync_id="sync-1",
+        recompute_run_id=recompute_run_id,
+        dataset_id="dataset-1",
+        status=status,
+        input_hashes={"artifact-1": "hash-1"},
+        before_refs={"dataset": "before"},
+        after_refs={"dataset": "after"},
+        written_refs={"dataset": "dataset-1"},
+        skipped_refs={},
+        blocking_reasons=(),
+        requested_by="test",
+        sync_reason="pipeline_version_changed",
+        created_at="2026-04-28T00:00:00+00:00",
+        completed_at="2026-04-28T00:00:01+00:00",
+    )
+
+
+def test_boundary_exposes_latest_json_to_db_sync_status() -> None:
+    audit_view = _audit_view(latest_recompute_reason="pipeline_version_changed")
+    audit_view = DatasetAuditView(
+        dataset_id=audit_view.dataset_id,
+        source_artifact_ids=audit_view.source_artifact_ids,
+        source_artifacts=audit_view.source_artifacts,
+        dataset_review_surface=audit_view.dataset_review_surface,
+        turtle_export_review_surface=audit_view.turtle_export_review_surface,
+        latest_recompute_run_id=audit_view.latest_recompute_run_id,
+        latest_recompute_reason=audit_view.latest_recompute_reason,
+        latest_lifecycle_recompute_audit=audit_view.latest_lifecycle_recompute_audit,
+        latest_json_to_db_sync=_sync_view(JsonToDbSyncStatus.COMPLETED),
+    )
+
+    view = build_db_recompute_boundary_view(
+        repository=_FakeRepository(audit_view),
+        dataset_id="dataset-1",
+    )
+
+    assert view.latest_json_to_db_sync_status is JsonToDbSyncStatus.COMPLETED
+    assert view.latest_json_to_db_sync_id == "sync-1"
+    assert view.json_to_db_sync_effective_status is JsonToDbSyncStatus.COMPLETED
+    assert view.json_to_db_sync_blocking_reasons == ()
+
+
+def test_boundary_does_not_treat_old_sync_as_current_recompute_state() -> None:
+    audit_view = _audit_view(latest_recompute_reason="pipeline_version_changed")
+    audit_view = DatasetAuditView(
+        dataset_id=audit_view.dataset_id,
+        source_artifact_ids=audit_view.source_artifact_ids,
+        source_artifacts=audit_view.source_artifacts,
+        dataset_review_surface=audit_view.dataset_review_surface,
+        turtle_export_review_surface=audit_view.turtle_export_review_surface,
+        latest_recompute_run_id="recompute-run-2",
+        latest_recompute_reason=audit_view.latest_recompute_reason,
+        latest_lifecycle_recompute_audit=audit_view.latest_lifecycle_recompute_audit,
+        latest_json_to_db_sync=_sync_view(
+            JsonToDbSyncStatus.COMPLETED,
+            recompute_run_id="recompute-run-1",
+        ),
+    )
+
+    view = build_db_recompute_boundary_view(
+        repository=_FakeRepository(audit_view),
+        dataset_id="dataset-1",
+    )
+
+    assert view.latest_json_to_db_sync_status is JsonToDbSyncStatus.COMPLETED
+    assert view.json_to_db_sync_effective_status is JsonToDbSyncStatus.OUT_OF_SYNC
+    assert "sync_recompute_run_mismatch" in view.json_to_db_sync_blocking_reasons
 
 
 def test_lifecycle_reason_requires_json_first_and_reports_lifecycle_audit() -> None:

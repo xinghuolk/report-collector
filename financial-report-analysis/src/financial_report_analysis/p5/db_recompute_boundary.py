@@ -5,6 +5,10 @@ from enum import Enum
 from typing import Protocol
 
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
+from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncAuditView,
+    JsonToDbSyncStatus,
+)
 from financial_report_analysis.storage.repositories import DatasetAuditView
 
 
@@ -24,6 +28,12 @@ class DbRecomputeBoundaryView:
     supported_modes: tuple[RecomputeExecutionMode, ...]
     required_mode: RecomputeExecutionMode
     blocking_reasons: tuple[str, ...]
+    latest_json_to_db_sync_id: str | None = None
+    latest_json_to_db_sync_status: JsonToDbSyncStatus | None = None
+    json_to_db_sync_effective_status: JsonToDbSyncStatus = (
+        JsonToDbSyncStatus.NOT_ATTEMPTED
+    )
+    json_to_db_sync_blocking_reasons: tuple[str, ...] = ()
 
 
 class _DatasetAuditRepository(Protocol):
@@ -75,6 +85,11 @@ def build_db_recompute_boundary_view(
         required_mode=required_mode,
         source_artifact_ids=source_artifact_ids,
     )
+    latest_sync = audit_view.latest_json_to_db_sync
+    effective_sync_status, sync_blocking_reasons = _effective_sync_status(
+        latest_recompute_run_id=audit_view.latest_recompute_run_id,
+        latest_sync=latest_sync,
+    )
     return DbRecomputeBoundaryView(
         dataset_id=audit_view.dataset_id,
         latest_recompute_run_id=audit_view.latest_recompute_run_id,
@@ -86,7 +101,40 @@ def build_db_recompute_boundary_view(
         supported_modes=supported_modes,
         required_mode=required_mode,
         blocking_reasons=blocking_reasons,
+        latest_json_to_db_sync_id=(
+            latest_sync.sync_id if latest_sync is not None else None
+        ),
+        latest_json_to_db_sync_status=(
+            latest_sync.status if latest_sync is not None else None
+        ),
+        json_to_db_sync_effective_status=effective_sync_status,
+        json_to_db_sync_blocking_reasons=sync_blocking_reasons,
     )
+
+
+def _effective_sync_status(
+    *,
+    latest_recompute_run_id: str | None,
+    latest_sync: JsonToDbSyncAuditView | None,
+) -> tuple[JsonToDbSyncStatus, tuple[str, ...]]:
+    if latest_recompute_run_id is None:
+        return (
+            JsonToDbSyncStatus.NOT_ATTEMPTED,
+            ("no recompute run has been recorded for this dataset",),
+        )
+    if latest_sync is None:
+        return (
+            JsonToDbSyncStatus.NOT_ATTEMPTED,
+            ("json_to_db_sync_not_attempted",),
+        )
+    if latest_sync.recompute_run_id != latest_recompute_run_id:
+        return (
+            JsonToDbSyncStatus.OUT_OF_SYNC,
+            ("sync_recompute_run_mismatch",),
+        )
+    if latest_sync.status is not JsonToDbSyncStatus.COMPLETED:
+        return (latest_sync.status, latest_sync.blocking_reasons)
+    return (JsonToDbSyncStatus.COMPLETED, ())
 
 
 def _normalize_reason(reason: str | None) -> str | None:
