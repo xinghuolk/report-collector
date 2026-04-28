@@ -19,6 +19,20 @@ MetricLifecycleAction = Literal[
     "deprecate",
     "blacklist",
 ]
+MetricLifecycleConsumptionAction = Literal[
+    "none",
+    "map_to_standard",
+    "already_present",
+    "conflict",
+    "suppress_blacklisted",
+]
+MetricLifecycleDryRunConflictState = Literal[
+    "none",
+    "already_present",
+    "conflict",
+    "missing_candidate",
+    "missing_target",
+]
 SourceKind = Literal[
     "statement_row",
     "deterministic_note_disclosure",
@@ -157,6 +171,40 @@ class MetricLifecycleState:
     latest_decision: MetricLifecycleDecision | None
     candidate_link: MetricLifecycleCandidateLink | None
     decision_history: tuple[MetricLifecycleDecision, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleRecomputeAuditItem:
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    candidate_metric_id: str
+    raw_label: str
+    lifecycle_entry_id: str | None
+    current_status: MetricLifecycleStatus | None
+    latest_decision_id: str | None
+    latest_decision_action: MetricLifecycleAction | None
+    target_metric_id: str | None
+    recompute_needed: bool
+    consumption_action: MetricLifecycleConsumptionAction
+    conflict_state: MetricLifecycleDryRunConflictState
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleRecomputeAuditSummary:
+    review_item_count: int
+    artifact_count: int
+    recompute_needed_count: int
+    dry_run_conflict_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class MetricLifecycleRecomputeAudit:
+    items: tuple[MetricLifecycleRecomputeAuditItem, ...]
+    summary: MetricLifecycleRecomputeAuditSummary
 
 
 @dataclass(frozen=True, slots=True)
