@@ -1254,12 +1254,12 @@ def test_cn_annual_601919_2025_surfaces_phase1_real_pdf_floor() -> None:
     )
 
     canonical_metric_ids = {fact.metric_id for fact in result.canonical_facts}
-    assert "finance_exp" in canonical_metric_ids
+    assert {"basic_eps", "finance_exp"} <= canonical_metric_ids
     basic_eps = next(
-        fact for fact in payload["candidate_facts"] if fact["metric_id"] == "basic_eps"
+        fact for fact in result.canonical_facts if fact.metric_id == "basic_eps"
     )
-    assert basic_eps["extensions"]["value_type"] == "per_share"
-    assert basic_eps["extensions"]["unit_expectation"] == "per_share_amount"
+    assert basic_eps.normalized_unit == "per_share_amount"
+    assert basic_eps.extensions["value_type"] == "per_share"
 
 
 @pytest.mark.real_pdf

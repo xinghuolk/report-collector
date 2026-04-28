@@ -341,7 +341,7 @@ class FactNormalizer:
             == _METRIC_MAPPING_REGISTRY_SOURCE
             and FactNormalizer._matches_metric_mapping_label(
                 metric_id=metric_id,
-                raw_label=candidate.metric_label_raw,
+                candidate=candidate,
             )
         )
 
@@ -354,10 +354,19 @@ class FactNormalizer:
         )
 
     @staticmethod
-    def _matches_metric_mapping_label(*, metric_id: str, raw_label: str) -> bool:
-        return (
-            _normalize_mapping_label(raw_label)
-            in _MAPPING_LABELS_BY_METRIC_ID.get(metric_id, set())
+    def _matches_metric_mapping_label(
+        *,
+        metric_id: str,
+        candidate: CandidateFact,
+    ) -> bool:
+        labels = _MAPPING_LABELS_BY_METRIC_ID.get(metric_id, set())
+        candidate_labels = [
+            candidate.metric_label_raw,
+            str(candidate.extensions.get("normalized_row_label") or ""),
+        ]
+        return any(
+            _normalize_mapping_label(label) in labels
+            for label in candidate_labels
         )
 
     @staticmethod

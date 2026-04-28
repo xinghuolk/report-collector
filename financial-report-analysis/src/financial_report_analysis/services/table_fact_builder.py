@@ -83,6 +83,7 @@ def _build_candidate_payload(
             "source_kind": "statement_row",
             "source_policy": "supplement_only",
             "statement_scope_guess": table.statement_scope_guess,
+            "normalized_row_label": row.normalized_row_label,
             "period_scope": definition.period_scope,
             _METRIC_MAPPING_SOURCE_EXTENSION_KEY: _METRIC_MAPPING_REGISTRY_SOURCE,
             "value_type": definition.value_type,

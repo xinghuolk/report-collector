@@ -494,6 +494,60 @@ def test_analyze_report_blocks_forged_mapping_marker_with_stale_supported_metric
     assert packet.conflict_state == "provisional_metric_review_required"
 
 
+def test_analyze_report_preserves_supported_metric_with_noisy_raw_label_when_normalized_label_matches() -> (
+    None
+):
+    result = analyze_report(
+        document_ref={"document_id": "doc-1", "market": "CN"},
+        extracted_payload={
+            "candidate_facts": [
+                {
+                    "fact_id": "cand-noisy-basic-eps-1",
+                    "metric_id": "basic_eps",
+                    "metric_label_raw": "（一）基本每股收益(元/股) 二十、",
+                    "statement_type": "income_statement",
+                    "entity_scope": "parent_company",
+                    "comparison_axis": "current",
+                    "adjustment_basis": "reported",
+                    "period_id": "2025FY",
+                    "currency": "CNY",
+                    "raw_value": "1.99",
+                    "numeric_value": 1.99,
+                    "raw_unit": "CNY",
+                    "normalized_unit": None,
+                    "precision": 2,
+                    "confidence": 0.95,
+                    "extensions": {
+                        "metric_mapping_source": "metric_mapping_registry",
+                        "normalized_row_label": "basic earnings per share",
+                        "value_type": "per_share",
+                        "unit_expectation": "per_share_amount",
+                    },
+                    "document_id": "doc-1",
+                    "block_id": "block-1",
+                    "table_id": "table-1",
+                    "page_index": 1,
+                    "table_coord": "A1",
+                    "evidence_bundle_id": "bundle-1",
+                    "evidence_span": "（一）基本每股收益(元/股) 二十、 1.99",
+                    "snapshot_path": None,
+                    "extraction_method": "table_semantics",
+                    "extraction_version": "v1",
+                    "source_rank_hint": 1,
+                }
+            ]
+        },
+    )
+
+    basic_eps = next(
+        fact for fact in result.canonical_facts if fact.metric_id == "basic_eps"
+    )
+    assert basic_eps.normalized_unit == "per_share_amount"
+    assert basic_eps.extensions[METRIC_GOVERNANCE_EXTENSION_KEY][
+        "registry_status"
+    ] == "standard"
+
+
 def test_analyze_report_blocks_unsupported_label_with_spoofed_mapping_marker() -> (
     None
 ):
