@@ -499,12 +499,25 @@ def test_sync_records_partial_metadata_when_recompute_write_fails() -> None:
     assert repository.saved_bundle_count == 1
     assert repository.saved_recompute_count == 1
     assert result.written_refs["dataset_id"] == request.dataset.dataset_id
+    assert "dataset_payload_hash" in result.written_refs
+    assert "dataset_review_surface_hash" in result.written_refs
+    assert "lineage_payload_hash" in result.written_refs
     assert "recompute_run_id" not in result.written_refs
+    assert "recompute_result_hash" not in result.written_refs
     assert result.blocking_reasons == ("recompute write failed",)
     assert [view.status for view in repository.saved_syncs] == [
         JsonToDbSyncStatus.PENDING,
         JsonToDbSyncStatus.PARTIAL,
     ]
+    assert repository.operations.index("save_json_to_db_sync_result:pending") < (
+        repository.operations.index("save_p5_assembly_bundle")
+    )
+    assert repository.operations.index("save_p5_assembly_bundle") < (
+        repository.operations.index("save_recompute_result")
+    )
+    assert repository.operations.index("save_recompute_result") < (
+        repository.operations.index("save_json_to_db_sync_result:partial")
+    )
 
 
 def test_sync_records_failed_metadata_when_preflight_repository_raises() -> None:

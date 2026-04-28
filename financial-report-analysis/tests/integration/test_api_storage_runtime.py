@@ -279,6 +279,12 @@ def _sync_record_count(client: TestClient) -> int:
         return session.scalar(select(func.count()).select_from(JsonToDbSyncRecord)) or 0
 
 
+def _sync_record_snapshot(client: TestClient, sync_id: str) -> JsonToDbSyncAuditView:
+    repository = client.app.state.runtime.storage_repository
+    assert repository is not None
+    return repository.load_json_to_db_sync_result(sync_id)
+
+
 def test_storage_backed_routes_return_503_without_runtime_storage() -> None:
     client = TestClient(create_app())
 
@@ -454,6 +460,7 @@ def test_storage_runtime_exposes_read_only_recompute_boundary(
     _seed_runtime(client, tmp_path)
     before_run_count = _recompute_run_count(client)
     before_sync_count = _sync_record_count(client)
+    before_sync_snapshot = _sync_record_snapshot(client, "sync-1")
 
     response = client.get(
         "/datasets/p5_seed_3_issuers_2_years/recompute-boundary",
@@ -487,6 +494,7 @@ def test_storage_runtime_exposes_read_only_recompute_boundary(
     }
     assert _recompute_run_count(client) == before_run_count
     assert _sync_record_count(client) == before_sync_count
+    assert _sync_record_snapshot(client, "sync-1") == before_sync_snapshot
 
 
 def test_storage_runtime_marks_completed_sync_out_of_sync_for_newer_recompute(
