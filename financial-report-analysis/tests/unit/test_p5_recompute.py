@@ -13,6 +13,8 @@ from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestE
 from financial_report_analysis.p5.recompute import (
     build_recompute_plan,
     execute_recompute_plan,
+    metric_lifecycle_recompute_audit_from_payload,
+    metric_lifecycle_recompute_audit_to_payload,
 )
 from financial_report_analysis.services.metric_governance_review import (
     build_review_item_id,
@@ -364,6 +366,23 @@ def test_execute_recompute_plan_ignores_created_at_only_diff(tmp_path: Path) -> 
 
     assert result.diff_summary.dataset_changed is False
     assert result.diff_summary.turtle_export_changed is False
+
+
+def test_metric_lifecycle_recompute_audit_payload_round_trips() -> None:
+    audit = _lifecycle_audit()
+
+    payload = metric_lifecycle_recompute_audit_to_payload(audit)
+    restored = metric_lifecycle_recompute_audit_from_payload(payload)
+
+    assert restored == audit
+    assert payload["summary"] == {
+        "review_item_count": 1,
+        "artifact_count": 1,
+        "recompute_needed_count": 1,
+        "dry_run_conflict_count": 0,
+    }
+    assert payload["items"][0]["latest_decision_action"] == "map_to_standard"
+    assert payload["items"][0]["current_status"] == "mapped_to_standard"
 
 
 def _lifecycle_audit() -> MetricLifecycleRecomputeAudit:

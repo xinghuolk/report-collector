@@ -4,7 +4,11 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from financial_report_analysis.models import MetricLifecycleRecomputeAudit
+from financial_report_analysis.models import (
+    MetricLifecycleRecomputeAudit,
+    MetricLifecycleRecomputeAuditItem,
+    MetricLifecycleRecomputeAuditSummary,
+)
 from financial_report_analysis.p5.artifact_repository import P5JsonArtifactRepository
 from financial_report_analysis.p5.models import (
     P5ExtractedArtifact,
@@ -172,6 +176,100 @@ def _strip_volatile_fields(value: object) -> object:
     if isinstance(value, list):
         return [_strip_volatile_fields(item) for item in value]
     return value
+
+
+def metric_lifecycle_recompute_audit_to_payload(
+    audit: MetricLifecycleRecomputeAudit,
+) -> dict[str, object]:
+    return {
+        "items": [
+            {
+                "review_item_id": item.review_item_id,
+                "artifact_id": item.artifact_id,
+                "issuer_id": item.issuer_id,
+                "fiscal_year": item.fiscal_year,
+                "report_type": item.report_type,
+                "candidate_metric_id": item.candidate_metric_id,
+                "raw_label": item.raw_label,
+                "lifecycle_entry_id": item.lifecycle_entry_id,
+                "current_status": item.current_status,
+                "latest_decision_id": item.latest_decision_id,
+                "latest_decision_action": item.latest_decision_action,
+                "target_metric_id": item.target_metric_id,
+                "recompute_needed": item.recompute_needed,
+                "consumption_action": item.consumption_action,
+                "conflict_state": item.conflict_state,
+                "reason": item.reason,
+            }
+            for item in audit.items
+        ],
+        "summary": {
+            "review_item_count": audit.summary.review_item_count,
+            "artifact_count": audit.summary.artifact_count,
+            "recompute_needed_count": audit.summary.recompute_needed_count,
+            "dry_run_conflict_count": audit.summary.dry_run_conflict_count,
+        },
+    }
+
+
+def metric_lifecycle_recompute_audit_from_payload(
+    payload: dict[str, object],
+) -> MetricLifecycleRecomputeAudit:
+    summary_payload = payload["summary"]
+    if not isinstance(summary_payload, dict):
+        raise ValueError("lifecycle recompute audit summary must be an object")
+    item_payloads = payload.get("items", ())
+    if not isinstance(item_payloads, list):
+        raise ValueError("lifecycle recompute audit items must be a list")
+
+    return MetricLifecycleRecomputeAudit(
+        items=tuple(
+            _metric_lifecycle_recompute_audit_item_from_payload(item)
+            for item in item_payloads
+            if isinstance(item, dict)
+        ),
+        summary=MetricLifecycleRecomputeAuditSummary(
+            review_item_count=int(summary_payload["review_item_count"]),
+            artifact_count=int(summary_payload["artifact_count"]),
+            recompute_needed_count=int(summary_payload["recompute_needed_count"]),
+            dry_run_conflict_count=int(summary_payload["dry_run_conflict_count"]),
+        ),
+    )
+
+
+def _metric_lifecycle_recompute_audit_item_from_payload(
+    payload: dict[str, object],
+) -> MetricLifecycleRecomputeAuditItem:
+    return MetricLifecycleRecomputeAuditItem(
+        review_item_id=str(payload["review_item_id"]),
+        artifact_id=str(payload["artifact_id"]),
+        issuer_id=str(payload["issuer_id"]),
+        fiscal_year=int(payload["fiscal_year"]),
+        report_type=str(payload["report_type"]),
+        candidate_metric_id=str(payload["candidate_metric_id"]),
+        raw_label=str(payload["raw_label"]),
+        lifecycle_entry_id=(
+            str(payload["lifecycle_entry_id"])
+            if payload.get("lifecycle_entry_id") is not None
+            else None
+        ),
+        current_status=payload.get("current_status"),  # type: ignore[arg-type]
+        latest_decision_id=(
+            str(payload["latest_decision_id"])
+            if payload.get("latest_decision_id") is not None
+            else None
+        ),
+        latest_decision_action=payload.get("latest_decision_action"),  # type: ignore[arg-type]
+        target_metric_id=(
+            str(payload["target_metric_id"])
+            if payload.get("target_metric_id") is not None
+            else None
+        ),
+        recompute_needed=bool(payload["recompute_needed"]),
+        consumption_action=str(payload["consumption_action"]),  # type: ignore[arg-type]
+        conflict_state=str(payload["conflict_state"]),  # type: ignore[arg-type]
+        reason=str(payload["reason"]),
+    )
 
 
 def recompute_diff_summary_to_payload(
