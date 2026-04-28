@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -40,6 +41,9 @@ from financial_report_analysis.models import (
     MetricLifecycleConceptIdentity,
     MetricLifecycleDecision,
     MetricLifecycleEntry,
+    MetricLifecycleRecomputeAudit,
+    MetricLifecycleRecomputeAuditItem,
+    MetricLifecycleRecomputeAuditSummary,
     MetricLifecycleState,
 )
 from financial_report_analysis.registries import load_metric_registry
@@ -69,6 +73,9 @@ from financial_report_analysis.api.schemas import (
     MetricLifecycleEntryRequest,
     MetricLifecycleEntryResponse,
     MetricLifecycleEntryWriteResponse,
+    MetricLifecycleRecomputeAuditItemResponse,
+    MetricLifecycleRecomputeAuditResponse,
+    MetricLifecycleRecomputeAuditSummaryResponse,
     MetricLifecycleStateResponse,
     MultiYearAvailabilityResponse,
     RecomputeDiffSummaryResponse,
@@ -84,6 +91,9 @@ from financial_report_analysis.services.metric_governance_review import (
 from financial_report_analysis.services.metric_lifecycle import (
     MetricLifecycleError,
     MetricLifecycleService,
+)
+from financial_report_analysis.services.metric_lifecycle_recompute import (
+    build_metric_lifecycle_recompute_audit,
 )
 
 router = APIRouter()
@@ -348,6 +358,40 @@ def write_metric_governance_lifecycle_decision(
 
 
 @router.get(
+    "/api/v1/metric-governance/lifecycle-recompute-audit",
+    response_model=MetricLifecycleRecomputeAuditResponse,
+)
+def get_metric_lifecycle_recompute_audit(
+    request: Request,
+    issuer_id: str | None = None,
+    fiscal_year: int | None = None,
+    dry_run: bool = False,
+) -> MetricLifecycleRecomputeAuditResponse:
+    repository = _require_storage_repository(request)
+    review_service = MetricGovernanceReviewService(repository)
+    lifecycle_service = MetricLifecycleService(repository)
+    artifact_loader: Callable[[str], P5ExtractedArtifact | None] | None = None
+    if dry_run:
+
+        def load_dry_run_artifact(artifact_id: str) -> P5ExtractedArtifact | None:
+            return _load_artifact_for_lifecycle_dry_run(repository, artifact_id)
+
+        artifact_loader = load_dry_run_artifact
+
+    audit = build_metric_lifecycle_recompute_audit(
+        review_items=tuple(
+            review_service.list_review_items(
+                issuer_id=issuer_id,
+                fiscal_year=fiscal_year,
+            )
+        ),
+        lifecycle_state_loader=lifecycle_service.load_state_by_review_item,
+        dry_run_artifact_loader=artifact_loader,
+    )
+    return _metric_lifecycle_recompute_audit_to_response(audit)
+
+
+@router.get(
     "/api/v1/metric-governance/review-items/{review_item_id:path}",
     response_model=MetricGovernanceReviewItemResponse,
 )
@@ -571,6 +615,17 @@ def _load_or_404(loader: Any, *args: Any, **kwargs: Any) -> Any:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=detail,
         ) from exc
+
+
+def _load_artifact_for_lifecycle_dry_run(
+    repository: object,
+    artifact_id: str,
+) -> P5ExtractedArtifact | None:
+    try:
+        load_artifact = getattr(repository, "load_extracted_artifact")
+        return load_artifact(artifact_id)
+    except (AttributeError, FileNotFoundError, KeyError, P5ArtifactRepositoryError):
+        return None
 
 
 def _load_metric_governance_review_item_or_404(
@@ -842,6 +897,54 @@ def _metric_lifecycle_candidate_link_to_response(
         evidence_bundle_id=link.evidence_bundle_id,
         created_at=link.created_at,
         created_by=link.created_by,
+    )
+
+
+def _metric_lifecycle_recompute_audit_to_response(
+    audit: MetricLifecycleRecomputeAudit,
+) -> MetricLifecycleRecomputeAuditResponse:
+    return MetricLifecycleRecomputeAuditResponse(
+        items=[
+            _metric_lifecycle_recompute_audit_item_to_response(item)
+            for item in audit.items
+        ],
+        summary=_metric_lifecycle_recompute_audit_summary_to_response(
+            audit.summary
+        ),
+    )
+
+
+def _metric_lifecycle_recompute_audit_item_to_response(
+    item: MetricLifecycleRecomputeAuditItem,
+) -> MetricLifecycleRecomputeAuditItemResponse:
+    return MetricLifecycleRecomputeAuditItemResponse(
+        review_item_id=item.review_item_id,
+        artifact_id=item.artifact_id,
+        issuer_id=item.issuer_id,
+        fiscal_year=item.fiscal_year,
+        report_type=item.report_type,
+        candidate_metric_id=item.candidate_metric_id,
+        raw_label=item.raw_label,
+        lifecycle_entry_id=item.lifecycle_entry_id,
+        current_status=item.current_status,
+        latest_decision_id=item.latest_decision_id,
+        latest_decision_action=item.latest_decision_action,
+        target_metric_id=item.target_metric_id,
+        recompute_needed=item.recompute_needed,
+        consumption_action=item.consumption_action,
+        conflict_state=item.conflict_state,
+        reason=item.reason,
+    )
+
+
+def _metric_lifecycle_recompute_audit_summary_to_response(
+    summary: MetricLifecycleRecomputeAuditSummary,
+) -> MetricLifecycleRecomputeAuditSummaryResponse:
+    return MetricLifecycleRecomputeAuditSummaryResponse(
+        review_item_count=summary.review_item_count,
+        artifact_count=summary.artifact_count,
+        recompute_needed_count=summary.recompute_needed_count,
+        dry_run_conflict_count=summary.dry_run_conflict_count,
     )
 
 

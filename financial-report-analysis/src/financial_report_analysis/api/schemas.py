@@ -213,6 +213,43 @@ class MetricLifecycleStateResponse(BaseModel):
     )
 
 
+class MetricLifecycleRecomputeAuditItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_item_id: str
+    artifact_id: str
+    issuer_id: str
+    fiscal_year: int
+    report_type: str
+    candidate_metric_id: str
+    raw_label: str
+    lifecycle_entry_id: str | None = None
+    current_status: str | None = None
+    latest_decision_id: str | None = None
+    latest_decision_action: str | None = None
+    target_metric_id: str | None = None
+    recompute_needed: bool
+    consumption_action: str
+    conflict_state: str
+    reason: str
+
+
+class MetricLifecycleRecomputeAuditSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_item_count: int
+    artifact_count: int
+    recompute_needed_count: int
+    dry_run_conflict_count: int
+
+
+class MetricLifecycleRecomputeAuditResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[MetricLifecycleRecomputeAuditItemResponse]
+    summary: MetricLifecycleRecomputeAuditSummaryResponse
+
+
 class MetricLifecycleEntryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

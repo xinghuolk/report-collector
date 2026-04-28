@@ -339,6 +339,103 @@ def test_metric_governance_lifecycle_decision_endpoint_records_mapping(
     assert len(state["decision_history"]) == 1
 
 
+def test_metric_governance_lifecycle_recompute_audit_reports_mapped_decision(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+    decision_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Matches the supported receivables metric.",
+            "actor": "reviewer@example.com",
+        },
+    )
+    assert decision_response.status_code == 200
+
+    response = client.get(
+        "/api/v1/metric-governance/lifecycle-recompute-audit",
+        params={"issuer_id": "CN_601919"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["review_item_count"] == 1
+    assert payload["summary"]["recompute_needed_count"] == 1
+    assert payload["items"][0]["current_status"] == "mapped_to_standard"
+    assert payload["items"][0]["target_metric_id"] == "accounts_receiv"
+    assert payload["items"][0]["consumption_action"] == "map_to_standard"
+
+
+def test_metric_governance_lifecycle_recompute_audit_accepts_dry_run(
+    tmp_path: Path,
+) -> None:
+    runtime = build_api_runtime(tmp_path / "storage.db")
+    entry = _entry(tmp_path)
+    artifact = _artifact(entry)
+    assert runtime.storage_repository is not None
+    assert runtime.historical_ingestion_service is not None
+    runtime.historical_ingestion_service.register_report(entry)
+    runtime.storage_repository.save_extracted_artifact(artifact)
+    client = TestClient(create_app(runtime=runtime))
+    review_item_id = build_review_item_id(
+        artifact.artifact_id,
+        "/tmp/report.pdf:candidate:1",
+    )
+    entry_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-entry",
+        json={"actor": "reviewer@example.com"},
+    )
+    assert entry_response.status_code == 200
+    decision_response = client.post(
+        f"/api/v1/metric-governance/review-items/{review_item_id}/lifecycle-decision",
+        json={
+            "action": "map_to_standard",
+            "target_metric_id": "accounts_receiv",
+            "reason": "Matches the supported receivables metric.",
+            "actor": "reviewer@example.com",
+        },
+    )
+    assert decision_response.status_code == 200
+
+    response = client.get(
+        "/api/v1/metric-governance/lifecycle-recompute-audit",
+        params={"issuer_id": "CN_601919", "dry_run": "true"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"] == {
+        "review_item_count": 1,
+        "artifact_count": 1,
+        "recompute_needed_count": 1,
+        "dry_run_conflict_count": 0,
+    }
+    assert payload["items"][0]["consumption_action"] in {
+        "map_to_standard",
+        "already_present",
+        "conflict",
+        "suppress_blacklisted",
+    }
+
+
 def test_metric_governance_lifecycle_decision_rejects_missing_review_item(
     tmp_path: Path,
 ) -> None:
