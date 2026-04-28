@@ -149,6 +149,7 @@ class DatasetAuditView:
     turtle_export_review_surface: P5TurtleExportReviewSurface | None
     latest_recompute_run_id: str | None
     latest_recompute_reason: str | None
+    latest_lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1215,6 +1216,9 @@ class SqlAlchemyP5ArtifactRepository:
                 .order_by(RecomputeRunRecord.created_at.desc(), RecomputeRunRecord.run_id.desc())
                 .limit(1)
             )
+            latest_payload = None
+            if recompute_record is not None and recompute_record.result_json is not None:
+                latest_payload = json.loads(recompute_record.result_json)
 
             source_artifacts: list[SourceArtifactAuditRecord] = []
             for artifact_id in dataset.source_artifacts:
@@ -1276,6 +1280,11 @@ class SqlAlchemyP5ArtifactRepository:
             ),
             latest_recompute_reason=(
                 recompute_record.reason if recompute_record is not None else None
+            ),
+            latest_lifecycle_recompute_audit=(
+                _lifecycle_recompute_audit_from_result_payload(latest_payload)
+                if latest_payload is not None
+                else None
             ),
         )
 

@@ -273,6 +273,48 @@ def test_recompute_run_persists_lifecycle_recompute_audit_snapshot(
     assert view.lifecycle_recompute_audit == audit
 
 
+def test_dataset_audit_view_exposes_latest_lifecycle_recompute_audit(
+    tmp_path: Path,
+) -> None:
+    repository, dataset = _seed_repository_dataset(tmp_path)
+    audit = _lifecycle_audit()
+    plan = P5RecomputePlan(
+        manifest_id="p5_seed_manifest",
+        dataset_id=dataset.dataset_id,
+        target_artifact_ids=dataset.source_artifacts,
+        rebuild_dataset=True,
+        rebuild_turtle_export=True,
+        reason="metric_lifecycle_decision_changed",
+    )
+    result = P5RecomputeResult(
+        manifest_id="p5_seed_manifest",
+        extracted_artifact_ids=dataset.source_artifacts,
+        dataset_path=tmp_path / "dataset.json",
+        turtle_export_path=tmp_path / "turtle.json",
+        diff_summary=P5RecomputeDiffSummary(
+            reason="metric_lifecycle_decision_changed",
+            target_artifact_ids=dataset.source_artifacts,
+            dataset_changed=True,
+            turtle_export_changed=True,
+            rebuilt_dataset=True,
+            rebuilt_turtle_export=True,
+        ),
+    )
+
+    repository.save_recompute_result(
+        run_id="lifecycle-recompute-run-1",
+        plan=plan,
+        result=result,
+        lifecycle_recompute_audit=audit,
+    )
+
+    audit_view = repository.load_dataset_audit_view(dataset.dataset_id)
+
+    assert audit_view.latest_recompute_run_id == "lifecycle-recompute-run-1"
+    assert audit_view.latest_recompute_reason == "metric_lifecycle_decision_changed"
+    assert audit_view.latest_lifecycle_recompute_audit == audit
+
+
 def _seed_repository_dataset(
     tmp_path: Path,
 ) -> tuple[SqlAlchemyP5ArtifactRepository, P5DatasetArtifact]:
