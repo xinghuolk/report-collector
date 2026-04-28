@@ -29,20 +29,26 @@ class _FakeRepository:
 def _audit_view(
     *,
     source_artifact_ids: tuple[str, ...] = ("artifact-1",),
+    source_audit_artifact_ids: tuple[str, ...] | None = None,
     source_artifact_count: int | None = None,
     latest_recompute_reason: str | None = None,
     lifecycle_audit_present: bool = False,
 ) -> DatasetAuditView:
+    audit_artifact_ids = (
+        source_artifact_ids
+        if source_audit_artifact_ids is None
+        else source_audit_artifact_ids
+    )
     artifact_count = (
-        len(source_artifact_ids)
+        len(audit_artifact_ids)
         if source_artifact_count is None
         else source_artifact_count
     )
     source_artifacts = tuple(
         SourceArtifactAuditRecord(
             source_artifact_id=(
-                source_artifact_ids[index]
-                if index < len(source_artifact_ids)
+                audit_artifact_ids[index]
+                if index < len(audit_artifact_ids)
                 else f"extra-artifact-{index}"
             ),
             report_id=None,
@@ -158,6 +164,22 @@ def test_source_artifact_id_count_must_match_loaded_audit_records() -> None:
                 _audit_view(
                     source_artifact_ids=("artifact-1",),
                     source_artifact_count=0,
+                )
+            ),
+            dataset_id="dataset-1",
+        )
+
+
+def test_source_artifact_ids_must_match_loaded_audit_record_ids() -> None:
+    with pytest.raises(
+        P5ArtifactRepositoryError,
+        match="source artifact audit records do not match source artifact ids",
+    ):
+        build_db_recompute_boundary_view(
+            repository=_FakeRepository(
+                _audit_view(
+                    source_artifact_ids=("artifact-1",),
+                    source_audit_artifact_ids=("artifact-2",),
                 )
             ),
             dataset_id="dataset-1",

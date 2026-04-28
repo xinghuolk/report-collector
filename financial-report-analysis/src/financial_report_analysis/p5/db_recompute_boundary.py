@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Protocol
 
 from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
 from financial_report_analysis.storage.repositories import DatasetAuditView
 
 
-class RecomputeExecutionMode(StrEnum):
+class RecomputeExecutionMode(str, Enum):
     JSON_FIRST_REQUIRED = "json_first_required"
     DB_ASSEMBLY_AVAILABLE = "db_assembly_available"
     DB_NATIVE_UNSUPPORTED = "db_native_unsupported"
@@ -53,7 +53,10 @@ def build_db_recompute_boundary_view(
             "missing source artifacts for dataset in DB repository: "
             f"{dataset_id}"
         )
-    if len(audit_view.source_artifacts) != len(source_artifact_ids):
+    source_audit_artifact_ids = tuple(
+        record.source_artifact_id for record in audit_view.source_artifacts
+    )
+    if source_audit_artifact_ids != source_artifact_ids:
         raise P5ArtifactRepositoryError(
             "source artifact audit records do not match source artifact ids "
             f"for dataset in DB repository: {dataset_id}"
