@@ -206,6 +206,13 @@ def test_assemble_dataset_includes_post_p5_profit_metric_rows(
         "non_oper_income",
         "non_oper_exp",
     }.issubset(rows_by_metric)
+    for metric_id in (
+        "selling_general_administrative",
+        "fv_value_chg_gain",
+        "non_oper_income",
+        "non_oper_exp",
+    ):
+        assert rows_by_metric[metric_id].missing_status == "present"
     assert rows_by_metric["selling_general_administrative"].value == -120.0
     assert rows_by_metric["fv_value_chg_gain"].statement_type == "income_statement"
 
