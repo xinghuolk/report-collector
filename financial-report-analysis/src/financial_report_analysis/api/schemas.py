@@ -543,6 +543,9 @@ class DatasetAuditResponse(BaseModel):
     turtle_export_review_surface: TurtleExportReviewSurfaceResponse | None
     latest_recompute_run_id: str | None
     latest_recompute_reason: str | None
+    latest_lifecycle_recompute_audit: (
+        MetricLifecycleRecomputeAuditResponse | None
+    ) = None
 
 
 class RecomputeDiffSummaryResponse(BaseModel):
@@ -565,3 +568,4 @@ class RecomputeResultResponse(BaseModel):
     dataset_path: str
     turtle_export_path: str
     diff_summary: RecomputeDiffSummaryResponse
+    lifecycle_recompute_audit: MetricLifecycleRecomputeAuditResponse | None = None

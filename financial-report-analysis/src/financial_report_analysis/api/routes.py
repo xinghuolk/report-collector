@@ -221,8 +221,12 @@ def get_recompute_result(
     request: Request,
 ) -> RecomputeResultResponse:
     repository = _require_storage_repository(request)
-    result = _load_or_404(repository.load_recompute_result, run_id)
-    return _recompute_result_to_response(run_id, result)
+    view = _load_or_404(repository.load_recompute_run_audit_view, run_id)
+    return _recompute_result_to_response(
+        run_id,
+        view.result,
+        lifecycle_recompute_audit=view.lifecycle_recompute_audit,
+    )
 
 
 @router.get(
@@ -1150,12 +1154,20 @@ def _dataset_audit_to_response(audit_view: Any) -> DatasetAuditResponse:
         ),
         latest_recompute_run_id=audit_view.latest_recompute_run_id,
         latest_recompute_reason=audit_view.latest_recompute_reason,
+        latest_lifecycle_recompute_audit=(
+            _metric_lifecycle_recompute_audit_to_response(
+                audit_view.latest_lifecycle_recompute_audit
+            )
+            if audit_view.latest_lifecycle_recompute_audit is not None
+            else None
+        ),
     )
 
 
 def _recompute_result_to_response(
     run_id: str,
     result: P5RecomputeResult,
+    lifecycle_recompute_audit: MetricLifecycleRecomputeAudit | None = None,
 ) -> RecomputeResultResponse:
     return RecomputeResultResponse(
         run_id=run_id,
@@ -1170,5 +1182,10 @@ def _recompute_result_to_response(
             turtle_export_changed=result.diff_summary.turtle_export_changed,
             rebuilt_dataset=result.diff_summary.rebuilt_dataset,
             rebuilt_turtle_export=result.diff_summary.rebuilt_turtle_export,
+        ),
+        lifecycle_recompute_audit=(
+            _metric_lifecycle_recompute_audit_to_response(lifecycle_recompute_audit)
+            if lifecycle_recompute_audit is not None
+            else None
         ),
     )
