@@ -1,6 +1,6 @@
-# Metric Governance Architecture
+# 指标治理架构
 
-## Governance Flow
+## 治理流程
 
 ```text
 table semantics
@@ -17,35 +17,35 @@ table semantics
 -> dataset / Turtle rows with lifecycle provenance
 ```
 
-## Registry Boundaries
+## 注册表边界
 
-`registries/metric_mapping.py::MetricMappingRegistry` is the deterministic
-mapping layer. It maps table kind, normalized row label, period shape, and
-market into supported standard metric ids. It does not generate custom ids or
-persist lifecycle state.
+`registries/metric_mapping.py::MetricMappingRegistry` 是确定性 mapping 层。
+它根据 table kind、normalized row label、period shape 和 market 映射到
+supported standard metric ids。它不生成 custom ids，也不持久化 lifecycle
+state。
 
-`registries/metric_registry.py::MetricRegistry` is the identity layer. It
-resolves raw labels to known standard identities where possible, otherwise
-generates stable `custom::...` provisional ids. Conceptually this is the
-`MetricIdentityRegistry` role described in the umbrella spec.
+`registries/metric_registry.py::MetricRegistry` 是 identity 层。它在可能时将
+raw labels 解析到 known standard identities，否则生成稳定的
+`custom::...` provisional ids。按 umbrella spec 的概念，它承担的是
+`MetricIdentityRegistry` 角色。
 
-`registries/metric_governance.py` creates governance metadata. Standard metrics
-are allowed for automatic analysis. Provisional custom metrics carry review
-metadata and are blocked from automatic analysis.
+`registries/metric_governance.py` 生成 governance metadata。Standard metrics
+允许自动分析；provisional custom metrics 携带 review metadata，并被阻断进入
+自动分析。
 
-## Phase 1 Guardrails
+## Phase 1 护栏
 
-`services/fact_normalizer.py::FactNormalizer.normalize_candidates` writes
-`extensions.metric_governance` onto candidate facts.
+`services/fact_normalizer.py::FactNormalizer.normalize_candidates` 将
+`extensions.metric_governance` 写入 candidate facts。
 
-`services/conflict_resolver.py::ConflictResolver.resolve_with_review` blocks
-provisional custom metrics from canonical promotion and emits review packets
-with `provisional_metric_review_required`.
+`services/conflict_resolver.py::ConflictResolver.resolve_with_review` 阻断
+provisional custom metrics 的 canonical promotion，并生成
+`provisional_metric_review_required` review packets。
 
-`adapters/report_adapter.py::ReportAdapter` excludes
-`auto_analysis_allowed=false` facts from key facts and downstream API output.
+`adapters/report_adapter.py::ReportAdapter` 排除 `auto_analysis_allowed=false`
+的 facts，防止它们进入 key facts 和下游 API 输出。
 
-These guardrails address the main pollution path:
+这些 guardrails 处理的主要污染路径是：
 
 ```text
 unknown metric
@@ -55,107 +55,103 @@ unknown metric
 -> downstream treats it as stable
 ```
 
-## Phase 2 Review Surface
+## Phase 2 审阅面
 
-`services/metric_governance_review.py::MetricGovernanceReviewService` scans
-persisted extracted artifacts for provisional candidate facts and emits
-`MetricGovernanceReviewItem` records.
+`services/metric_governance_review.py::MetricGovernanceReviewService` 扫描
+persisted extracted artifacts 中的 provisional candidate facts，并输出
+`MetricGovernanceReviewItem` records。
 
-Phase 2 lightweight review decisions use
-`models/governance.py::MetricGovernanceDecision` with decision types such as
-`keep_provisional` and `map_to_standard`.
+Phase 2 的 lightweight review decisions 使用
+`models/governance.py::MetricGovernanceDecision`，decision types 包括
+`keep_provisional` 和 `map_to_standard`。
 
-This layer is advisory. It is not the durable lifecycle state machine.
+这一层是 advisory，并不是 durable lifecycle state machine。
 
-## Phase 3 Lifecycle Registry
+## Phase 3 生命周期注册表
 
-`services/metric_lifecycle.py::MetricLifecycleService` implements durable
-lifecycle state. It creates or loads lifecycle entries, links candidates to
-entries, records decisions, and validates actor/reason/evidence/target metric
-shape.
+`services/metric_lifecycle.py::MetricLifecycleService` 实现 durable lifecycle
+state。它负责创建或加载 lifecycle entries、将 candidates 链接到 entries、
+记录 decisions，并校验 actor/reason/evidence/target metric shape。
 
-Storage tables live in `storage/models.py`:
+Storage tables 位于 `storage/models.py`：
 
-- `MetricLifecycleEntryRecord`;
-- `MetricLifecycleDecisionRecord`;
-- `MetricLifecycleCandidateLinkRecord`.
+- `MetricLifecycleEntryRecord`；
+- `MetricLifecycleDecisionRecord`；
+- `MetricLifecycleCandidateLinkRecord`。
 
-Lifecycle states:
+Lifecycle states：
 
-- `provisional`;
-- `approved_custom`;
-- `mapped_to_standard`;
-- `deprecated`;
-- `blacklisted`.
+- `provisional`；
+- `approved_custom`；
+- `mapped_to_standard`；
+- `deprecated`；
+- `blacklisted`。
 
-## Phase 4A Workflow API
+## Phase 4A 工作流 API
 
-`api/routes.py` exposes review-item scoped lifecycle workflow endpoints:
+`api/routes.py` 暴露 review-item scoped lifecycle workflow endpoints：
 
-- create or load lifecycle entry;
-- link candidate to lifecycle entry;
-- record lifecycle decision;
-- read review items with embedded lifecycle state.
+- create or load lifecycle entry；
+- link candidate to lifecycle entry；
+- record lifecycle decision；
+- read review items with embedded lifecycle state。
 
-Phase 4A intentionally did not change automatic outputs.
+Phase 4A 有意不改变自动输出。
 
-## Phase 4B Audit And Controlled Consumption
+## Phase 4B 审计与受控消费
 
-`services/metric_lifecycle_recompute.py` builds lifecycle recompute audit views.
-It reports whether linked lifecycle decisions require recompute and, in dry-run
-mode, whether consumption would map, suppress, skip, or conflict.
+`services/metric_lifecycle_recompute.py` 构建 lifecycle recompute audit views。
+它报告 linked lifecycle decisions 是否需要 recompute；在 dry-run 模式下，
+还会报告 consumption 会 map、suppress、skip 还是 conflict。
 
-`services/metric_lifecycle_consumption.py` applies controlled consumption as an
-in-memory overlay. It does not mutate stored extracted artifacts.
+`services/metric_lifecycle_consumption.py` 以 in-memory overlay 形式应用
+controlled consumption。它不修改 stored extracted artifacts。
 
-Consumption rules:
+Consumption rules：
 
-- `mapped_to_standard`: may synthesize a standard canonical fact from the
-  linked candidate when there is no matching target canonical fact.
-- `already_present`: no duplicate is added.
-- `conflict`: no overwrite.
-- `missing_candidate` / `missing_target`: no output mutation.
-- `blacklisted`: suppresses matching custom canonical facts in the governed
-  view.
-- `approved_custom`, `deprecated`, and `provisional`: no automatic output change
-  in Phase 4B.
+- `mapped_to_standard`：当不存在匹配 target canonical fact 时，可从 linked
+  candidate 合成 standard canonical fact。
+- `already_present`：不重复添加。
+- `conflict`：不覆盖。
+- `missing_candidate` / `missing_target`：不修改输出。
+- `blacklisted`：在 governed view 中 suppression 匹配的 custom canonical facts。
+- `approved_custom`、`deprecated`、`provisional`：Phase 4B 中不改变自动输出。
 
-Controlled consumption writes provenance under:
+Controlled consumption 将 provenance 写入：
 
 ```text
 extensions.metric_governance.lifecycle_consumption
 ```
 
-## Current State
+## 当前状态
 
-Completed:
+已完成：
 
-- governance metadata contract;
-- provisional custom guardrails;
-- metric governance review item API;
-- durable lifecycle registry;
-- lifecycle workflow API;
-- lifecycle recompute audit API;
-- controlled consumption overlay;
-- lifecycle recompute reason with explicit fail-fast audit requirement;
-- dataset/API/Turtle lifecycle provenance.
+- governance metadata contract；
+- provisional custom guardrails；
+- metric governance review item API；
+- durable lifecycle registry；
+- lifecycle workflow API；
+- lifecycle recompute audit API；
+- controlled consumption overlay；
+- lifecycle recompute reason 与显式 fail-fast audit requirement；
+- dataset/API/Turtle lifecycle provenance。
 
-## Risks And Boundaries
+## 风险与边界
 
-- `MetricMappingRegistry` and `MetricRegistry` names are still easy to confuse.
-- Phase 2 decisions and lifecycle decisions coexist; Phase 2 decisions should
-  remain advisory and should not be inferred as lifecycle state.
-- Lifecycle impact only follows explicit candidate links; raw label or fuzzy
-  matching is intentionally not used.
-- `approved_custom` has no automatic output contract yet.
-- `blacklisted` suppression currently uses candidate metric id; more granular
-  suppression may be needed later.
+- `MetricMappingRegistry` 和 `MetricRegistry` 的名字仍容易混淆。
+- Phase 2 decisions 与 lifecycle decisions 并存；Phase 2 decisions 应保持
+  advisory，不应被推断为 lifecycle state。
+- Lifecycle impact 只通过 explicit candidate links 传递；raw label 或 fuzzy
+  matching 被有意排除。
+- `approved_custom` 还没有自动输出合同。
+- `blacklisted` suppression 当前使用 candidate metric id；后续可能需要更细粒度
+  suppression。
 
-## Suggested Next Slices
+## 建议的后续切片
 
-- Reconcile naming and docs around `MetricMappingRegistry` vs `MetricRegistry`.
-- Define an explicit `approved_custom` output contract, or keep it review-only.
-- Persist lifecycle recompute audit snapshots if output provenance needs durable
-  run-level audit.
-- Add finer-grained blacklist suppression keys if real data shows over-broad
-  suppression.
+- 对齐 `MetricMappingRegistry` 与 `MetricRegistry` 的命名和文档。
+- 明确定义 `approved_custom` 输出合同，或继续保持 review-only。
+- 如果输出 provenance 需要 durable run-level audit，则持久化 lifecycle
+  recompute audit snapshots。
+- 如果真实数据出现过度 suppression，再增加更细粒度 blacklist suppression keys。

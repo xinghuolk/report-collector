@@ -1,59 +1,56 @@
-# Risks, Boundaries, And Roadmap
+# 风险、边界与路线
 
-## Source Of Truth
+## 事实来源
 
-The top-level roadmap is:
+顶层路线图是：
 
 `docs/superpowers/specs/active/2026-04-22-financial-report-analysis-unified-roadmap.md`
 
-The metric governance umbrella is:
+Metric governance umbrella 是：
 
 `docs/superpowers/specs/active/2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`
 
-The current implementation is ahead of the original umbrella note that only
-Phase 1 was the immediate target. Metric governance Phase 1 through Phase 4B now
-exists in code and tests. Documentation should be read with that implementation
-history in mind.
+当前实现已经超过 umbrella 中“只有 Phase 1 是 immediate target”的原始说明。
+Metric governance Phase 1 到 Phase 4B 现在已经存在于代码和测试中。阅读文档时
+应结合这段实现历史。
 
-## Current Completed Baseline
+## 当前已完成基线
 
-The roadmap now treats the DB-backed 3-5Y data provider baseline as complete:
+路线图现在将 DB-backed 3-5Y data provider baseline 视为已完成：
 
-- single-year PDF extraction can be persisted;
-- extracted artifact, dataset, Turtle, review, and lineage surfaces can be read
-  back;
-- 3-5Y availability/data view can report persisted facts, missing states,
-  coverage explanation, and lineage;
-- read paths do not trigger extraction, recompute, dataset build, or Turtle
-  build.
+- 单年 PDF extraction 可以被持久化；
+- extracted artifact、dataset、Turtle、review 和 lineage surfaces 可以读回；
+- 3-5Y availability/data view 可以报告 persisted facts、missing states、
+  coverage explanation 和 lineage；
+- read paths 不触发 extraction、recompute、dataset build 或 Turtle build。
 
-Metric governance also has a complete Phase 1-4B slice:
+Metric governance 也已完成 Phase 1-4B 切片：
 
-- registry metadata and provisional guardrails;
-- metric governance review surface;
-- durable lifecycle registry;
-- lifecycle workflow API;
-- recompute audit and dry-run;
-- controlled consumption and provenance.
+- registry metadata 和 provisional guardrails；
+- metric governance review surface；
+- durable lifecycle registry；
+- lifecycle workflow API；
+- recompute audit 和 dry-run；
+- controlled consumption 和 provenance。
 
-## Pause Gates
+## 暂停门槛
 
-The roadmap defines five pause-gate categories:
+路线图定义了五类 pause gates：
 
-- Foundation: issuer-specific branches, unstable row-value binding, weak
-  period/unit/currency recovery.
-- Governance: provisional/custom facts affecting automatic outputs, unclear
-  registry roles, unsupported metric identities without review.
-- Fallback: uncontrolled Ollama calls, expanded output space without tests,
-  fallback returning values or canonical facts.
-- Source precedence: note/summary/parent facts overriding primary statement or
-  consolidated facts without explicit policy.
-- API/Persistence: important decisions existing only in logs, missing review
-  surfaces, recompute/audit being required for correctness but not modeled.
+- Foundation：issuer-specific branches、不稳定 row-value binding、薄弱的
+  period/unit/currency recovery。
+- Governance：provisional/custom facts 影响自动输出、registry roles 不清晰、
+  unsupported metric identities 缺少 review。
+- Fallback：不受控的 Ollama calls、未测试就扩大 output space、fallback 返回
+  values 或 canonical facts。
+- Source precedence：note/summary/parent facts 在没有明确策略时覆盖 primary
+  statement 或 consolidated facts。
+- API/Persistence：重要 decisions 只存在 logs 中、缺少 review surfaces、正确性
+  已依赖 recompute/audit 但模型未表达。
 
-## Main Correctness Risk
+## 主要正确性风险
 
-The central silent-pollution risk remains:
+核心 silent-pollution 风险仍然是：
 
 ```text
 unknown or unsupported field
@@ -63,83 +60,80 @@ unknown or unsupported field
 -> downstream treats the value as stable
 ```
 
-Current guardrails reduce this risk:
+当前 guardrails 已经降低该风险：
 
-- `FactNormalizer` attaches metric governance metadata.
-- `ConflictResolver` blocks provisional custom canonical promotion.
-- `ReportAdapter` excludes `auto_analysis_allowed=false`.
-- Lifecycle-controlled output changes require explicit audit and recompute.
+- `FactNormalizer` 附加 metric governance metadata。
+- `ConflictResolver` 阻断 provisional custom canonical promotion。
+- `ReportAdapter` 排除 `auto_analysis_allowed=false`。
+- Lifecycle-controlled output changes 必须通过显式 audit 和 recompute。
 
-Remaining risk:
+剩余风险：
 
-- P5 dataset, Turtle export, and availability largely trust canonical facts.
-  If a polluted canonical fact enters an artifact through another path, these
-  downstream consumers may still treat it as present.
+- P5 dataset、Turtle export 和 availability 大体信任 canonical facts。如果 polluted
+  canonical fact 通过其他路径进入 artifact，这些下游 consumers 仍可能将其视为
+  present。
 
-## Fallback Boundaries
+## 语义兜底边界
 
-Allowed fallback roles:
+允许的 fallback 角色：
 
-- table kind disambiguation;
-- bounded row-label choice among supported labels;
-- currency/unit ambiguity;
-- note/disclosure locator among target metrics.
+- table kind disambiguation；
+- 在 supported labels closed set 中做 row-label choice；
+- currency/unit ambiguity；
+- 在 target metrics 中做 note/disclosure locator。
 
-Forbidden fallback roles:
+禁止的 fallback 角色：
 
-- create lifecycle states;
-- approve provisional custom metrics;
-- map custom metrics to standard metrics;
-- directly generate canonical facts;
-- override governance policy;
-- decide recompute correctness.
+- 创建 lifecycle states；
+- approve provisional custom metrics；
+- map custom metrics to standard metrics；
+- 直接生成 canonical facts；
+- override governance policy；
+- 决定 recompute correctness。
 
-Current code follows a bounded pattern through `semantic_fallback/config.py`,
-`semantic_fallback/models.py`, and `semantic_fallback/service.py`.
+当前代码通过 `semantic_fallback/config.py`、`semantic_fallback/models.py` 和
+`semantic_fallback/service.py` 遵循 bounded pattern。
 
-## Future Scope
+## 后续范围
 
-These should remain future scope unless a concrete business goal appears:
+除非出现具体业务目标，否则以下内容应保持 future scope：
 
-- 3-5Y job/workflow state;
-- automatic report acquisition/backfill/retry/rebuild;
-- product artifact lifecycle;
-- full approval workflow state machine;
-- UI;
-- whole-document LLM assessment/diff review;
-- broader object-storage/Postgres productization.
+- 3-5Y job/workflow state；
+- automatic report acquisition/backfill/retry/rebuild；
+- product artifact lifecycle；
+- full approval workflow state machine；
+- UI；
+- whole-document LLM assessment/diff review；
+- 更广泛的 object-storage/Postgres 产品化。
 
-## Recommended Next Slices
+## 建议的后续切片
 
-1. **Active docs reconciliation.**
-   Update active roadmap/umbrella status so it clearly reflects that metric
-   governance Phase 1-4B is implemented, while approval workflow/UI/async jobs
-   remain future scope.
+1. **Active docs reconciliation。**
+   更新 active roadmap/umbrella 状态，使其明确反映 metric governance Phase
+   1-4B 已实现，同时 approval workflow/UI/async jobs 仍是 future scope。
 
-2. **Downstream governance hardening.**
-   Add explicit governance assertions or filters in P5 dataset, Turtle export,
-   and availability so they do not rely only on upstream canonical purity.
+2. **Downstream governance hardening。**
+   在 P5 dataset、Turtle export 和 availability 中增加显式 governance
+   assertions 或 filters，避免完全依赖 upstream canonical purity。
 
-3. **Lifecycle recompute audit persistence.**
-   Persist audit snapshots or run-level metadata showing which lifecycle
-   decisions affected a dataset/Turtle output.
+3. **Lifecycle recompute audit persistence。**
+   持久化 audit snapshots 或 run-level metadata，说明哪些 lifecycle decisions
+   影响了某次 dataset/Turtle output。
 
-4. **DB-backed recompute boundary.**
-   Define whether recompute remains JSON-first with explicit DB sync or becomes
-   DB-native. Avoid keeping two ambiguous recompute paths.
+4. **DB-backed recompute boundary。**
+   明确 recompute 是继续 JSON-first 并显式 DB sync，还是变成 DB-native。避免
+   长期保留两条含糊的 recompute paths。
 
-5. **One-field post-P5 onboarding slice.**
-   Pick one field family from the gap list, run the sample-onboarding diagnosis,
-   and only then decide whether to extend deterministic semantics, registry
-   mappings, or review surfaces.
+5. **One-field post-P5 onboarding slice。**
+   从 gap list 中选择一个字段族，先执行 sample-onboarding diagnosis，再决定
+   是否扩展 deterministic semantics、registry mappings 或 review surfaces。
 
-## What Not To Do Next
+## 不应该马上做的事
 
-- Do not start a broad new field phase without checking governance and source
-  precedence gates.
-- Do not make Ollama produce values or canonical facts.
-- Do not infer lifecycle impact from raw labels or fuzzy matching.
-- Do not add async workflow/job infrastructure without a concrete workflow
-  product requirement.
-- Do not treat Phase 2 review decisions as lifecycle decisions without explicit
-  candidate links and audit.
+- 不要在未检查 governance 和 source precedence gates 前启动宽泛新字段 phase。
+- 不要让 Ollama 产出 values 或 canonical facts。
+- 不要从 raw labels 或 fuzzy matching 推断 lifecycle impact。
+- 不要在没有具体 workflow product requirement 的情况下新增 async workflow/job
+  基础设施。
+- 不要在没有 explicit candidate links 和 audit 的情况下，把 Phase 2 review
+  decisions 当作 lifecycle decisions。
