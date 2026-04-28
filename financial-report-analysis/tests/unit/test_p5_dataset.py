@@ -6,6 +6,19 @@ from financial_report_analysis.p5.dataset import assemble_dataset
 from financial_report_analysis.p5.models import P5ExtractedArtifact, P5ManifestEntry
 
 
+def _standard_extensions(period_scope: str) -> dict[str, object]:
+    return {
+        "period_scope": period_scope,
+        "metric_governance": {
+            "registry_status": "standard",
+            "metric_namespace": "standard",
+            "review_required": False,
+            "auto_analysis_allowed": True,
+            "governance_reason": "standard_metric",
+        },
+    }
+
+
 def _artifact(
     *,
     tmp_path: Path,
@@ -62,7 +75,7 @@ def test_assemble_dataset_emits_present_rows_and_missing_status_rows(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-1",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
         ),
         missing_status={
@@ -84,7 +97,7 @@ def test_assemble_dataset_emits_present_rows_and_missing_status_rows(
                 "raw_unit": "CNY",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-2",
-                "extensions": {"period_scope": "point_in_time"},
+                "extensions": _standard_extensions("point_in_time"),
             },
         ),
         missing_status={
@@ -161,7 +174,7 @@ def test_assemble_dataset_preserves_lifecycle_consumption_provenance(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-2",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
         ),
         missing_status={
@@ -225,7 +238,7 @@ def test_assemble_dataset_dedupes_duplicate_canonical_facts_with_conflict_summar
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-a",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
             {
                 "fact_id": "fact-revenue-b",
@@ -238,7 +251,7 @@ def test_assemble_dataset_dedupes_duplicate_canonical_facts_with_conflict_summar
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-b",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
         ),
     )
@@ -313,7 +326,7 @@ def test_assemble_dataset_keeps_missing_row_when_only_different_scope_is_present
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-parent",
-                "extensions": {"period_scope": "point_in_time"},
+                "extensions": _standard_extensions("point_in_time"),
             },
         ),
         missing_status={
@@ -350,7 +363,7 @@ def test_assemble_dataset_separates_duplicate_conflicts_by_statement_type(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-income",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
             {
                 "fact_id": "fact-revenue-cashflow",
@@ -363,7 +376,7 @@ def test_assemble_dataset_separates_duplicate_conflicts_by_statement_type(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-cashflow",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
         ),
     )
@@ -402,7 +415,7 @@ def test_assemble_dataset_preserves_statement_type_and_source_fact_lineage(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-income-a",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
             {
                 "fact_id": "fact-revenue-income-b",
@@ -415,7 +428,7 @@ def test_assemble_dataset_preserves_statement_type_and_source_fact_lineage(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-income-b",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
             {
                 "fact_id": "fact-revenue-cashflow",
@@ -428,7 +441,7 @@ def test_assemble_dataset_preserves_statement_type_and_source_fact_lineage(
                 "normalized_unit": "currency_amount",
                 "quality_status": "ok",
                 "evidence_bundle_id": "bundle-cashflow",
-                "extensions": {"period_scope": "duration"},
+                "extensions": _standard_extensions("duration"),
             },
         ),
     )
@@ -463,3 +476,98 @@ def test_assemble_dataset_preserves_statement_type_and_source_fact_lineage(
             ],
         }
     ]
+
+
+def test_assemble_dataset_blocks_non_consumable_governed_canonical_facts(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-custom-revenue",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-custom",
+                "extensions": {
+                    "period_scope": "duration",
+                    "metric_governance": {
+                        "registry_status": "provisional",
+                        "metric_namespace": "custom",
+                        "review_required": True,
+                        "auto_analysis_allowed": False,
+                        "governance_reason": "provisional_custom_metric",
+                    },
+                },
+            },
+        ),
+        missing_status={
+            "working_capital_missing_status": {"revenue": "present"},
+        },
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        required_metric_ids=("revenue",),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert len(dataset.rows) == 1
+    row = dataset.rows[0]
+    assert row.metric_id == "revenue"
+    assert row.missing_status == "not_surfaced"
+    assert row.source_fact_id is None
+    assert dataset.quality_summary["present_row_count"] == 0
+    assert dataset.quality_summary["governance_blocked_fact_count"] == 1
+    assert dataset.quality_summary["governance_blocked_by_metric"] == {"revenue": 1}
+    assert dataset.quality_summary["governance_blocked_by_reason"] == {
+        "auto_analysis_not_allowed": 1
+    }
+    assert dataset.quality_summary["governance_blocked_source_fact_ids"] == [
+        "fact-custom-revenue"
+    ]
+
+
+def test_assemble_dataset_blocks_missing_governance_metadata_by_default(
+    tmp_path: Path,
+) -> None:
+    artifact = _artifact(
+        tmp_path=tmp_path,
+        fiscal_year=2025,
+        canonical_facts=(
+            {
+                "fact_id": "fact-legacy-revenue",
+                "metric_id": "revenue",
+                "statement_type": "income_statement",
+                "entity_scope": "consolidated",
+                "period_id": "2025FY",
+                "numeric_value": 100.0,
+                "currency": "CNY",
+                "normalized_unit": "currency_amount",
+                "quality_status": "ok",
+                "evidence_bundle_id": "bundle-legacy",
+                "extensions": {"period_scope": "duration"},
+            },
+        ),
+    )
+
+    dataset = assemble_dataset(
+        dataset_id="p5_seed",
+        artifacts=(artifact,),
+        required_metric_ids=("revenue",),
+        now_func=lambda: "2026-04-23T00:00:00",
+    )
+
+    assert dataset.rows[0].missing_status == "unknown"
+    assert dataset.quality_summary["governance_blocked_fact_count"] == 1
+    assert dataset.quality_summary["governance_blocked_by_reason"] == {
+        "missing_metric_governance": 1
+    }

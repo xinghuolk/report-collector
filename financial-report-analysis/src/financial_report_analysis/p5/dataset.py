@@ -10,6 +10,10 @@ from financial_report_analysis.p5.models import (
     P5DatasetRow,
     P5ExtractedArtifact,
 )
+from financial_report_analysis.p5.governance_policy import (
+    DownstreamGovernanceDecision,
+    evaluate_downstream_fact_consumption,
+)
 
 P5_DATASET_VERSION = "1.0"
 _MISSING_STATUS_VALUES: tuple[MissingStatus, ...] = (
@@ -35,10 +39,10 @@ def assemble_dataset(
     now_func: Callable[[], str] | None = None,
 ) -> P5DatasetArtifact:
     created_at = now_func() if now_func is not None else _utc_now_iso()
+    consumable_facts, blocked_facts = _split_governed_facts(artifacts)
     present_rows = [
         _present_row_from_fact(artifact, fact)
-        for artifact in artifacts
-        for fact in artifact.canonical_facts
+        for artifact, fact, _decision in consumable_facts
     ]
     missing_rows = _missing_rows(
         artifacts=artifacts,
@@ -65,9 +69,30 @@ def assemble_dataset(
             artifacts=artifacts,
             present_rows=tuple(present_rows),
             rows=rows,
+            blocked_facts=tuple(blocked_facts),
         ),
         source_artifacts=source_artifacts,
     )
+
+
+def _split_governed_facts(
+    artifacts: tuple[P5ExtractedArtifact, ...],
+) -> tuple[
+    list[tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]],
+    list[tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]],
+]:
+    consumable: list[
+        tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]
+    ] = []
+    blocked: list[
+        tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]
+    ] = []
+    for artifact in artifacts:
+        for fact in artifact.canonical_facts:
+            decision = evaluate_downstream_fact_consumption(fact)
+            target = consumable if decision.allowed else blocked
+            target.append((artifact, fact, decision))
+    return consumable, blocked
 
 
 def _present_row_from_fact(
@@ -181,6 +206,10 @@ def _quality_summary(
     artifacts: tuple[P5ExtractedArtifact, ...],
     present_rows: tuple[P5DatasetRow, ...],
     rows: tuple[P5DatasetRow, ...],
+    blocked_facts: tuple[
+        tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision],
+        ...,
+    ],
 ) -> dict[str, Any]:
     missing_by_metric: dict[str, int] = defaultdict(int)
     missing_by_issuer: dict[str, int] = defaultdict(int)
@@ -192,6 +221,18 @@ def _quality_summary(
         missing_by_issuer[row.issuer_id] += 1
         if row.missing_status == "unknown":
             unknown_count += 1
+
+    governance_blocked_by_metric: dict[str, int] = defaultdict(int)
+    governance_blocked_by_reason: dict[str, int] = defaultdict(int)
+    governance_blocked_source_fact_ids: list[str] = []
+    for _artifact, fact, decision in blocked_facts:
+        metric_id = fact.get("metric_id")
+        if isinstance(metric_id, str):
+            governance_blocked_by_metric[metric_id] += 1
+        governance_blocked_by_reason[decision.reason] += 1
+        fact_id = fact.get("fact_id")
+        if isinstance(fact_id, str):
+            governance_blocked_source_fact_ids.append(fact_id)
 
     return {
         "present_row_count": sum(1 for row in rows if row.missing_status == "present"),
@@ -206,6 +247,16 @@ def _quality_summary(
         ),
         "duplicate_fact_conflicts": _duplicate_fact_conflicts(present_rows),
         "scope_mismatch_warnings": _scope_mismatch_warnings(present_rows),
+        "governance_blocked_fact_count": len(blocked_facts),
+        "governance_blocked_by_metric": dict(
+            sorted(governance_blocked_by_metric.items())
+        ),
+        "governance_blocked_by_reason": dict(
+            sorted(governance_blocked_by_reason.items())
+        ),
+        "governance_blocked_source_fact_ids": sorted(
+            governance_blocked_source_fact_ids
+        ),
     }
 
 
