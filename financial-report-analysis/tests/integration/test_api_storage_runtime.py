@@ -342,8 +342,8 @@ def test_storage_runtime_exposes_read_only_recompute_boundary(
     payload = response.json()
     assert payload == {
         "dataset_id": "p5_seed_3_issuers_2_years",
-        "latest_recompute_run_id": None,
-        "latest_recompute_reason": None,
+        "latest_recompute_run_id": "recompute-run-1",
+        "latest_recompute_reason": "pipeline_version_changed",
         "latest_lifecycle_audit_present": False,
         "source_artifact_ids": [
             "CN_601919_2025",

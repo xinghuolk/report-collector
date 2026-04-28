@@ -233,22 +233,7 @@ def get_dataset_recompute_boundary(
         dataset_id=dataset_id,
         requested_reason=requested_reason,
     )
-    response = _db_recompute_boundary_to_response(boundary_view)
-    normalized_reason = (
-        requested_reason.strip().lower() if requested_reason is not None else None
-    ) or None
-    if (
-        normalized_reason is not None
-        and response.latest_recompute_reason != normalized_reason
-    ):
-        return response.model_copy(
-            update={
-                "latest_recompute_run_id": None,
-                "latest_recompute_reason": None,
-                "latest_lifecycle_audit_present": False,
-            }
-        )
-    return response
+    return _db_recompute_boundary_to_response(boundary_view)
 
 
 @router.get(
