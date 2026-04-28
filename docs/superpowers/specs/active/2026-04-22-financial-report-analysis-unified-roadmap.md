@@ -35,6 +35,9 @@
 - `Lifecycle Recompute Audit Persistence` 已完成并收口。Metric lifecycle recompute
   audit snapshot 现在会随 recompute run 持久化，并能通过 recompute run read surface
   与 dataset audit view/API 读回。
+- `DB-backed Recompute Boundary` 已进入当前设计阶段。当前推荐方向是
+  JSON-first recompute executor 继续作为唯一 canonical executor，DB 负责
+  persistence/readback/audit/boundary readiness，不在本阶段实现 DB-native recompute。
 - 当前架构分析已收口在
   `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`。
 - 旧的 `DB-Backed Extract Write Follow-Up` plan 已被后续 persistence / orchestration plans 取代，不应作为 active plan 继续执行。
@@ -74,8 +77,10 @@
 因此，下一步不宜再从数据库 umbrella spec、availability spec 或 workflow umbrella spec 直接写新的 implementation plan。只有当出现新的明确业务目标时，才从下面这些 future buckets 中选择一个最小切片：
 
 - Metric governance 与 custom/provisional lifecycle：把 registry 状态、review decision、canonical promotion 的长期方向拆成小的可验证 slice。
-- DB-backed recompute boundary：明确 recompute 是 JSON-first 加显式 DB sync，还是
-  DB-native，避免长期保留两条含糊路径。
+- DB-backed recompute boundary：先明确 JSON-first executor 与 DB
+  persistence/readback/assembly 的边界；后续方向按
+  `boundary/readiness contract -> explicit JSON-to-DB sync bridge -> DB-native executor`
+  推进，避免长期保留两条含糊路径。
 - Post-P5 enhancement coverage：从 reference roadmap 里选择明确字段族，按样本接入流程验证是否值得进入新 coverage phase。
 - Whole-document LLM assessment / diff review：只作为 review artifact，不进入 canonical facts 或 deterministic recompute 裁决链。
 - 3-5Y workflow/products：只有在业务明确需要自动补齐、job 状态、product artifact 生命周期或 approval workflow 时再启动。
@@ -569,7 +574,7 @@ pdf
 
 - `Downstream Governance Hardening` 不再是下一步候选项。
 - 如果继续 governance 线，优先选择 DB-backed recompute boundary，明确 JSON-first
-  recompute 与 DB repository 的长期边界。
+  recompute 与 DB repository 的长期边界；当前不直接跳到 DB-native executor。
 - 如果继续 Turtle 字段线，应从 one-field post-P5 onboarding slice 开始，并保留当前
   governance/source precedence gates。
 
@@ -590,7 +595,9 @@ pdf
 后续含义：
 
 - `Lifecycle Recompute Audit Persistence` 不再是下一步候选项。
-- governance 线下一步应聚焦 `DB-backed recompute boundary`。
+- governance 线下一步应聚焦 `DB-backed recompute boundary`，先做
+  boundary/readiness contract；如果之后仍需要产品化，再进入 explicit JSON-to-DB sync
+  bridge，最后才评估 DB-native executor。
 - 字段线下一步应选择一个 post-P5 单字段/小字段族，并继续执行 sample-onboarding
   diagnosis。
 
@@ -651,3 +658,12 @@ issuer + fiscal-year range
 在没有新增业务目标前，不需要新的 active implementation plan。若需要继续推进，当前最小
 候选顺序是：`DB-backed recompute boundary`，或一个经过 sample-onboarding diagnosis
 的 post-P5 单字段切片。
+
+`DB-backed recompute boundary` 的后续方向固定为三段：
+
+- 先做 `boundary/readiness contract`，只读说明当前 dataset/run 必须走 JSON-first、
+  仅支持 DB assembly，或明确 DB-native unsupported。
+- 再做 `explicit JSON-to-DB sync bridge`，把 JSON-first recompute 的结果、input hashes、
+  before/after artifact references 和 failure semantics 显式同步到 DB read surface。
+- 最后才评估 `DB-native recompute executor`，并单独设计 locking/idempotency、lineage
+  history、run lifecycle 和 lifecycle-controlled consumption 的 DB 等价实现。

@@ -10,6 +10,7 @@ Current status reconciliation:
 
 - `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
 - `2026-04-28-financial-report-analysis-downstream-governance-hardening-design.md`
+- `2026-04-28-financial-report-analysis-db-backed-recompute-boundary-design.md`
 
 Use the reconciliation spec when a document's original phase language conflicts
 with the current implemented baseline.

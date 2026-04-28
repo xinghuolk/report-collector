@@ -128,8 +128,10 @@ unknown or unsupported field
 ## 建议的后续切片
 
 1. **DB-backed recompute boundary。**
-   明确 recompute 是继续 JSON-first 并显式 DB sync，还是变成 DB-native。避免
-   长期保留两条含糊的 recompute paths。
+   当前推荐方向是先做 `boundary/readiness contract`：JSON-first recompute executor
+   继续作为唯一 canonical executor，DB 负责 persistence/readback/audit/boundary
+   readiness，并明确 DB-native unsupported。后续如产品需要，再进入 explicit
+   JSON-to-DB sync bridge；最后才评估 DB-native recompute executor。
 
 2. **One-field post-P5 onboarding slice。**
    从 gap list 中选择一个字段族，先执行 sample-onboarding diagnosis，再决定
