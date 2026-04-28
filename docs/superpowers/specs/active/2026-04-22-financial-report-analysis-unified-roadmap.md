@@ -85,10 +85,10 @@
 - Whole-document LLM assessment / diff review：只作为 review artifact，不进入 canonical facts 或 deterministic recompute 裁决链。
 - 3-5Y workflow/products：只有在业务明确需要自动补齐、job 状态、product artifact 生命周期或 approval workflow 时再启动。
 
-当前 active 文档状态收口记录在
-`2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`。如果
-后续执行者发现旧文档与当前实现状态冲突，应优先参考本路线图的当前状态快照和该
-reconciliation spec。
+文档状态收口记录已归档在
+`../archived/2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`。
+如果后续执行者发现旧文档与当前实现状态冲突，应优先参考本路线图的当前状态快照，
+再把归档 reconciliation spec 作为历史依据。
 
 ## 1. 目的
 

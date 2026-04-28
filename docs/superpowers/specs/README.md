@@ -6,9 +6,11 @@ Use this directory as a lifecycle-managed workspace:
 - `reference/` contains still-relevant roadmap, architecture, or scope context that should inform new specs but should not be executed directly.
 - `archived/` contains completed, superseded, or historical specs with no current decision-making role.
 
-Current active entry:
+Current active entries:
 
 - `active/2026-04-22-financial-report-analysis-unified-roadmap.md`
+- `active/2026-04-24-financial-report-analysis-hk-09987-2025-extraction-recovery-design.md`
+- `active/2026-04-25-financial-report-analysis-metric-governance-umbrella-design.md`
 
 Archive rule:
 

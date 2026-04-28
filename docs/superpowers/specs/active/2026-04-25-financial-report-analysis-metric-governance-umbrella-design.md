@@ -507,9 +507,11 @@ This umbrella spec does not require immediate implementation of:
 ## 14. Recommended Next Step
 
 Do not execute the old Phase 1 implementation path as the next step. Current
-status is tracked by:
+status is tracked by the unified roadmap and architecture analysis; the active-doc
+reconciliation spec is archived as a historical closeout record:
 
-- `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
+- `2026-04-22-financial-report-analysis-unified-roadmap.md`
+- `../archived/2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
 - `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`
 
 Downstream governance hardening, lifecycle recompute audit snapshot persistence,
