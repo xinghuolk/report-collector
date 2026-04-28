@@ -121,10 +121,12 @@ Current implementation status:
   policy so non-consumable governed facts no longer become stable dataset rows,
   Turtle rows, or availability present metrics.
 
-The remaining post-P4B work is no longer "implement durable lifecycle". It is
-to persist lifecycle recompute audit snapshots when needed, clarify the
-DB-backed recompute boundary, or start a one-field post-P5 onboarding slice after
-the governance/source precedence gates remain satisfied.
+The remaining post-P4B work is no longer "implement durable lifecycle".
+Lifecycle recompute audit snapshot persistence and DB-backed recompute boundary
+readiness have both been completed. The remaining optional governance/storage
+follow-up is `Explicit JSON-to-DB sync bridge` if product needs JSON-first
+recompute results synchronized into DB read surfaces, or a one-field post-P5
+onboarding slice after the governance/source precedence gates remain satisfied.
 
 ## 3. Design Principles
 
@@ -505,11 +507,12 @@ status is tracked by:
 - `2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
 - `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`
 
-Downstream governance hardening is now complete. Recommended post-hardening
-choices:
+Downstream governance hardening, lifecycle recompute audit snapshot persistence,
+and DB-backed recompute boundary readiness are now complete. Recommended
+post-boundary choices:
 
-- lifecycle recompute audit snapshot persistence;
-- DB-backed recompute boundary clarification;
+- `Explicit JSON-to-DB sync bridge` if product needs JSON-first recompute
+  results synchronized into DB read surfaces;
 - one-field post-P5 onboarding only after the governance/source precedence gates
   remain satisfied;
 - whole-document LLM assessment/diff review only as a review artifact, never as a
