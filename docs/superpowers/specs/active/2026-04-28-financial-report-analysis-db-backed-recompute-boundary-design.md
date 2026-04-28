@@ -229,10 +229,10 @@ GET /datasets/{dataset_id}/recompute-boundary
 
 ## 8. 后续方向
 
-本 spec 完成后，后续方向按以下顺序推进：
+该 boundary/readiness contract 已完成，后续方向按以下顺序推进：
 
 1. **Boundary/readiness contract。**
-   当前切片。只回答“能不能 DB-backed recompute、为什么不能、应该走哪条路径”。
+   已完成。只读回答“能不能 DB-backed recompute、为什么不能、应该走哪条路径”。
 
 2. **Explicit JSON-to-DB sync bridge。**
    如果产品需要让 JSON-first recompute 结果稳定进入 DB read surface，再设计显式 sync：
