@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from financial_report_analysis.models import MetricLifecycleRecomputeAudit
+from financial_report_analysis.p5.artifact_repository import P5ArtifactRepositoryError
+from financial_report_analysis.p5.json_to_db_sync import (
+    JsonToDbSyncRequest,
+    JsonToDbSyncStatus,
+    build_json_to_db_sync_id,
+    compute_payload_hash,
+    validate_json_to_db_sync_request,
+)
+from financial_report_analysis.p5.models import (
+    P5DatasetArtifact,
+    P5DatasetReviewSurface,
+    P5RecomputeDiffSummary,
+    P5RecomputePlan,
+    P5RecomputeResult,
+)
+
+
+def _dataset() -> P5DatasetArtifact:
+    return P5DatasetArtifact(
+        dataset_id="dataset-1",
+        dataset_version="1.0",
+        created_at="2026-04-28T00:00:00+00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("revenue",),
+        rows=(),
+        quality_summary={},
+        source_artifacts=("artifact-1",),
+    )
+
+
+def _dataset_review_surface() -> P5DatasetReviewSurface:
+    return P5DatasetReviewSurface(
+        dataset_id="dataset-1",
+        dataset_version="1.0",
+        issuer_count=1,
+        period_count=1,
+        pipeline_versions=("p5-v1",),
+        source_artifact_ids=("artifact-1",),
+        present_row_count=0,
+        missing_row_count=0,
+        review_required_artifact_ids=(),
+    )
+
+
+def _plan() -> P5RecomputePlan:
+    return P5RecomputePlan(
+        manifest_id="manifest-1",
+        dataset_id="dataset-1",
+        target_artifact_ids=("artifact-1",),
+        rebuild_dataset=True,
+        rebuild_turtle_export=True,
+        reason="pipeline_version_changed",
+    )
+
+
+def _result() -> P5RecomputeResult:
+    return P5RecomputeResult(
+        manifest_id="manifest-1",
+        extracted_artifact_ids=("artifact-1",),
+        dataset_path=Path("dataset.json"),
+        turtle_export_path=Path("turtle.json"),
+        diff_summary=P5RecomputeDiffSummary(
+            reason="pipeline_version_changed",
+            target_artifact_ids=("artifact-1",),
+            dataset_changed=True,
+            turtle_export_changed=True,
+            rebuilt_dataset=True,
+            rebuilt_turtle_export=True,
+        ),
+    )
+
+
+def _request() -> JsonToDbSyncRequest:
+    return JsonToDbSyncRequest(
+        recompute_run_id="recompute-run-1",
+        plan=_plan(),
+        recompute_result=_result(),
+        dataset=_dataset(),
+        dataset_review_surface=_dataset_review_surface(),
+        turtle_export=None,
+        turtle_export_review_surface=None,
+        lineage_records=(),
+        lifecycle_recompute_audit=None,
+        input_hashes={"artifact-1": "hash-1"},
+        before_refs={"dataset": "dataset-hash-1", "recompute_run": "none"},
+        requested_by="test",
+        sync_reason="test-sync",
+    )
+
+
+def test_status_values_are_stable() -> None:
+    assert [status.value for status in JsonToDbSyncStatus] == [
+        "pending",
+        "completed",
+        "failed",
+        "partial",
+        "skipped_idempotent",
+        "not_attempted",
+        "out_of_sync",
+    ]
+
+
+def test_sync_id_is_deterministic_for_run_dataset_and_hashes() -> None:
+    request = _request()
+
+    assert build_json_to_db_sync_id(request) == build_json_to_db_sync_id(request)
+    assert build_json_to_db_sync_id(request).startswith(
+        "json-to-db-sync:dataset-1:recompute-run-1:"
+    )
+
+
+def test_payload_hash_is_order_insensitive_for_dict_keys() -> None:
+    assert compute_payload_hash({"b": 2, "a": 1}) == compute_payload_hash(
+        {"a": 1, "b": 2}
+    )
+
+
+def test_validate_rejects_empty_source_artifacts() -> None:
+    invalid_request = replace(
+        _request(),
+        dataset=replace(_dataset(), source_artifacts=()),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="source artifacts are required"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_dataset_id_mismatch() -> None:
+    invalid_request = replace(
+        _request(),
+        plan=replace(_plan(), dataset_id="other-dataset"),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="dataset id mismatch"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_source_artifact_mismatch_between_dataset_and_result() -> None:
+    invalid_request = replace(
+        _request(),
+        recompute_result=replace(_result(), extracted_artifact_ids=("artifact-2",)),
+    )
+
+    with pytest.raises(P5ArtifactRepositoryError, match="source artifact mismatch"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_missing_dataset_before_ref() -> None:
+    invalid_request = replace(_request(), before_refs={"recompute_run": "none"})
+
+    with pytest.raises(P5ArtifactRepositoryError, match="before dataset ref is required"):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_missing_after_dataset_review_surface() -> None:
+    invalid_request = replace(_request(), dataset_review_surface=None)
+
+    with pytest.raises(
+        P5ArtifactRepositoryError,
+        match="after dataset review surface is required",
+    ):
+        validate_json_to_db_sync_request(invalid_request)
+
+
+def test_validate_rejects_malformed_lifecycle_audit() -> None:
+    invalid_request = replace(
+        _request(),
+        lifecycle_recompute_audit=cast(MetricLifecycleRecomputeAudit, object()),
+    )
+
+    with pytest.raises(
+        P5ArtifactRepositoryError,
+        match="malformed lifecycle recompute audit",
+    ):
+        validate_json_to_db_sync_request(invalid_request)
