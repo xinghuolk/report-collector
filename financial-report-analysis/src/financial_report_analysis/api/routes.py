@@ -18,6 +18,10 @@ from financial_report_analysis.p5.availability import (
     MultiYearAvailabilityView,
     build_multi_year_availability_view,
 )
+from financial_report_analysis.p5.db_recompute_boundary import (
+    DbRecomputeBoundaryView,
+    build_db_recompute_boundary_view,
+)
 from financial_report_analysis.p5.models import (
     P5DatasetArtifact,
     P5DatasetRow,
@@ -55,6 +59,7 @@ from financial_report_analysis.api.schemas import (
     DatasetAuditResponse,
     DatasetReviewSurfaceResponse,
     DatasetRowResponse,
+    DbRecomputeBoundaryResponse,
     ExtractedArtifactResponse,
     ExtractedReviewSurfaceResponse,
     HealthResponse,
@@ -210,6 +215,40 @@ def get_dataset_audit(
     repository = _require_storage_repository(request)
     audit_view = _load_or_404(repository.load_dataset_audit_view, dataset_id)
     return _dataset_audit_to_response(audit_view)
+
+
+@router.get(
+    "/datasets/{dataset_id}/recompute-boundary",
+    response_model=DbRecomputeBoundaryResponse,
+)
+def get_dataset_recompute_boundary(
+    dataset_id: str,
+    request: Request,
+    requested_reason: str | None = None,
+) -> DbRecomputeBoundaryResponse:
+    repository = _require_storage_repository(request)
+    boundary_view = _load_or_404(
+        build_db_recompute_boundary_view,
+        repository=repository,
+        dataset_id=dataset_id,
+        requested_reason=requested_reason,
+    )
+    response = _db_recompute_boundary_to_response(boundary_view)
+    normalized_reason = (
+        requested_reason.strip().lower() if requested_reason is not None else None
+    ) or None
+    if (
+        normalized_reason is not None
+        and response.latest_recompute_reason != normalized_reason
+    ):
+        return response.model_copy(
+            update={
+                "latest_recompute_run_id": None,
+                "latest_recompute_reason": None,
+                "latest_lifecycle_audit_present": False,
+            }
+        )
+    return response
 
 
 @router.get(
@@ -1161,6 +1200,21 @@ def _dataset_audit_to_response(audit_view: Any) -> DatasetAuditResponse:
             if audit_view.latest_lifecycle_recompute_audit is not None
             else None
         ),
+    )
+
+
+def _db_recompute_boundary_to_response(
+    view: DbRecomputeBoundaryView,
+) -> DbRecomputeBoundaryResponse:
+    return DbRecomputeBoundaryResponse(
+        dataset_id=view.dataset_id,
+        latest_recompute_run_id=view.latest_recompute_run_id,
+        latest_recompute_reason=view.latest_recompute_reason,
+        latest_lifecycle_audit_present=view.latest_lifecycle_audit_present,
+        source_artifact_ids=view.source_artifact_ids,
+        supported_modes=tuple(mode.value for mode in view.supported_modes),
+        required_mode=view.required_mode.value,
+        blocking_reasons=view.blocking_reasons,
     )
 
 

@@ -548,6 +548,19 @@ class DatasetAuditResponse(BaseModel):
     ) = None
 
 
+class DbRecomputeBoundaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    latest_recompute_run_id: str | None
+    latest_recompute_reason: str | None
+    latest_lifecycle_audit_present: bool
+    source_artifact_ids: tuple[str, ...]
+    supported_modes: tuple[str, ...]
+    required_mode: str
+    blocking_reasons: tuple[str, ...]
+
+
 class RecomputeDiffSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

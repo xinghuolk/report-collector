@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from financial_report_analysis.api.app import create_app
 from financial_report_analysis.models import (
@@ -26,6 +28,7 @@ from financial_report_analysis.p5.review import (
     build_extracted_review_surface,
     build_turtle_export_review_surface,
 )
+from financial_report_analysis.storage.models import RecomputeRunRecord
 
 
 def _entry(
@@ -211,6 +214,13 @@ def _seed_runtime(client: TestClient, tmp_path: Path) -> None:
     )
 
 
+def _recompute_run_count(client: TestClient) -> int:
+    repository = client.app.state.runtime.storage_repository
+    assert repository is not None
+    with Session(repository.engine) as session:
+        return session.scalar(select(func.count()).select_from(RecomputeRunRecord)) or 0
+
+
 def test_storage_backed_routes_return_503_without_runtime_storage() -> None:
     client = TestClient(create_app())
 
@@ -316,6 +326,42 @@ def test_storage_runtime_exposes_lifecycle_recompute_audit_snapshot(
     )
 
 
+def test_storage_runtime_exposes_read_only_recompute_boundary(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(storage_db_path=tmp_path / "runtime.db"))
+    _seed_runtime(client, tmp_path)
+    before_run_count = _recompute_run_count(client)
+
+    response = client.get(
+        "/datasets/p5_seed_3_issuers_2_years/recompute-boundary",
+        params={"requested_reason": "metric_lifecycle_decision_changed"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "dataset_id": "p5_seed_3_issuers_2_years",
+        "latest_recompute_run_id": None,
+        "latest_recompute_reason": None,
+        "latest_lifecycle_audit_present": False,
+        "source_artifact_ids": [
+            "CN_601919_2025",
+            "CN_600519_2025",
+            "CN_000333_2025",
+        ],
+        "supported_modes": ["json_first_required"],
+        "required_mode": "json_first_required",
+        "blocking_reasons": [
+            "reason metric_lifecycle_decision_changed requires the JSON-first "
+            "recompute executor",
+            "DB assembly is currently limited to persisted single-artifact assembly "
+            "and is not a recompute executor",
+        ],
+    }
+    assert _recompute_run_count(client) == before_run_count
+
+
 def test_dataset_availability_route_returns_read_only_multi_year_view(
     tmp_path: Path,
 ) -> None:
@@ -392,6 +438,13 @@ def test_storage_backed_routes_return_404_for_missing_objects(tmp_path: Path) ->
     audit_response = client.get("/datasets/missing-dataset/audit")
     assert audit_response.status_code == 404
     assert "missing dataset artifact in DB repository" in audit_response.json()["detail"]
+
+    boundary_response = client.get("/datasets/missing-dataset/recompute-boundary")
+    assert boundary_response.status_code == 404
+    assert (
+        "missing dataset artifact in DB repository"
+        in boundary_response.json()["detail"]
+    )
 
     recompute_response = client.get("/recompute-runs/missing-run")
     assert recompute_response.status_code == 404
