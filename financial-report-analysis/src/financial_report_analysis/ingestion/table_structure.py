@@ -13,7 +13,7 @@ from financial_report_analysis.ingestion.table_header_parser import (
 )
 from financial_report_analysis.ingestion.table_source import PdfTableSource, RawTableBlock
 from financial_report_analysis.ingestion.table_stitcher import bind_body_rows, stitch_tables
-from financial_report_analysis.models import PageTextBlock, ParsedTable
+from financial_report_analysis.models import PageTextBlock, ParsedCell, ParsedRow, ParsedTable
 from financial_report_analysis.models.table import ParsedColumn
 
 _NUMERIC_CELL_PATTERN = re.compile(
@@ -25,6 +25,10 @@ _HK_ANNUAL_DATE_PATTERN = re.compile(
 )
 _CN_POINT_IN_TIME_DATE_PATTERN = re.compile(
     r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"
+)
+_DUAL_CURRENCY_NUMERIC_PATTERN = re.compile(
+    r"(?<![\w.])\(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)"
+    r"|(?<![\w.(])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 )
 
 
@@ -73,6 +77,10 @@ class PdfTableStructureAdapter:
                 title_text = continuation_title
                 table_kind = classify_table_kind(title_text, market=market)
         if table_kind == "unknown":
+            main_statement_kind = self._main_statement_kind_from_title(title_text)
+            if main_statement_kind is not None:
+                table_kind = main_statement_kind
+        if table_kind == "unknown":
             return None
 
         recovered_rows, semantic_ambiguity_reason = self._recover_rows_for_statement_block(
@@ -90,6 +98,18 @@ class PdfTableStructureAdapter:
             body_lines=body_lines,
         )
 
+        parsed_body_rows = (
+            self._bind_dual_currency_body_rows(
+                page_index=block.page_index,
+                rows=body_rows,
+            )
+            if semantic_ambiguity_reason == "dual_currency_statement_block"
+            else bind_body_rows(
+                page_index=block.page_index,
+                body_lines=[line for line in body_lines if line],
+            )
+        )
+
         return ParsedTable(
             table_id=f"{document_id}:parsed-table:{table_index}",
             document_id=document_id,
@@ -102,10 +122,7 @@ class PdfTableStructureAdapter:
             ),
             semantic_ambiguity_reason=semantic_ambiguity_reason,
             header_rows=header_rows,
-            body_rows=bind_body_rows(
-                page_index=block.page_index,
-                body_lines=[line for line in body_lines if line],
-            ),
+            body_rows=parsed_body_rows,
             table_unit=detect_table_unit(local_context),
             table_currency=detect_table_currency(local_context, market=market),
             period_columns=self._parse_period_columns(
@@ -134,6 +151,14 @@ class PdfTableStructureAdapter:
     ) -> tuple[list[list[str]], str | None]:
         if table_kind not in {"income_statement", "balance_sheet", "cash_flow_statement"}:
             return block.rows, None
+
+        recovered_rows = self._recover_dual_currency_rows_from_page_text(
+            page_text=block.page_text,
+            title_text=title_text,
+            table_kind=table_kind,
+        )
+        if recovered_rows:
+            return recovered_rows, "dual_currency_statement_block"
 
         if self._looks_like_header_only_statement_block(block.rows):
             recovered_rows = self._recover_rows_from_page_text(
@@ -236,15 +261,9 @@ class PdfTableStructureAdapter:
         start_index = title_index + 1 if title_index >= 0 else 0
 
         rows: list[list[str]] = []
-        footer_pattern = re.compile(r"^\d+$")
         saw_header = False
         for line in lines[start_index:]:
-            lowered = line.casefold()
-            if footer_pattern.fullmatch(line):
-                break
-            if "annual report" in lowered and not any(char.isdigit() for char in line):
-                break
-            if line.startswith("See accompanying Notes"):
+            if PdfTableStructureAdapter._is_statement_footer_line(line):
                 break
             if line.startswith("Prepared by:") or line.startswith("Unit:") or line == title_text:
                 continue
@@ -275,6 +294,166 @@ class PdfTableStructureAdapter:
             ):
                 rows.append(recovered_row)
         return rows
+
+    @staticmethod
+    def _recover_dual_currency_rows_from_page_text(
+        *,
+        page_text: str,
+        title_text: str,
+        table_kind: str,
+    ) -> list[list[str]]:
+        if table_kind not in {
+            "income_statement",
+            "balance_sheet",
+            "cash_flow_statement",
+        }:
+            return []
+        if not PdfTableStructureAdapter._is_main_statement_title(title_text):
+            return []
+        if not PdfTableStructureAdapter._has_dual_currency_million_context(page_text):
+            return []
+
+        lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        unit_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if PdfTableStructureAdapter._has_dual_currency_million_context(line)
+            ),
+            -1,
+        )
+        if unit_index < 0:
+            return []
+
+        header_row = PdfTableStructureAdapter._recover_dual_currency_header_row(
+            lines=lines,
+            unit_index=unit_index,
+        )
+        if header_row is None:
+            return []
+
+        value_count = len(header_row) - 1
+        body_rows: list[list[str]] = []
+        for line in lines[unit_index + 1 :]:
+            if PdfTableStructureAdapter._is_statement_footer_line(line):
+                break
+            recovered_row = PdfTableStructureAdapter._recover_dual_currency_body_row(
+                line=line,
+                value_count=value_count,
+            )
+            if recovered_row is not None:
+                body_rows.append(recovered_row)
+
+        if not body_rows:
+            return []
+        return [header_row, *body_rows]
+
+    @staticmethod
+    def _recover_dual_currency_header_row(
+        *,
+        lines: list[str],
+        unit_index: int,
+    ) -> list[str] | None:
+        unit_line = lines[unit_index]
+        hk_value_count = len(
+            re.findall(r"\bHK\$\s*million[s]?\b", unit_line, re.IGNORECASE)
+        )
+        for line in reversed(lines[:unit_index]):
+            years_source = line.split("#", maxsplit=1)[1] if "#" in line else line
+            years = re.findall(r"\b20\d{2}\b", years_source)
+            if len(years) >= 2:
+                if hk_value_count > 0 and len(years) > hk_value_count:
+                    years = years[-hk_value_count:]
+                return ["", *years]
+        return None
+
+    @staticmethod
+    def _recover_dual_currency_body_row(
+        *,
+        line: str,
+        value_count: int,
+    ) -> list[str] | None:
+        matches = list(_DUAL_CURRENCY_NUMERIC_PATTERN.finditer(line))
+        if len(matches) < value_count + 1:
+            return None
+        if line[: matches[0].start()].strip():
+            return None
+        if line[matches[-1].end() :].strip():
+            return None
+
+        trailing_matches = PdfTableStructureAdapter._trailing_numeric_matches(
+            line=line,
+            matches=matches,
+        )
+        if len(trailing_matches) > value_count:
+            trailing_matches = trailing_matches[-value_count:]
+        if len(trailing_matches) != value_count:
+            return None
+
+        label_raw = line[matches[0].end() : trailing_matches[0].start()].strip()
+        label_raw = re.sub(r"\s+\d+[A-Za-z]?$", "", label_raw).strip()
+        if not label_raw:
+            return None
+
+        return [label_raw, *(match.group(0) for match in trailing_matches)]
+
+    @staticmethod
+    def _trailing_numeric_matches(
+        *,
+        line: str,
+        matches: list[re.Match[str]],
+    ) -> list[re.Match[str]]:
+        trailing_start = len(matches) - 1
+        for index in range(len(matches) - 2, -1, -1):
+            between_matches = line[matches[index].end() : matches[index + 1].start()]
+            if between_matches.strip():
+                break
+            trailing_start = index
+        return matches[trailing_start:]
+
+    @staticmethod
+    def _bind_dual_currency_body_rows(
+        *,
+        page_index: int,
+        rows: list[list[str]],
+    ) -> list[ParsedRow]:
+        parsed_rows: list[ParsedRow] = []
+        for row_index, row in enumerate(rows):
+            if not row or not row[0].strip():
+                continue
+            parsed_rows.append(
+                ParsedRow(
+                    row_id=f"row-{page_index}-{row_index}",
+                    row_index=row_index,
+                    label_raw=row[0].strip(),
+                    normalized_label_hint=None,
+                    value_cells=[
+                        ParsedCell(
+                            row_index=row_index,
+                            column_index=column_index,
+                            text_raw=value.strip(),
+                            numeric_value=PdfTableStructureAdapter._numeric_value_from_text(
+                                value
+                            ),
+                            bbox=None,
+                            page_index=page_index,
+                        )
+                        for column_index, value in enumerate(row[1:], start=1)
+                        if value.strip()
+                    ],
+                    indent_level=0,
+                    is_subtotal=False,
+                    is_total=False,
+                )
+            )
+        return parsed_rows
+
+    @staticmethod
+    def _numeric_value_from_text(raw_text: str) -> float:
+        text = raw_text.strip().replace(",", "")
+        if text.startswith("(") and text.endswith(")"):
+            text = f"-{text[1:-1]}"
+        return float(text)
 
     @staticmethod
     def _recover_structured_row(line: str) -> list[str]:
@@ -318,6 +497,46 @@ class PdfTableStructureAdapter:
             or "year ended" in lowered
             or re.match(r"^december\s+31,\s+20\d{2}", lowered) is not None
         )
+
+    @staticmethod
+    def _is_statement_footer_line(line: str) -> bool:
+        lowered = line.casefold()
+        return (
+            re.fullmatch(r"\d+", line) is not None
+            or ("annual report" in lowered and not any(char.isdigit() for char in line))
+            or line.startswith("See accompanying Notes")
+        )
+
+    @staticmethod
+    def _has_dual_currency_million_context(text: str) -> bool:
+        return bool(
+            re.search(r"\bUS\$\s*million[s]?\b", text, re.IGNORECASE)
+            and re.search(r"\bHK\$\s*million[s]?\b", text, re.IGNORECASE)
+        )
+
+    @staticmethod
+    def _is_main_statement_title(title_text: str) -> bool:
+        return PdfTableStructureAdapter._main_statement_kind_from_title(title_text) is not None
+
+    @staticmethod
+    def _main_statement_kind_from_title(title_text: str) -> str | None:
+        normalized = re.sub(r"\s+", " ", title_text).strip().casefold()
+        if re.search(r"\bincome statement\b", normalized) or re.search(
+            r"\bstatements? of income\b",
+            normalized,
+        ):
+            return "income_statement"
+        if (
+            "statement of financial position" in normalized
+            or "balance sheet" in normalized
+        ):
+            return "balance_sheet"
+        if re.search(r"\bstatements? of cash flows?\b", normalized) or re.search(
+            r"\bcash flow statement\b",
+            normalized,
+        ):
+            return "cash_flow_statement"
+        return None
 
     @staticmethod
     def _row_has_numeric_value(row: list[str]) -> bool:
@@ -436,6 +655,13 @@ class PdfTableStructureAdapter:
                 return fallback_columns
         if parsed_columns or market != "HK":
             return parsed_columns
+        fallback_annual_columns = self._fallback_hk_annual_statement_period_columns(
+            title_text=title_text,
+            table_kind=table_kind,
+            header_rows=header_rows,
+        )
+        if fallback_annual_columns:
+            return fallback_annual_columns
         return self._fallback_hk_period_columns(rows)
 
     def _infer_statement_continuation_title(
@@ -711,6 +937,37 @@ class PdfTableStructureAdapter:
                     )
                 )
         return columns
+
+    @staticmethod
+    def _fallback_hk_annual_statement_period_columns(
+        *,
+        title_text: str,
+        table_kind: str,
+        header_rows: list[list[str]],
+    ) -> list[ParsedColumn]:
+        if not PdfTableStructureAdapter._is_main_statement_title(title_text):
+            return []
+        value_time_shape = "point" if table_kind == "balance_sheet" else "duration"
+        columns: list[ParsedColumn] = []
+        for row in header_rows:
+            for column_index, cell in enumerate(row):
+                if not re.fullmatch(r"20\d{2}", cell.strip()):
+                    continue
+                columns.append(
+                    ParsedColumn(
+                        column_id=f"column-{column_index}",
+                        column_index=column_index,
+                        header_text=cell,
+                        period_id=f"{cell}FY",
+                        value_time_shape=value_time_shape,
+                        comparison_axis="current" if not columns else "prior",
+                        is_current=not columns,
+                        is_comparison=bool(columns),
+                    )
+                )
+            if columns:
+                return columns
+        return []
 
     @staticmethod
     def _hk_period_id_from_date(raw_text: str) -> str | None:
