@@ -607,7 +607,7 @@ Actual documentation result: 已在 Turtle gap document 的 `2026-04-29 HK.00001
 
 In this plan file, mark completed steps with `[x]` and record actual command results under each task.
 
-Actual plan result: Task 5 Steps 1-6 标记为完成；实际验证证据写入本 Task 5 段落。Final Verification 保持未勾选，因为本 worker 未完整重新运行该最终验证。
+Actual plan result: Task 5 Steps 1-6 标记为完成；实际验证证据写入本 Task 5 段落。
 
 - [x] **Step 6: Commit docs and plan update**
 
@@ -623,7 +623,7 @@ git commit -m "docs: record HK00001 remaining metric classification"
 
 ## Final Verification
 
-- [ ] **Step 1: Run all focused checks**
+- [x] **Step 1: Run all focused checks**
 
 Run:
 
@@ -642,7 +642,9 @@ uv run pytest \
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Check worktree**
+Actual result from mainline verification: `178 passed in 104.25s (0:01:44)`.
+
+- [x] **Step 2: Check worktree**
 
 Run:
 
@@ -652,7 +654,9 @@ git status --short
 
 Expected: clean worktree after commits.
 
-- [ ] **Step 3: Final review**
+Actual result after Task 5 docs commit: `git status --short` produced no output.
+
+- [x] **Step 3: Final review**
 
 Dispatch two reviewers:
 
@@ -660,3 +664,9 @@ Dispatch two reviewers:
 - Code quality reviewer: check script changes, registry aliases, negative controls, and tests.
 
 Do not merge or start the next field family until both reviewers pass or their blocking feedback is fixed.
+
+Actual final review:
+
+- Spec compliance reviewer: PASS, no blockers.
+- Code/document quality reviewer: PASS, no critical or important issues.
+- Non-blocking residual risks: HK page-title fallback still lacks focused synthetic unit coverage; deterministic-only script behavior is mainly covered by dry-run plus full report fallback counts.
