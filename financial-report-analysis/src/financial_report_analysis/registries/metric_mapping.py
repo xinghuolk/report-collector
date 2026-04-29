@@ -133,7 +133,7 @@ _DEFAULT_DEFINITIONS = (
         sign_rule="allow_negative",
         aliases_by_market={
             "CN": ("营业成本",),
-            "HK": ("cost of sales", "cost of revenue"),
+            "HK": ("cost of sales", "cost of revenue", "cost of inventories sold"),
         },
     ),
     MetricMappingDefinition(

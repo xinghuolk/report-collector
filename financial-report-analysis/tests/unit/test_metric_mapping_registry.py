@@ -905,3 +905,49 @@ def test_metric_mapping_registry_rejects_fair_value_profit_metric_outside_income
         )
         is None
     )
+
+
+def test_metric_mapping_registry_matches_hk_cost_of_inventories_sold() -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="income_statement",
+        normalized_row_label="cost of inventories sold",
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert definition is not None
+    assert definition.metric_id == "operating_cost"
+
+
+def test_metric_mapping_registry_does_not_map_total_assets_less_current_liabilities() -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="balance_sheet",
+        normalized_row_label="total assets less current liabilities",
+        value_time_shape="point_in_time",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert definition is None or definition.metric_id != "total_assets"
+
+
+def test_metric_mapping_registry_does_not_map_cash_generated_before_interest_tax_working_capital() -> None:
+    registry = load_metric_registry()
+
+    definition = registry.match(
+        table_kind="cash_flow_statement",
+        normalized_row_label=(
+            "cash generated from operating activities before interest expenses, "
+            "other finance costs, tax paid, and changes in working capital"
+        ),
+        value_time_shape="duration",
+        statement_scope_guess="consolidated",
+        market="HK",
+    )
+
+    assert definition is None or definition.metric_id != "operating_cash_flow"
