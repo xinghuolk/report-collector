@@ -1812,8 +1812,22 @@ def test_hk00001_2025_remaining_main_statement_metrics_are_classified() -> None:
     assert by_metric["operating_cost"]["statement_type"] == "income_statement"
     assert by_metric["operating_cost"]["numeric_value"] == -113608.0
 
-    assert "operating_cash_flow" not in by_metric
     assert "total_assets" not in by_metric
+
+    assert by_metric["operating_cash_flow"]["statement_type"] == "cash_flow_statement"
+    assert by_metric["operating_cash_flow"]["numeric_value"] is not None
+    assert by_metric["operating_cash_flow"]["extensions"]["semantic_source"] == (
+        "deterministic"
+    )
+    forbidden_intermediate_label = (
+        "cash generated from operating activities before interest expenses, "
+        "other finance costs, tax paid, and changes in working capital"
+    )
+    for candidate in deterministic_candidates:
+        if candidate.get("metric_id") != "operating_cash_flow":
+            continue
+        label = str(candidate.get("metric_label_raw", "")).casefold()
+        assert forbidden_intermediate_label not in label
 
     assert by_metric["c_paid_for_taxes"]["statement_type"] == "cash_flow_statement"
     assert by_metric["c_paid_for_taxes"]["numeric_value"] is not None

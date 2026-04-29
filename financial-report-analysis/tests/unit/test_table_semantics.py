@@ -1071,7 +1071,7 @@ def test_normalize_table_semantics_maps_cash_flow_primary_section_variants() -> 
     ]
 
 
-def test_normalize_table_semantics_suppresses_dual_currency_operating_cash_flow() -> (
+def test_normalize_table_semantics_keeps_dual_currency_operating_cash_flow() -> (
     None
 ):
     semantics = normalize_table_semantics(
@@ -1092,8 +1092,19 @@ def test_normalize_table_semantics_suppresses_dual_currency_operating_cash_flow(
                     value_cells=[],
                 ),
                 ParsedRow(
-                    row_id="row-tax",
+                    row_id="row-before-interest-tax-working-capital",
                     row_index=2,
+                    label_raw=(
+                        "Cash generated from operating activities before interest "
+                        "expenses, other finance costs, tax paid, and changes in "
+                        "working capital"
+                    ),
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-tax",
+                    row_index=3,
                     label_raw="Tax paid",
                     normalized_label_hint=None,
                     value_cells=[],
@@ -1103,6 +1114,7 @@ def test_normalize_table_semantics_suppresses_dual_currency_operating_cash_flow(
     )
 
     assert [row.normalized_row_label for row in semantics.rows] == [
+        "operating cash flow",
         None,
         "taxes paid",
     ]

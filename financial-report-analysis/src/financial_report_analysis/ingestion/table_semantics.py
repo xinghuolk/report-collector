@@ -304,11 +304,7 @@ def normalize_table_semantics(table: ParsedTable) -> NormalizedTableSemantics:
         semantic_ambiguity_reason=table.semantic_ambiguity_reason,
         columns=normalized_columns,
         rows=[
-            _normalize_row(
-                row,
-                column_by_index=column_by_index,
-                table_semantic_ambiguity_reason=table.semantic_ambiguity_reason,
-            )
+            _normalize_row(row, column_by_index=column_by_index)
             for row in table.body_rows
         ],
     )
@@ -318,14 +314,8 @@ def _normalize_row(
     row: ParsedRow,
     *,
     column_by_index: dict[int, object],
-    table_semantic_ambiguity_reason: str | None,
 ) -> NormalizedTableRow:
     normalized_label = row.normalized_label_hint or _normalize_label(row.label_raw)
-    if _is_suppressed_for_table_ambiguity(
-        normalized_label=normalized_label,
-        table_semantic_ambiguity_reason=table_semantic_ambiguity_reason,
-    ):
-        normalized_label = None
     return NormalizedTableRow(
         row_id=row.row_id,
         label_raw=row.label_raw,
@@ -353,17 +343,6 @@ def _normalize_row(
             )
             for cell in row.value_cells
         ],
-    )
-
-
-def _is_suppressed_for_table_ambiguity(
-    *,
-    normalized_label: str | None,
-    table_semantic_ambiguity_reason: str | None,
-) -> bool:
-    return (
-        table_semantic_ambiguity_reason == "dual_currency_statement_block"
-        and normalized_label == "operating cash flow"
     )
 
 
