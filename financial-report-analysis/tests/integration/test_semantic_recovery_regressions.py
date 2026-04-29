@@ -1687,13 +1687,14 @@ def test_cn_601919_2025_surfaces_p4c_core_statement_subset() -> None:
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
-def test_hk_02498_2022_surfaces_only_p4c_balance_sheet_totals() -> None:
+def test_hk_02498_2022_surfaces_p4c_statement_subset() -> None:
     pdf_path = _resolve_sample("hk_stocks", "02498", "annual", "2022_annual_en.pdf")
 
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     metric_ids = _metric_ids_from_candidates(payload)
 
     assert metric_ids.intersection(_P4C_METRIC_IDS) == {
+        "c_pay_to_staff",
         "total_assets",
         "total_liabilities",
     }
@@ -1708,6 +1709,12 @@ def test_hk_02498_2022_surfaces_only_p4c_balance_sheet_totals() -> None:
         metric_id="total_liabilities",
         statement_type="balance_sheet",
         table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="c_pay_to_staff",
+        statement_type="cash_flow_statement",
+        table_kind="cash_flow_statement",
     )
 
 
@@ -1911,7 +1918,11 @@ def test_hk_02498_2022_surfaces_p4e_balance_sheet_subset() -> None:
     payload = _extract_payload_for_pdf(pdf_path, market="HK")
     metric_ids = _metric_ids_from_candidates(payload)
 
-    assert metric_ids.intersection(_P4E_METRIC_IDS) == {"fix_assets", "cip"}
+    assert metric_ids.intersection(_P4E_METRIC_IDS) == {
+        "fix_assets",
+        "cip",
+        "c_recp_return_invest",
+    }
     assert _deterministic_statement_row_candidates_for_metric(
         payload,
         metric_id="fix_assets",
@@ -1923,6 +1934,13 @@ def test_hk_02498_2022_surfaces_p4e_balance_sheet_subset() -> None:
         metric_id="cip",
         statement_type="balance_sheet",
         table_kind="balance_sheet",
+    )
+    assert _deterministic_statement_row_candidates_for_metric(
+        payload,
+        metric_id="c_recp_return_invest",
+        statement_type="cash_flow_statement",
+        table_kind="cash_flow_statement",
+        entity_scope="unknown",
     )
 
 

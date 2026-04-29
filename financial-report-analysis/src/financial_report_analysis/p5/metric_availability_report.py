@@ -169,7 +169,7 @@ def _best_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         candidates,
         key=lambda candidate: (
             _dict_value(candidate.get("extensions")).get("semantic_source")
-            != "llm_fallback",
+            == "llm_fallback",
             -float(candidate.get("confidence", 0.0) or 0.0),
         ),
     )[0]

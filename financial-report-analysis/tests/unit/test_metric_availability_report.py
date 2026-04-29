@@ -71,6 +71,48 @@ def test_metric_availability_report_marks_present_missing_and_fallback_recovery(
     }
 
 
+def test_metric_availability_report_prefers_deterministic_candidate() -> None:
+    payload = {
+        "candidate_facts": [
+            {
+                "fact_id": "fact-revenue-fallback",
+                "metric_id": "revenue",
+                "numeric_value": 101.0,
+                "currency": "HKD",
+                "raw_unit": "HK$ million",
+                "extraction_method": "table_semantics",
+                "confidence": 0.99,
+                "extensions": {"semantic_source": "llm_fallback"},
+            },
+            {
+                "fact_id": "fact-revenue-deterministic",
+                "metric_id": "revenue",
+                "numeric_value": 100.0,
+                "currency": "HKD",
+                "raw_unit": "HK$ million",
+                "extraction_method": "table_semantics",
+                "confidence": 0.90,
+                "extensions": {"semantic_source": "deterministic"},
+            },
+        ],
+        "document_metadata": {},
+    }
+
+    report = build_metric_availability_report(
+        payload=payload,
+        expected_metric_ids=("revenue",),
+        metric_profile="turtle_investment",
+        pdf_path="/reports/00001.pdf",
+        market="HK",
+    )
+
+    metric = report.metrics[0]
+    assert metric.fact_id == "fact-revenue-deterministic"
+    assert metric.value == 100.0
+    assert metric.semantic_source == "deterministic"
+    assert metric.recovered_by_fallback is False
+
+
 def test_metric_availability_markdown_includes_fallback_context() -> None:
     report = build_metric_availability_report(
         payload={
