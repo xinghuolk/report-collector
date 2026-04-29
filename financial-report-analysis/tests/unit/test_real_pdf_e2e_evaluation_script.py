@@ -52,3 +52,51 @@ def test_real_pdf_e2e_evaluation_script_loads_defaults_from_env_file(
     assert "market=HK" in result.stdout
     assert "stock_code=00001" in result.stdout
     assert "fiscal_year=2025" in result.stdout
+
+
+def test_real_pdf_e2e_evaluation_script_supports_deterministic_report_mode(
+    tmp_path: Path,
+) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    sample_pdf = (
+        project_root.parent
+        / "report"
+        / "downloads"
+        / "hk_stocks"
+        / "00001"
+        / "annual"
+        / "2025_annual_en.pdf"
+    )
+    sample_pdf.parent.mkdir(parents=True, exist_ok=True)
+    sample_pdf.touch()
+
+    env = os.environ.copy()
+    env["FRA_E2E_DETERMINISTIC_ONLY"] = "true"
+    env["FRA_E2E_EXPECTED_METRIC_IDS"] = (
+        "revenue,operating_cost,total_assets,operating_cash_flow"
+    )
+    env["FRA_E2E_OUTPUT_DIR"] = str(tmp_path / "reports")
+
+    result = subprocess.run(
+        [str(project_root / "scripts" / "run-real-pdf-e2e-evaluation.sh"), "--dry-run"],
+        cwd=project_root,
+        env=env,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert "deterministic_only=true" in result.stdout
+    assert (
+        "expected_metric_ids=revenue,operating_cost,total_assets,operating_cash_flow"
+        in result.stdout
+    )
+    assert (
+        "metric_report="
+        f"{tmp_path}/reports/HK_00001_2025_annual_deterministic_metric_availability.md"
+    ) in result.stdout
+    assert (
+        "summary="
+        f"{tmp_path}/reports/HK_00001_2025_annual_deterministic_summary.txt"
+    ) in result.stdout

@@ -27,6 +27,8 @@ Supported overrides:
   FRA_E2E_FILENAME
   FRA_E2E_PDF_PATH
   FRA_E2E_OUTPUT_DIR
+  FRA_E2E_DETERMINISTIC_ONLY
+  FRA_E2E_EXPECTED_METRIC_IDS
 
 Options:
   --dry-run  Print resolved configuration without running tests or extraction.
@@ -66,6 +68,14 @@ FISCAL_YEAR="${FRA_E2E_FISCAL_YEAR:-${FRA_OLLAMA_FALLBACK_E2E_FISCAL_YEAR:-${FRA
 REPORT_TYPE="${FRA_E2E_REPORT_TYPE:-${FRA_OLLAMA_FALLBACK_E2E_REPORT_TYPE:-annual}}"
 FILENAME="${FRA_E2E_FILENAME:-${FRA_OLLAMA_FALLBACK_E2E_FILENAME:-${FRA_REAL_PDF_E2E_FILENAME:-}}}"
 OUTPUT_DIR="${FRA_E2E_OUTPUT_DIR:-.e2e-evaluation-reports}"
+DETERMINISTIC_ONLY="${FRA_E2E_DETERMINISTIC_ONLY:-false}"
+EXPECTED_METRIC_IDS="${FRA_E2E_EXPECTED_METRIC_IDS:-}"
+REPORT_SUFFIX="metric_availability"
+SUMMARY_SUFFIX="summary"
+if [[ "$DETERMINISTIC_ONLY" == "true" ]]; then
+  REPORT_SUFFIX="deterministic_metric_availability"
+  SUMMARY_SUFFIX="deterministic_summary"
+fi
 
 if [[ -z "$FILENAME" ]]; then
   if [[ "$MARKET" == "CN" ]]; then
@@ -84,8 +94,8 @@ else
 fi
 
 PDF_PATH="${FRA_E2E_PDF_PATH:-../report/downloads/${MARKET_DIR}/${STOCK_CODE}/${REPORT_TYPE}/${FILENAME}}"
-REPORT_PATH="${OUTPUT_DIR}/${MARKET}_${STOCK_CODE}_${FISCAL_YEAR}_${REPORT_TYPE}_metric_availability.md"
-SUMMARY_PATH="${OUTPUT_DIR}/${MARKET}_${STOCK_CODE}_${FISCAL_YEAR}_${REPORT_TYPE}_summary.txt"
+REPORT_PATH="${OUTPUT_DIR}/${MARKET}_${STOCK_CODE}_${FISCAL_YEAR}_${REPORT_TYPE}_${REPORT_SUFFIX}.md"
+SUMMARY_PATH="${OUTPUT_DIR}/${MARKET}_${STOCK_CODE}_${FISCAL_YEAR}_${REPORT_TYPE}_${SUMMARY_SUFFIX}.txt"
 
 print_config() {
   printf 'env_file=%s\n' "$ENV_FILE"
@@ -96,6 +106,8 @@ print_config() {
   printf 'report_type=%s\n' "$REPORT_TYPE"
   printf 'filename=%s\n' "$FILENAME"
   printf 'output_dir=%s\n' "$OUTPUT_DIR"
+  printf 'deterministic_only=%s\n' "$DETERMINISTIC_ONLY"
+  printf 'expected_metric_ids=%s\n' "$EXPECTED_METRIC_IDS"
   printf 'metric_report=%s\n' "$REPORT_PATH"
   printf 'summary=%s\n' "$SUMMARY_PATH"
 }
@@ -112,6 +124,17 @@ if [[ ! -f "$PDF_PATH" ]]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
+
+EXPECTED_METRIC_ARGS=()
+if [[ -n "$EXPECTED_METRIC_IDS" ]]; then
+  IFS=',' read -r -a EXPECTED_METRIC_ARRAY <<< "$EXPECTED_METRIC_IDS"
+  for metric_id in "${EXPECTED_METRIC_ARRAY[@]}"; do
+    metric_id="${metric_id//[[:space:]]/}"
+    if [[ -n "$metric_id" ]]; then
+      EXPECTED_METRIC_ARGS+=(--expected-metric-id "$metric_id")
+    fi
+  done
+fi
 
 echo "Resolved evaluation target:"
 print_config
@@ -137,10 +160,19 @@ uv run pytest \
 
 echo
 echo "[3/3] Generating metric availability report..."
-uv run python scripts/report_metric_availability.py \
-  --pdf-path "$PDF_PATH" \
-  --market "$MARKET" \
-  --output "$REPORT_PATH"
+if [[ "$DETERMINISTIC_ONLY" == "true" ]]; then
+  FRA_SEMANTIC_FALLBACK_ENABLED=false uv run python scripts/report_metric_availability.py \
+    --pdf-path "$PDF_PATH" \
+    --market "$MARKET" \
+    "${EXPECTED_METRIC_ARGS[@]}" \
+    --output "$REPORT_PATH"
+else
+  uv run python scripts/report_metric_availability.py \
+    --pdf-path "$PDF_PATH" \
+    --market "$MARKET" \
+    "${EXPECTED_METRIC_ARGS[@]}" \
+    --output "$REPORT_PATH"
+fi
 
 {
   echo "Metric availability summary"
