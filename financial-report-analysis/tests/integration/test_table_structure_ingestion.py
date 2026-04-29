@@ -9,6 +9,7 @@ from financial_report_analysis.ingestion import (
     normalize_table_semantics,
 )
 from financial_report_analysis.ingestion.table_source import RawTableBlock
+from financial_report_analysis.models import ParsedTable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -29,6 +30,15 @@ def _cn_primary_anchor() -> Path:
 
 def _hk_annual_anchor(stock_code: str, filename: str) -> Path:
     return _sample_pdf("hk_stocks", stock_code, "annual", filename)
+
+
+def _flatten_labels(tables: list[ParsedTable]) -> set[str]:
+    labels: set[str] = set()
+    for table in tables:
+        for row in table.body_rows:
+            if row.label_raw:
+                labels.add(" ".join(row.label_raw.lower().split()))
+    return labels
 
 
 @pytest.mark.real_pdf
@@ -68,6 +78,12 @@ def test_cn_primary_annual_anchor_exposes_income_statement_and_balance_sheet() -
             {"income_statement", "balance_sheet", "cash_flow_statement"},
             True,
         ),
+        (
+            "00001",
+            "2025_annual_en.pdf",
+            {"income_statement", "balance_sheet", "cash_flow_statement"},
+            True,
+        ),
     ],
 )
 @pytest.mark.real_pdf
@@ -97,6 +113,39 @@ def test_hk_annual_anchors_expose_non_empty_statement_rows(
         )
     else:
         assert not income_tables
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk00001_2025_dual_currency_main_statement_labels_are_recovered() -> None:
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(_hk_annual_anchor("00001", "2025_annual_en.pdf")),
+        pdf_url=None,
+        market="HK",
+    )
+
+    income_tables = [table for table in tables if table.table_kind == "income_statement"]
+    balance_tables = [table for table in tables if table.table_kind == "balance_sheet"]
+    cash_flow_tables = [
+        table for table in tables if table.table_kind == "cash_flow_statement"
+    ]
+
+    assert any(table.body_rows for table in income_tables)
+    assert any(table.body_rows for table in balance_tables)
+    assert any(table.body_rows for table in cash_flow_tables)
+    assert {
+        "revenue",
+        "cost of inventories sold",
+    } <= _flatten_labels(income_tables)
+    assert {
+        "fixed assets",
+        "total assets less current liabilities",
+    } <= _flatten_labels(balance_tables)
+    assert {
+        "cash generated from operating activities before interest expenses, other finance costs, tax paid, and changes in working capital",
+        "interest expenses and other finance costs paid (net of capitalisation)",
+        "tax paid",
+    } <= _flatten_labels(cash_flow_tables)
 
 
 @pytest.mark.real_pdf

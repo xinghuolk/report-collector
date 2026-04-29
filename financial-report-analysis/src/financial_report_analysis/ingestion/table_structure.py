@@ -323,12 +323,16 @@ class PdfTableStructureAdapter:
             "cash_flow_statement",
         }:
             return []
-        if not PdfTableStructureAdapter._is_main_statement_title(title_text):
-            return []
         if not PdfTableStructureAdapter._has_dual_currency_million_context(page_text):
             return []
 
         lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        page_heading = "\n".join(lines[:3])
+        if not (
+            PdfTableStructureAdapter._is_main_statement_title(title_text)
+            or PdfTableStructureAdapter._is_main_statement_title(page_heading)
+        ):
+            return []
         unit_index = next(
             (
                 index
@@ -354,15 +358,23 @@ class PdfTableStructureAdapter:
 
         value_count = len(header_row) - 1
         body_rows: list[list[str]] = []
+        pending_label_parts: list[str] = []
         for line in lines[unit_index + 1 :]:
             if PdfTableStructureAdapter._is_statement_footer_line(line):
                 break
+            if PdfTableStructureAdapter._is_dual_currency_section_header(line):
+                pending_label_parts.clear()
+                continue
             recovered_row = PdfTableStructureAdapter._recover_dual_currency_body_row(
                 line=line,
                 value_count=value_count,
+                pending_label_parts=pending_label_parts,
             )
             if recovered_row is not None:
                 body_rows.append(recovered_row)
+                pending_label_parts.clear()
+            elif PdfTableStructureAdapter._is_dual_currency_label_fragment(line):
+                pending_label_parts.append(line)
 
         if not body_rows:
             return []
@@ -392,6 +404,7 @@ class PdfTableStructureAdapter:
         *,
         line: str,
         value_count: int,
+        pending_label_parts: list[str] | None = None,
     ) -> list[str] | None:
         matches = list(_DUAL_CURRENCY_NUMERIC_PATTERN.finditer(line))
         if len(matches) < value_count + 1:
@@ -410,8 +423,11 @@ class PdfTableStructureAdapter:
         if len(trailing_matches) != value_count:
             return None
 
-        label_raw = line[matches[0].end() : trailing_matches[0].start()].strip()
-        label_raw = re.sub(r"\s+\d+[A-Za-z]?$", "", label_raw).strip()
+        label_segment = line[matches[0].end() : trailing_matches[0].start()].strip()
+        label_raw = " ".join([*(pending_label_parts or []), label_segment])
+        label_raw = PdfTableStructureAdapter._strip_dual_currency_note_suffix(
+            " ".join(label_raw.split())
+        )
         if not label_raw:
             return None
 
@@ -430,6 +446,34 @@ class PdfTableStructureAdapter:
                 break
             trailing_start = index
         return matches[trailing_start:]
+
+    @staticmethod
+    def _is_dual_currency_section_header(line: str) -> bool:
+        return line.strip().casefold() in {
+            "non-current assets",
+            "current assets",
+            "current liabilities",
+            "non-current liabilities",
+            "capital and reserves",
+            "operating activities",
+            "investing activities",
+            "financing activities",
+        }
+
+    @staticmethod
+    def _is_dual_currency_label_fragment(line: str) -> bool:
+        return bool(re.search(r"[A-Za-z]", line)) and not (
+            PdfTableStructureAdapter._has_dual_currency_million_context(line)
+            or bool(re.search(r"\b20\d{2}\b", line))
+        )
+
+    @staticmethod
+    def _strip_dual_currency_note_suffix(label_raw: str) -> str:
+        return re.sub(
+            r"\s+\d+\s*(?:\([A-Za-z]\)|[A-Za-z])?$",
+            "",
+            label_raw,
+        ).strip()
 
     @staticmethod
     def _bind_dual_currency_body_rows(
