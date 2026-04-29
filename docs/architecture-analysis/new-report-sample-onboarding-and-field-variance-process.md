@@ -1,6 +1,6 @@
 # 新增财报样本接入与字段差异处理流程
 
-> **状态:** 流程草案
+> **状态:** 流程草案，2026-04-29 更新自动 E2E gate 与 Turtle baseline 判读
 > **适用范围:** `financial-report-analysis` 新增公司/新增财报样本时的诊断、归类、修复与验收流程
 > **目标:** 支持更多公司财报格式，同时避免 issuer-specific 分支和样本补丁式开发
 
@@ -12,11 +12,28 @@
 
 Turtle 投资输入覆盖路线已经按字段族推进：
 
-- Core Investor Inputs
+- Core Investor Inputs 与主表核心骨架
 - Working Capital And Debt Inputs
 - Asset Quality And Capital Allocation Inputs
 - Parent Scope And Notes Bridge
-- Multi-Year Investor Dataset
+- 利润增强、现金健康度、capex / investment follow-up
+- Multi-Year Investor Dataset、Turtle export、storage-backed availability / review / lineage / recompute surfaces
+
+截至 2026-04-29，新增样本接入不能再只按旧 Turtle phase 判断是否“该字段
+支持”。应先对照当前 canonical baseline 和 focused expected metrics：
+
+- 主表核心：`revenue`、`operating_cost`、`operating_profit`、`net_profit`、
+  `total_assets`、`total_liabilities`、`equity_attributable_to_owners`、
+  `operating_cash_flow`、`investing_cash_flow`、`financing_cash_flow`、
+  `c_pay_to_staff`、`c_paid_for_taxes`
+- 已完成增强族：`restricted_cash`、`interest_paid_cash`、
+  `time_deposits_or_wealth_products`、parent scope debt/equity/assets/liabilities、
+  `fix_assets`、`cip`、`rd_exp`、`invest_income`、`asset_disp_income`、
+  `n_recp_disp_fiolta`、`c_recp_return_invest`、
+  `selling_general_administrative`、`fv_value_chg_gain`、`non_oper_income`、
+  `non_oper_exp`
+- 仍开放的 focused specs 候选：资产负债增强、现金流增强、CN 单独销售/管理费用求和、
+  附注/公告桥接、文本型 review artifacts
 
 新增公司财报时，常见情况不是“完全不能支持”，而是某些环节出现差异：
 
@@ -62,6 +79,7 @@ if stock_code == "09987":
 
 优先顺序固定为：
 
+0. deterministic E2E availability gate
 1. structure recovery
 2. deterministic table semantics
 3. metric mapping registry
@@ -69,6 +87,28 @@ if stock_code == "09987":
 5. gated semantic locator
 
 不要把新公司格式差异直接推给 LLM。
+
+新增样本首先必须能通过统一脚本生成可复现的 focused availability report：
+
+```bash
+cd financial-report-analysis
+scripts/run-real-pdf-e2e-evaluation.sh
+```
+
+该脚本会执行：
+
+1. real PDF extract / persist / readback E2E
+2. real PDF Ollama fallback E2E
+3. deterministic availability report
+
+其中第 3 步应通过 `.env` 或显式环境变量设置：
+
+- `FRA_E2E_DETERMINISTIC_ONLY=true`
+- `FRA_E2E_EXPECTED_METRIC_IDS=<focused metric ids>`
+- `FRA_E2E_OUTPUT_DIR=<sample-specific output dir>`
+
+slow path / Ollama fallback 通过只说明 fallback 链路可用；字段验收必须看
+deterministic availability report 和 fallback call counts。
 
 ### 2.3 主表优先，附注只补缺
 
@@ -122,6 +162,10 @@ if stock_code == "09987":
 - `expected_report_family`
 - `target_phase`
   - 例如 `Turtle P2B Debt Inputs`
+- `baseline_metric_profile`
+  - 例如 `turtle_investment`
+- `expected_metric_ids`
+  - 当前 focused gate 需要验证的 canonical metric ids
 - `target_metric_ids`
 - `known_special_shape`
   - 例如 `statement_row_only`
@@ -129,6 +173,11 @@ if stock_code == "09987":
   - 例如 `note_disclosure_heavy`
 - `initial_owner`
 - `date_added`
+- `deterministic_e2e_report`
+- `deterministic_e2e_summary`
+- `fallback_e2e_result`
+- `auto_gate_result`
+  - `pass | needs_diagnosis | blocked`
 
 示例：
 
@@ -142,6 +191,8 @@ report_type: annual
 pdf_path: report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf
 expected_report_family: hk_mixed_structure_note_disclosure
 target_phase: Turtle P2B Debt Inputs
+baseline_metric_profile: turtle_investment
+expected_metric_ids: st_borr, lt_borr, bond_payable, non_cur_liab_due_1y
 target_metric_ids: st_borr, lt_borr, bond_payable, non_cur_liab_due_1y
 known_special_shape: main statement incomplete, debt details may appear in notes
 ```
@@ -149,6 +200,64 @@ known_special_shape: main statement incomplete, debt details may appear in notes
 ## 4. 初跑诊断流程
 
 新增样本后，不要先改代码。先跑诊断，确认失败层。
+
+### 4.0 自动 E2E gate
+
+新增样本接入的第一步是跑统一脚本，而不是直接进入代码修复。
+
+1. 修改本地 ignored `.env` 或显式传入环境变量：
+
+```text
+FRA_OLLAMA_FALLBACK_E2E_MARKET=HK
+FRA_OLLAMA_FALLBACK_E2E_STOCK_CODE=<issuer_code>
+FRA_OLLAMA_FALLBACK_E2E_FISCAL_YEAR=<report_year>
+FRA_OLLAMA_FALLBACK_E2E_REPORT_TYPE=annual
+FRA_OLLAMA_FALLBACK_E2E_FILENAME=<filename>
+FRA_E2E_DETERMINISTIC_ONLY=true
+FRA_E2E_EXPECTED_METRIC_IDS=<focused metric ids>
+FRA_E2E_OUTPUT_DIR=/tmp/<sample_id>_e2e
+```
+
+2. 先 dry-run：
+
+```bash
+scripts/run-real-pdf-e2e-evaluation.sh --dry-run
+```
+
+确认：
+
+- `pdf_path` 指向正确 PDF。
+- `stock_code`、`fiscal_year`、`filename` 正确。
+- `deterministic_only=true`。
+- `metric_report` 和 `summary` 指向 sample-specific 输出目录。
+
+3. 跑完整 E2E：
+
+```bash
+scripts/run-real-pdf-e2e-evaluation.sh
+```
+
+4. 读取 deterministic summary 和 report：
+
+```text
+total=<n>
+present=<n>
+absent=<n>
+not_surfaced=<n>
+semantic_fallback_call_counts: table_kind=<n>, row_label=<n>, currency=<n>, unit=<n>
+```
+
+自动 gate 判读：
+
+- `pass`：关键 focused metrics 中真实应存在的字段 deterministic present，fallback counts
+  符合预期，缺失字段有明确 absent / out_of_scope 解释。
+- `needs_diagnosis`：E2E 流程通过，但核心字段大面积 absent、not_surfaced、或 fallback-only。
+- `blocked`：PDF 不可读、下载失败、extract/persist/readback 失败、Ollama smoke 失败或 report
+  未生成。
+
+新 issuer 首次接入时，如果核心字段大面积 absent，不得直接认定为业务 `absent`。必须先进入
+structure / semantics / mapping 分层诊断。只有在结构层证明主表确实没有独立披露时，才能把
+字段归为 `absent`。
 
 ### 4.1 确认输入边界
 
@@ -340,6 +449,71 @@ known_special_shape: main statement incomplete, debt details may appear in notes
 - 记录到后续 phase 或 extension metric governance。
 - 如果结构稳定且有证据，可考虑未来进入 provisional custom metric review。
 
+### 5.8 E2E 流程通过但核心字段全 absent
+
+分类：
+
+`all_core_metrics_absent_needs_diagnosis`
+
+适用：
+
+- real PDF extract / persist / readback E2E 通过。
+- Ollama fallback E2E 通过。
+- deterministic availability report 成功生成。
+- focused expected metrics 中大量或全部核心字段为 `absent`。
+- `not_surfaced=0` 但尚未完成结构层检查。
+
+处理：
+
+- 不把该样本标记为 onboarding pass。
+- 不直接补 metric alias。
+- 先检查主表 table kind、title、scope、row label、period columns、unit/currency。
+- 如果主表未进入 parsed tables，归为 `structure_recovery_gap`。
+- 如果主表进入但 row label 不稳定，归为 `semantic_normalization_gap`。
+- 如果 normalized label 稳定但 registry 未命中，归为 `metric_mapping_gap`。
+- 只有结构与语义证据证明字段确实未独立披露，才降级为 `absent`。
+
+HK.01113 2025 示例：
+
+```text
+sample_id: hk-01113-2025-annual-en
+pdf_path: report/downloads/hk_stocks/01113/annual/2025_annual_en.pdf
+expected_metric_ids: revenue, operating_cost, operating_profit, total_assets,
+  total_liabilities, cash, operating_cash_flow, c_paid_for_taxes
+extract_persist_readback: passed
+ollama_fallback_e2e: passed
+deterministic_summary:
+  total=8
+  present=0
+  absent=8
+  not_surfaced=0
+  fallback_counts: table_kind=0, row_label=0, currency=0, unit=0
+auto_gate_result: needs_diagnosis
+initial_classification: all_core_metrics_absent_needs_diagnosis
+```
+
+该结果说明系统流程可运行，但该 issuer/report family 的主表字段没有进入当前 deterministic
+Turtle 主路径。下一步应按 4.2-4.5 诊断失败层，而不是进入 spec/plan 修字段前就假设字段真实
+不存在。
+
+### 5.9 仅 fallback 恢复
+
+分类：
+
+`fallback_only_recovered`
+
+适用：
+
+- slow path 或 fallback E2E 能找到字段。
+- deterministic availability 中字段不是 `present`，或 source 不是 deterministic。
+
+处理：
+
+- 不作为字段准确性验收。
+- 记录 fallback reason、调用次数和 sample output。
+- 优先把可复用规则下沉到 structure / semantics / registry。
+- 只有 bounded semantic locator 的角色符合当前设计时，才保留 fallback path。
+
 ## 6. 修复策略
 
 ### 6.1 补结构层
@@ -444,9 +618,12 @@ availability 或 candidate fact 回归。
 
 新增样本接入完成，至少应满足：
 
+- 自动 E2E gate 有记录，包括 dry-run 目标、完整 E2E 结果、deterministic summary 和 report path。
 - 目标样本能稳定产出当前 phase 中真实存在的目标字段。
+- 对当前 canonical baseline 中的 focused metrics，不能出现“核心字段全 absent 仍标记通过”。
 - 没有独立披露的字段不会被推断产出。
 - `absent` / `not_surfaced` / `out_of_scope` 状态清楚。
+- 新 issuer 首次接入时，大面积 `absent` 必须经过 structure / semantics 诊断后才可确认。
 - positive facts 有 evidence / provenance。
 - negative controls 不被误吸。
 - note/disclosure path 只补缺，不覆盖 statement-row fact。
@@ -484,11 +661,16 @@ availability 或 candidate fact 回归。
 
 推荐顺序：
 
-1. unit tests
-2. narrow integration tests
-3. focused real-PDF tests
-4. live Ollama smoke
-5. 必要时才跑更大的 real-PDF matrix
+1. `scripts/run-real-pdf-e2e-evaluation.sh --dry-run`
+2. focused deterministic E2E gate
+3. unit tests
+4. narrow integration tests
+5. focused real-PDF tests
+6. live Ollama smoke
+7. 必要时才跑更大的 real-PDF matrix
+
+如果只是新增普通样本且自动 gate 通过，不需要写 focused spec / plan。只有
+`needs_diagnosis` 或 `blocked` 样本才进入人工诊断与后续 spec / plan。
 
 ## 9. 禁止项
 
@@ -536,7 +718,21 @@ report_type:
 pdf_path:
 expected_report_family:
 target_phase:
+baseline_metric_profile:
+expected_metric_ids:
 target_metric_ids:
+deterministic_e2e:
+  dry_run_checked:
+  report_path:
+  summary_path:
+  extract_persist_readback:
+  ollama_fallback_e2e:
+  availability_total:
+  availability_present:
+  availability_absent:
+  availability_not_surfaced:
+  semantic_fallback_call_counts:
+auto_gate_result:
 
 initial_result:
   structure_recovery:
