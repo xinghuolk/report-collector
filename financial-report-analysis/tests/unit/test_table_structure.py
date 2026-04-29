@@ -165,6 +165,193 @@ def test_hk_balance_sheet_header_only_block_recovers_point_rows_from_page_text()
     ]
 
 
+def test_hk_dual_currency_income_statement_recovers_hk_rows_from_page_text() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:134:table:1",
+        page_index=133,
+        page_range=(133, 133),
+        rows=[
+            [
+                "35,902",
+                "Revenue 5\nCost of inventories sold 8\nStaff costs\nOperating profit",
+                "280,036",
+            ],
+            ["(14,565)", "", "(113,608)"],
+            ["(5,601)", "", "(43,688)"],
+            ["8,000", "", "62,400"],
+        ],
+        cells=[],
+        local_context=(
+            "Consolidated Income Statement\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "35,902 Revenue 5 280,036 281,351 275,575\n"
+            "(14,565) Cost of inventories sold 8 (113,608) (106,194) (105,739)\n"
+            "(5,601) Staff costs (43,688) (40,338) (38,820)\n"
+            "8,000 Operating profit 62,400 60,001 58,002\n"
+        ),
+        page_text=(
+            "Consolidated Income Statement\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "35,902 Revenue 5 280,036 281,351 275,575\n"
+            "(14,565) Cost of inventories sold 8 (113,608) (106,194) (105,739)\n"
+            "(5,601) Staff costs (43,688) (40,338) (38,820)\n"
+            "8,000 Operating profit 62,400 60,001 58,002\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.table_kind == "income_statement"
+    assert table.semantic_ambiguity_reason == "dual_currency_statement_block"
+    assert [column.period_id for column in table.period_columns[:3]] == [
+        "2025FY",
+        "2024FY",
+        "2023FY",
+    ]
+    assert [row.label_raw for row in table.body_rows[:4]] == [
+        "Revenue",
+        "Cost of inventories sold",
+        "Staff costs",
+        "Operating profit",
+    ]
+    assert table.body_rows[0].value_cells[0].text_raw == "280,036"
+    assert table.body_rows[0].value_cells[1].text_raw == "281,351"
+    assert table.body_rows[1].value_cells[0].text_raw == "(113,608)"
+
+
+def test_hk_dual_currency_balance_sheet_recovers_point_rows_from_page_text() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:136:table:1",
+        page_index=135,
+        page_range=(135, 135),
+        rows=[
+            ["12,831", "Fixed assets 13\nRight-of-use assets\nTotal assets", "100,080"],
+            ["1,932", "", "15,070"],
+            ["80,000", "", "624,000"],
+        ],
+        cells=[],
+        local_context=(
+            "Consolidated Statement of Financial Position\n"
+            "as at 31 December 2025\n"
+            "31 December 31 December 31 December 1 January\n"
+            "2025 # 2025 2024 2023 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million HK$ million\n"
+            "12,831 Fixed assets 13 100,080 111,777 119,826 112,650\n"
+            "1,932 Right-of-use assets 15,070 15,675 15,111 14,999\n"
+            "80,000 Total assets 624,000 600,000 580,000 560,000\n"
+        ),
+        page_text=(
+            "Consolidated Statement of Financial Position\n"
+            "as at 31 December 2025\n"
+            "31 December 31 December 31 December 1 January\n"
+            "2025 # 2025 2024 2023 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million HK$ million\n"
+            "12,831 Fixed assets 13 100,080 111,777 119,826 112,650\n"
+            "1,932 Right-of-use assets 15,070 15,675 15,111 14,999\n"
+            "80,000 Total assets 624,000 600,000 580,000 560,000\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.table_kind == "balance_sheet"
+    assert table.semantic_ambiguity_reason == "dual_currency_statement_block"
+    assert [column.period_id for column in table.period_columns[:4]] == [
+        "2025FY",
+        "2024FY",
+        "2023FY",
+        "2023FY",
+    ]
+    assert [column.period_type for column in table.period_columns[:4]] == [
+        "point_in_time",
+        "point_in_time",
+        "point_in_time",
+        "point_in_time",
+    ]
+    assert [row.label_raw for row in table.body_rows[:3]] == [
+        "Fixed assets",
+        "Right-of-use assets",
+        "Total assets",
+    ]
+    assert table.body_rows[0].value_cells[0].text_raw == "100,080"
+    assert table.body_rows[0].value_cells[3].text_raw == "112,650"
+
+
+def test_hk_dual_currency_cash_flow_recovers_hk_rows_from_page_text() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:141:table:1",
+        page_index=140,
+        page_range=(140, 140),
+        rows=[
+            [
+                "9,826",
+                "Cash generated from operating activities before interest expenses and tax\n"
+                "Interest paid\n"
+                "Tax paid",
+                "76,645",
+            ],
+            ["(1,000)", "", "(7,800)"],
+            ["(900)", "", "(7,020)"],
+        ],
+        cells=[],
+        local_context=(
+            "Consolidated Statement of Cash Flows\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "9,826 Cash generated from operating activities before interest expenses and tax 76,645 68,174 65,000\n"
+            "(1,000) Interest paid (7,800) (7,100) (6,900)\n"
+            "(900) Tax paid (7,020) (6,500) (6,200)\n"
+        ),
+        page_text=(
+            "Consolidated Statement of Cash Flows\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "9,826 Cash generated from operating activities before interest expenses and tax 76,645 68,174 65,000\n"
+            "(1,000) Interest paid (7,800) (7,100) (6,900)\n"
+            "(900) Tax paid (7,020) (6,500) (6,200)\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.table_kind == "cash_flow_statement"
+    assert table.semantic_ambiguity_reason == "dual_currency_statement_block"
+    assert [row.label_raw for row in table.body_rows[:3]] == [
+        "Cash generated from operating activities before interest expenses and tax",
+        "Interest paid",
+        "Tax paid",
+    ]
+    assert table.body_rows[0].value_cells[0].text_raw == "76,645"
+    assert table.body_rows[1].value_cells[0].text_raw == "(7,800)"
+
+
 def test_infer_table_title_prefers_title_row_over_full_page_text() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(
