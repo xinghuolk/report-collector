@@ -343,6 +343,11 @@ def test_hk_dual_currency_cash_flow_recovers_hk_rows_from_page_text() -> None:
     assert table is not None
     assert table.table_kind == "cash_flow_statement"
     assert table.semantic_ambiguity_reason == "dual_currency_statement_block"
+    assert [column.period_id for column in table.period_columns[:3]] == [
+        "2025FY",
+        "2024FY",
+        "2023FY",
+    ]
     assert [row.label_raw for row in table.body_rows[:3]] == [
         "Cash generated from operating activities before interest expenses and tax",
         "Interest paid",
