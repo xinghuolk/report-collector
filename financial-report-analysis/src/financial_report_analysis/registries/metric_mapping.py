@@ -48,6 +48,12 @@ class MetricMappingRegistry:
         for definition in self.definitions:
             if table_kind not in definition.allowed_table_kinds:
                 continue
+            if _is_suppressed_market_metric(
+                definition=definition,
+                normalized_label=normalized_label,
+                market=normalized_market,
+            ):
+                continue
             if not _value_time_shape_matches(
                 expected=definition.period_scope,
                 actual=value_time_shape,
@@ -95,6 +101,19 @@ def _definition_labels(
 def _normalize_label(value: str) -> str:
     normalized = value.replace("_", " ")
     return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
+def _is_suppressed_market_metric(
+    *,
+    definition: MetricMappingDefinition,
+    normalized_label: str,
+    market: str,
+) -> bool:
+    return (
+        market == "HK"
+        and definition.metric_id == "operating_cash_flow"
+        and normalized_label == "operating cash flow"
+    )
 
 
 def _value_time_shape_matches(*, expected: str, actual: str | None) -> bool:

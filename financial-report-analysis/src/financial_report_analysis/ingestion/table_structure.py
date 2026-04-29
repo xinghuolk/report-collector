@@ -72,6 +72,13 @@ class PdfTableStructureAdapter:
         table_index: int,
     ) -> ParsedTable | None:
         title_text = self._infer_table_title(block, market=market)
+        page_statement_title = self._page_main_statement_title(block.page_text)
+        if (
+            market == "HK"
+            and page_statement_title is not None
+            and not self._is_main_statement_title(title_text)
+        ):
+            title_text = page_statement_title
         table_kind = classify_table_kind(title_text, market=market)
         if table_kind == "unknown":
             continuation_title = self._infer_statement_continuation_title(
@@ -633,6 +640,14 @@ class PdfTableStructureAdapter:
     @staticmethod
     def _is_main_statement_title(title_text: str) -> bool:
         return PdfTableStructureAdapter._main_statement_kind_from_title(title_text) is not None
+
+    @staticmethod
+    def _page_main_statement_title(page_text: str) -> str | None:
+        for line in page_text.splitlines()[:3]:
+            title = line.strip()
+            if PdfTableStructureAdapter._is_main_statement_title(title):
+                return title
+        return None
 
     @staticmethod
     def _main_statement_kind_from_title(title_text: str) -> str | None:

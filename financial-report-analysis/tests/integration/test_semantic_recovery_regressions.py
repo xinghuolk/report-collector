@@ -1790,6 +1790,38 @@ def test_hk00001_2025_main_statement_metrics_are_deterministic() -> None:
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
+def test_hk00001_2025_remaining_main_statement_metrics_are_classified() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "00001", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    deterministic_candidates = [
+        candidate
+        for candidate in payload.get("candidate_facts", [])
+        if isinstance(candidate, dict)
+        and candidate.get("period_id") == "2025FY"
+        and candidate.get("entity_scope") == "consolidated"
+        and candidate.get("extraction_method") == "table_semantics"
+        and isinstance(candidate.get("extensions"), dict)
+        and candidate["extensions"].get("semantic_source") == "deterministic"
+    ]
+    by_metric = {
+        str(candidate.get("metric_id")): candidate
+        for candidate in deterministic_candidates
+    }
+
+    assert by_metric["operating_cost"]["statement_type"] == "income_statement"
+    assert by_metric["operating_cost"]["numeric_value"] == -113608.0
+
+    assert "operating_cash_flow" not in by_metric
+    assert "total_assets" not in by_metric
+
+    assert by_metric["c_paid_for_taxes"]["statement_type"] == "cash_flow_statement"
+    assert by_metric["c_paid_for_taxes"]["numeric_value"] is not None
+    assert float(by_metric["c_paid_for_taxes"]["numeric_value"]) < 0
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_cn_601919_2025_surfaces_p4d_parent_statement_subset() -> None:
     pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
 
