@@ -30,6 +30,11 @@ _DUAL_CURRENCY_NUMERIC_PATTERN = re.compile(
     r"(?<![\w.])\(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)"
     r"|(?<![\w.(])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 )
+_DUAL_CURRENCY_VALUE_PATTERN = re.compile(
+    r"(?<![\w.])\(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)"
+    r"|(?<![\w.(])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+    r"|(?<!\S)[–-](?!\S)"
+)
 
 
 class PdfTableStructureAdapter:
@@ -406,7 +411,7 @@ class PdfTableStructureAdapter:
         value_count: int,
         pending_label_parts: list[str] | None = None,
     ) -> list[str] | None:
-        matches = list(_DUAL_CURRENCY_NUMERIC_PATTERN.finditer(line))
+        matches = list(_DUAL_CURRENCY_VALUE_PATTERN.finditer(line))
         if len(matches) < value_count + 1:
             return None
         if line[: matches[0].start()].strip():
@@ -431,7 +436,13 @@ class PdfTableStructureAdapter:
         if not label_raw:
             return None
 
-        return [label_raw, *(match.group(0) for match in trailing_matches)]
+        return [
+            label_raw,
+            *(
+                PdfTableStructureAdapter._normalize_dual_currency_value(match.group(0))
+                for match in trailing_matches
+            ),
+        ]
 
     @staticmethod
     def _trailing_numeric_matches(
@@ -449,7 +460,10 @@ class PdfTableStructureAdapter:
 
     @staticmethod
     def _is_dual_currency_section_header(line: str) -> bool:
-        return line.strip().casefold() in {
+        stripped_line = line.strip()
+        if stripped_line.casefold().startswith("analysis of "):
+            return True
+        return stripped_line.casefold() in {
             "non-current assets",
             "current assets",
             "current liabilities",
@@ -462,10 +476,30 @@ class PdfTableStructureAdapter:
 
     @staticmethod
     def _is_dual_currency_label_fragment(line: str) -> bool:
+        if PdfTableStructureAdapter._has_dual_currency_value_content(line):
+            return False
         return bool(re.search(r"[A-Za-z]", line)) and not (
             PdfTableStructureAdapter._has_dual_currency_million_context(line)
             or bool(re.search(r"\b20\d{2}\b", line))
         )
+
+    @staticmethod
+    def _has_dual_currency_value_content(line: str) -> bool:
+        if re.search(r"(?<!\S)[–-](?!\S)", line):
+            return True
+        matches = list(_DUAL_CURRENCY_NUMERIC_PATTERN.finditer(line))
+        if len(matches) >= 2:
+            return True
+        return any(
+            "," in match.group(0) or match.group(0).startswith("(")
+            for match in matches
+        )
+
+    @staticmethod
+    def _normalize_dual_currency_value(value: str) -> str:
+        if value.strip() == "–":
+            return "-"
+        return value
 
     @staticmethod
     def _strip_dual_currency_note_suffix(label_raw: str) -> str:
@@ -513,8 +547,10 @@ class PdfTableStructureAdapter:
         return parsed_rows
 
     @staticmethod
-    def _numeric_value_from_text(raw_text: str) -> float:
+    def _numeric_value_from_text(raw_text: str) -> float | None:
         text = raw_text.strip().replace(",", "")
+        if text in {"-", "–"}:
+            return None
         if text.startswith("(") and text.endswith(")"):
             text = f"-{text[1:-1]}"
         return float(text)

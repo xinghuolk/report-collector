@@ -361,6 +361,129 @@ def test_hk_dual_currency_cash_flow_recovers_hk_rows_from_page_text() -> None:
     assert table.body_rows[1].value_cells[0].text_raw == "(7,800)"
 
 
+def test_hk_dual_currency_cash_flow_combines_pending_label_fragments() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:141:table:1",
+        page_index=140,
+        page_range=(140, 140),
+        rows=[["2025", "2024", "2023"]],
+        cells=[],
+        local_context="2025 2024 2023",
+        page_text=(
+            "Consolidated Statement of Cash Flows\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "Cash generated from operating activities before interest expenses,\n"
+            "other finance costs, tax paid,\n"
+            "9,826 and changes in working capital 76,645 68,174 65,000\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert table.semantic_ambiguity_reason == "dual_currency_statement_block"
+    assert table.body_rows[0].label_raw == (
+        "Cash generated from operating activities before interest expenses, "
+        "other finance costs, tax paid, and changes in working capital"
+    )
+
+
+def test_hk_dual_currency_dash_valued_row_does_not_carry_into_next_label() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:141:table:1",
+        page_index=140,
+        page_range=(140, 140),
+        rows=[["2025", "2024", "2023"]],
+        cells=[],
+        local_context="2025 2024 2023",
+        page_text=(
+            "Consolidated Statement of Cash Flows\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "– Additions to telecommunications licences 15 – (72) (1,956)\n"
+            "100 Proceeds from disposal of fixed assets 780 650 500\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    labels = [row.label_raw for row in table.body_rows]
+    assert labels == [
+        "Additions to telecommunications licences",
+        "Proceeds from disposal of fixed assets",
+    ]
+    assert table.body_rows[0].value_cells[0].text_raw == "-"
+    assert table.body_rows[0].value_cells[1].text_raw == "(72)"
+
+
+def test_hk_dual_currency_text_subheader_does_not_carry_into_next_label() -> None:
+    adapter = PdfTableStructureAdapter()
+    block = RawTableBlock(
+        block_id="doc:page:142:table:1",
+        page_index=141,
+        page_range=(141, 141),
+        rows=[["2025", "2024", "2023"]],
+        cells=[],
+        local_context="2025 2024 2023",
+        page_text=(
+            "Consolidated Statement of Cash Flows\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "Analysis of cash, liquid funds and other listed investments\n"
+            "200 Cash and cash equivalents, as above 1,560 1,450 1,300\n"
+        ),
+    )
+
+    table = adapter._build_parsed_table(
+        block=block,
+        market="HK",
+        document_id="doc",
+        table_index=1,
+    )
+
+    assert table is not None
+    assert [row.label_raw for row in table.body_rows] == [
+        "Cash and cash equivalents, as above"
+    ]
+
+
+def test_hk_dual_currency_cash_flow_recovery_uses_page_heading_fallback() -> None:
+    rows = PdfTableStructureAdapter._recover_dual_currency_rows_from_page_text(
+        page_text=(
+            "Consolidated Statement of Cash Flows\n"
+            "for the year ended 31 December 2025\n"
+            "2025 # 2025 2024 2023\n"
+            "US$ million Note HK$ million HK$ million HK$ million\n"
+            "100 Cash and cash equivalents, as above 780 650 500\n"
+        ),
+        title_text="Cash and cash equivalents, as above",
+        table_kind="cash_flow_statement",
+        market="HK",
+    )
+
+    assert rows == [
+        ["", "2025", "2024", "2023"],
+        ["Cash and cash equivalents, as above", "780", "650", "500"],
+    ]
+
+
 def test_infer_table_title_prefers_title_row_over_full_page_text() -> None:
     adapter = PdfTableStructureAdapter()
     block = RawTableBlock(
