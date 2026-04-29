@@ -1071,6 +1071,43 @@ def test_normalize_table_semantics_maps_cash_flow_primary_section_variants() -> 
     ]
 
 
+def test_normalize_table_semantics_suppresses_dual_currency_operating_cash_flow() -> (
+    None
+):
+    semantics = normalize_table_semantics(
+        ParsedTable(
+            table_id="doc:table:cash-flow-dual-currency",
+            document_id="doc",
+            page_range=(16, 16),
+            table_kind="cash_flow_statement",
+            title_text="Consolidated Statement of Cash Flows",
+            statement_scope_guess="consolidated",
+            semantic_ambiguity_reason="dual_currency_statement_block",
+            body_rows=[
+                ParsedRow(
+                    row_id="row-operating",
+                    row_index=1,
+                    label_raw="Net cash from operating activities",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-tax",
+                    row_index=2,
+                    label_raw="Tax paid",
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+            ],
+        )
+    )
+
+    assert [row.normalized_row_label for row in semantics.rows] == [
+        None,
+        "taxes paid",
+    ]
+
+
 def test_normalize_table_semantics_maps_p4c_cash_flow_detail_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
@@ -1278,8 +1315,19 @@ def test_normalize_table_semantics_suppresses_narrative_cash_flow_rows() -> None
                     value_cells=[],
                 ),
                 ParsedRow(
-                    row_id="row-dividends",
+                    row_id="row-before-interest-tax-working-capital",
                     row_index=3,
+                    label_raw=(
+                        "Cash generated from operating activities before interest "
+                        "expenses, other finance costs, tax paid, and changes in "
+                        "working capital"
+                    ),
+                    normalized_label_hint=None,
+                    value_cells=[],
+                ),
+                ParsedRow(
+                    row_id="row-dividends",
+                    row_index=4,
                     label_raw="Dividends paid",
                     normalized_label_hint=None,
                     value_cells=[],
@@ -1289,6 +1337,7 @@ def test_normalize_table_semantics_suppresses_narrative_cash_flow_rows() -> None
     )
 
     assert [row.normalized_row_label for row in semantics.rows] == [
+        None,
         None,
         None,
         "cash paid for dividends or interest",
