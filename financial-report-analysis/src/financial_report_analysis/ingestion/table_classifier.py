@@ -18,6 +18,7 @@ def classify_table_kind(raw_title: str, *, market: str | None) -> str:
             "损益表",
             "statementsofincome",
             "statementofincome",
+            "incomestatement",
             "statementofprofit",
             "statementofloss",
         )

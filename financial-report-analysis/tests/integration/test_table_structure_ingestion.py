@@ -9,7 +9,7 @@ from financial_report_analysis.ingestion import (
     normalize_table_semantics,
 )
 from financial_report_analysis.ingestion.table_source import RawTableBlock
-from financial_report_analysis.models import ParsedTable
+from financial_report_analysis.models import ParsedRow, ParsedTable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -45,6 +45,21 @@ def _flatten_labels(tables: list[ParsedTable]) -> set[str]:
     for table in tables:
         labels.update(_labels_for_table(table))
     return labels
+
+
+def _row_by_label(table: ParsedTable, label: str) -> ParsedRow:
+    normalized_label = " ".join(label.lower().split())
+    return next(
+        row
+        for row in table.body_rows
+        if " ".join(row.label_raw.lower().split()) == normalized_label
+    )
+
+
+def _first_value(table: ParsedTable, label: str) -> float | None:
+    row = _row_by_label(table, label)
+    assert row.value_cells
+    return row.value_cells[0].numeric_value
 
 
 @pytest.mark.real_pdf
@@ -214,6 +229,69 @@ def test_hk00001_2025_remaining_main_statement_labels_are_classified() -> None:
         "cash generated from operating activities before interest expenses, other finance costs, tax paid, and changes in working capital"
         in cash_flow_labels
     )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
+def test_hk01113_2025_side_by_side_main_statement_labels_are_recovered() -> None:
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(_hk_annual_anchor("01113", "2025_annual_en.pdf")),
+        pdf_url=None,
+        market="HK",
+    )
+
+    income_table = next(
+        (
+            table
+            for table in tables
+            if table.table_kind == "income_statement"
+            and table.title_text == "CONSOLIDATED INCOME STATEMENT"
+            and table.statement_scope_guess == "consolidated"
+            and table.semantic_ambiguity_reason == "side_by_side_statement_block"
+        ),
+        None,
+    )
+    balance_table = next(
+        (
+            table
+            for table in tables
+            if table.table_kind == "balance_sheet"
+            and table.title_text == "CONSOLIDATED STATEMENT OF FINANCIAL POSITION"
+            and table.statement_scope_guess == "consolidated"
+            and table.semantic_ambiguity_reason == "side_by_side_statement_block"
+        ),
+        None,
+    )
+    cash_flow_table = next(
+        (
+            table
+            for table in tables
+            if table.table_kind == "cash_flow_statement"
+            and table.title_text == "CONSOLIDATED STATEMENT OF CASH FLOWS"
+            and table.statement_scope_guess == "consolidated"
+            and table.semantic_ambiguity_reason == "side_by_side_statement_block"
+        ),
+        None,
+    )
+
+    assert income_table is not None
+    assert balance_table is not None
+    assert cash_flow_table is not None
+
+    assert {"group revenue", "profit attributable to shareholders"} <= _labels_for_table(
+        income_table
+    )
+    assert {"bank balances and deposits", "total equity"} <= _labels_for_table(
+        balance_table
+    )
+    assert {"net cash from operating activities", "profits tax paid"} <= _labels_for_table(
+        cash_flow_table
+    )
+    assert _first_value(income_table, "group revenue") == 57935.0
+    assert _first_value(balance_table, "fixed assets") == 72868.0
+    assert _first_value(balance_table, "goodwill") == 2715.0
+    assert _first_value(cash_flow_table, "net cash from operating activities") == 18670.0
+    assert _first_value(cash_flow_table, "profits tax paid") == -2413.0
 
 
 @pytest.mark.real_pdf

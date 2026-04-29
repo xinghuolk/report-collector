@@ -35,6 +35,11 @@ _DUAL_CURRENCY_VALUE_PATTERN = re.compile(
     r"|(?<![\w.(])-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
     r"|(?<!\S)[–-](?!\S)"
 )
+_NOTE_MARKER_BEFORE_VALUE_PATTERN = re.compile(
+    r"\s+\((?:\d{1,2}|[A-Za-z])\)"
+    r"(?=\s+(?:\(?-?\d{1,3}(?:,\d{3})+(?:\.\d+)?\)?|"
+    r"\(?-?\d+(?:\.\d+)?\)?|[–-]))"
+)
 
 
 class PdfTableStructureAdapter:
@@ -52,6 +57,8 @@ class PdfTableStructureAdapter:
             pdf_path=pdf_path,
             pdf_url=pdf_url,
         )
+        if market == "HK":
+            raw_blocks = self._expand_hk_side_by_side_statement_blocks(raw_blocks)
         parsed_tables = [
             self._build_parsed_table(
                 block=block,
@@ -175,6 +182,14 @@ class PdfTableStructureAdapter:
         if table_kind not in {"income_statement", "balance_sheet", "cash_flow_statement"}:
             return block.rows, None
 
+        if block.block_id.endswith(":side-by-side-statement"):
+            recovered_rows = self._recover_rows_from_page_text(
+                page_text=block.page_text,
+                title_text=title_text,
+            )
+            if recovered_rows:
+                return recovered_rows, "side_by_side_statement_block"
+
         recovered_rows = self._recover_dual_currency_rows_from_page_text(
             page_text=block.page_text,
             title_text=title_text,
@@ -241,6 +256,76 @@ class PdfTableStructureAdapter:
             if row_text:
                 return row_text
         return ""
+
+    def _expand_hk_side_by_side_statement_blocks(
+        self,
+        raw_blocks: list[RawTableBlock],
+    ) -> list[RawTableBlock]:
+        expanded_blocks: list[RawTableBlock] = []
+        for block in raw_blocks:
+            split_blocks = self._split_hk_side_by_side_statement_block(block)
+            if split_blocks:
+                expanded_blocks.extend(split_blocks)
+            else:
+                expanded_blocks.append(block)
+        return expanded_blocks
+
+    @staticmethod
+    def _split_hk_side_by_side_statement_block(
+        block: RawTableBlock,
+    ) -> list[RawTableBlock]:
+        if len(block.rows) != 2:
+            return []
+        header_row, body_row = block.rows
+        if len(header_row) < 2 or len(body_row) < 2:
+            return []
+        split_blocks: list[RawTableBlock] = []
+        for column_index, header_cell in enumerate(header_row):
+            if column_index >= len(body_row):
+                continue
+            title = PdfTableStructureAdapter._main_statement_title_from_side_text(
+                header_cell
+            )
+            if title is None:
+                continue
+            side_text = "\n".join(
+                segment.strip()
+                for segment in (header_cell, body_row[column_index])
+                if segment.strip()
+            )
+            side_lines = [
+                [line.strip()]
+                for line in side_text.splitlines()
+                if line.strip()
+            ]
+            split_blocks.append(
+                RawTableBlock(
+                    block_id=(
+                        f"{block.block_id}:column:{column_index}:"
+                        "side-by-side-statement"
+                    ),
+                    page_index=block.page_index,
+                    page_range=block.page_range,
+                    rows=side_lines,
+                    cells=[],
+                    bbox=block.bbox,
+                    page_text=side_text,
+                    local_context="\n".join(
+                        line[0] for line in side_lines[:3] if line and line[0]
+                    ),
+                )
+            )
+        return split_blocks
+
+    @staticmethod
+    def _main_statement_title_from_side_text(text: str) -> str | None:
+        for line in text.splitlines()[:4]:
+            title = line.strip()
+            if not title.startswith("CONSOLIDATED "):
+                continue
+            if PdfTableStructureAdapter._is_main_statement_title(title):
+                return title
+        return None
 
     @staticmethod
     def _looks_like_numeric_only_statement_block(rows: list[list[str]]) -> bool:
@@ -570,7 +655,8 @@ class PdfTableStructureAdapter:
             if prefix:
                 return [prefix, *annual_dates]
 
-        normalized_line = re.sub(r"\$\s*", "", line)
+        normalized_line = _NOTE_MARKER_BEFORE_VALUE_PATTERN.sub("", line)
+        normalized_line = re.sub(r"\$\s*", "", normalized_line)
         normalized_line = re.sub(
             r"\((\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\)",
             lambda match: f"-{match.group(1)}"

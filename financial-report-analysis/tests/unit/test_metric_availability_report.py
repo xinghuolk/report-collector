@@ -113,6 +113,43 @@ def test_metric_availability_report_prefers_deterministic_candidate() -> None:
     assert metric.recovered_by_fallback is False
 
 
+def test_metric_availability_report_prefers_latest_period_candidate() -> None:
+    payload = {
+        "candidate_facts": [
+            {
+                "fact_id": "fact-revenue-2021",
+                "metric_id": "revenue",
+                "numeric_value": 62094.0,
+                "period_id": "2021FY",
+                "comparison_axis": "current",
+                "confidence": 0.90,
+                "extensions": {"semantic_source": "deterministic"},
+            },
+            {
+                "fact_id": "fact-revenue-2025",
+                "metric_id": "revenue",
+                "numeric_value": 57935.0,
+                "period_id": "2025FY",
+                "comparison_axis": "current",
+                "confidence": 0.90,
+                "extensions": {"semantic_source": "deterministic"},
+            },
+        ],
+        "document_metadata": {},
+    }
+
+    report = build_metric_availability_report(
+        payload=payload,
+        expected_metric_ids=("revenue",),
+        metric_profile="turtle_investment",
+        pdf_path="/reports/01113.pdf",
+        market="HK",
+    )
+
+    assert report.metrics[0].fact_id == "fact-revenue-2025"
+    assert report.metrics[0].value == 57935.0
+
+
 def test_metric_availability_markdown_includes_fallback_context() -> None:
     report = build_metric_availability_report(
         payload={

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -171,8 +172,19 @@ def _best_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
             _dict_value(candidate.get("extensions")).get("semantic_source")
             == "llm_fallback",
             -float(candidate.get("confidence", 0.0) or 0.0),
+            candidate.get("comparison_axis") not in {None, "current"},
+            -_period_year(candidate.get("period_id")),
         ),
     )[0]
+
+
+def _period_year(period_id: object) -> int:
+    if not isinstance(period_id, str):
+        return 0
+    match = re.search(r"(20\d{2})", period_id)
+    if match is None:
+        return 0
+    return int(match.group(1))
 
 
 def _missing_status(

@@ -968,6 +968,34 @@ def test_normalize_table_semantics_maps_phase1_income_statement_variants() -> No
     ]
 
 
+def test_normalize_table_semantics_maps_hk01113_main_statement_aliases() -> None:
+    tables = [
+        _statement_table_with_row(
+            table_kind="income_statement",
+            title_text="CONSOLIDATED INCOME STATEMENT",
+            label="Group revenue",
+        ),
+        _statement_table_with_row(
+            table_kind="balance_sheet",
+            title_text="CONSOLIDATED STATEMENT OF FINANCIAL POSITION",
+            label="Bank balances and deposits",
+        ),
+        _statement_table_with_row(
+            table_kind="cash_flow_statement",
+            title_text="CONSOLIDATED STATEMENT OF CASH FLOWS",
+            label="Profits tax paid",
+        ),
+    ]
+
+    assert [
+        normalize_table_semantics(table).rows[0].normalized_row_label for table in tables
+    ] == [
+        "revenue",
+        "cash and cash equivalents",
+        "taxes paid",
+    ]
+
+
 def test_normalize_table_semantics_maps_phase1_cash_flow_detail_variants() -> None:
     semantics = normalize_table_semantics(
         ParsedTable(
