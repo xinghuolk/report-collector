@@ -164,3 +164,14 @@ def test_detect_table_currency_uses_local_chinese_context() -> None:
 
 def test_detect_table_unit_uses_local_context() -> None:
     assert detect_table_unit("单位：万元") == "万元"
+
+
+def test_detect_table_unit_accepts_singular_hk_dollar_million() -> None:
+    assert detect_table_unit("US$ million Note HK$ million HK$ million") == "HK$ million"
+
+
+def test_detect_table_unit_prefers_hk_dollar_when_us_and_hk_are_present() -> None:
+    assert (
+        detect_table_unit("US$ million Note HK$ million HK$ million HK$ million")
+        == "HK$ million"
+    )
