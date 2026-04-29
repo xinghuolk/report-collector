@@ -77,7 +77,12 @@ class PdfTableStructureAdapter:
                 title_text = continuation_title
                 table_kind = classify_table_kind(title_text, market=market)
         if table_kind == "unknown":
-            main_statement_kind = self._main_statement_kind_from_title(title_text)
+            main_statement_kind = (
+                self._main_statement_kind_from_title(title_text)
+                if market == "HK"
+                and self._has_dual_currency_million_context(block.page_text)
+                else None
+            )
             if main_statement_kind is not None:
                 table_kind = main_statement_kind
         if table_kind == "unknown":
@@ -87,6 +92,7 @@ class PdfTableStructureAdapter:
             block=block,
             title_text=title_text,
             table_kind=table_kind,
+            market=market,
         )
         header_rows = self._select_header_rows(recovered_rows)
         body_rows = recovered_rows[len(header_rows) :]
@@ -148,6 +154,7 @@ class PdfTableStructureAdapter:
         block: RawTableBlock,
         title_text: str,
         table_kind: str,
+        market: str | None,
     ) -> tuple[list[list[str]], str | None]:
         if table_kind not in {"income_statement", "balance_sheet", "cash_flow_statement"}:
             return block.rows, None
@@ -156,6 +163,7 @@ class PdfTableStructureAdapter:
             page_text=block.page_text,
             title_text=title_text,
             table_kind=table_kind,
+            market=market,
         )
         if recovered_rows:
             return recovered_rows, "dual_currency_statement_block"
@@ -301,7 +309,10 @@ class PdfTableStructureAdapter:
         page_text: str,
         title_text: str,
         table_kind: str,
+        market: str | None,
     ) -> list[list[str]]:
+        if market != "HK":
+            return []
         if table_kind not in {
             "income_statement",
             "balance_sheet",
@@ -323,6 +334,12 @@ class PdfTableStructureAdapter:
             -1,
         )
         if unit_index < 0:
+            return []
+        if not PdfTableStructureAdapter._has_annual_statement_context(
+            page_text=page_text,
+            lines=lines,
+            unit_index=unit_index,
+        ):
             return []
 
         header_row = PdfTableStructureAdapter._recover_dual_currency_header_row(
@@ -512,6 +529,27 @@ class PdfTableStructureAdapter:
         return bool(
             re.search(r"\bUS\$\s*million[s]?\b", text, re.IGNORECASE)
             and re.search(r"\bHK\$\s*million[s]?\b", text, re.IGNORECASE)
+        )
+
+    @staticmethod
+    def _has_annual_statement_context(
+        *,
+        page_text: str,
+        lines: list[str],
+        unit_index: int,
+    ) -> bool:
+        normalized_text = re.sub(r"\s+", " ", page_text).casefold()
+        if (
+            "year ended" in normalized_text
+            or "as at 31 december" in normalized_text
+            or "31 december" in normalized_text
+        ):
+            return True
+
+        nearby_lines = lines[max(0, unit_index - 3) : unit_index + 1]
+        return any(
+            PdfTableStructureAdapter._recover_bare_year_header_row(line) is not None
+            for line in nearby_lines
         )
 
     @staticmethod
