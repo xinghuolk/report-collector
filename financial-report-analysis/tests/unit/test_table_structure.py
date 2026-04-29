@@ -183,14 +183,13 @@ def test_hk_dual_currency_income_statement_recovers_hk_rows_from_page_text() -> 
         ],
         cells=[],
         local_context=(
-            "Consolidated Income Statement\n"
-            "for the year ended 31 December 2025\n"
-            "2025 # 2025 2024 2023\n"
-            "US$ million Note HK$ million HK$ million HK$ million\n"
-            "35,902 Revenue 5 280,036 281,351 275,575\n"
-            "(14,565) Cost of inventories sold 8 (113,608) (106,194) (105,739)\n"
-            "(5,601) Staff costs (43,688) (40,338) (38,820)\n"
-            "8,000 Operating profit 62,400 60,001 58,002\n"
+            "35,902 Revenue 5\n"
+            "Cost of inventories sold 8\n"
+            "Staff costs\n"
+            "Operating profit 280,036\n"
+            "(14,565) (113,608)\n"
+            "(5,601) (43,688)\n"
+            "8,000 62,400"
         ),
         page_text=(
             "Consolidated Income Statement\n"
@@ -219,6 +218,11 @@ def test_hk_dual_currency_income_statement_recovers_hk_rows_from_page_text() -> 
         "2024FY",
         "2023FY",
     ]
+    assert [column.value_time_shape for column in table.period_columns[:3]] == [
+        "duration",
+        "duration",
+        "duration",
+    ]
     assert [row.label_raw for row in table.body_rows[:4]] == [
         "Revenue",
         "Cost of inventories sold",
@@ -243,14 +247,11 @@ def test_hk_dual_currency_balance_sheet_recovers_point_rows_from_page_text() -> 
         ],
         cells=[],
         local_context=(
-            "Consolidated Statement of Financial Position\n"
-            "as at 31 December 2025\n"
-            "31 December 31 December 31 December 1 January\n"
-            "2025 # 2025 2024 2023 2023\n"
-            "US$ million Note HK$ million HK$ million HK$ million HK$ million\n"
-            "12,831 Fixed assets 13 100,080 111,777 119,826 112,650\n"
-            "1,932 Right-of-use assets 15,070 15,675 15,111 14,999\n"
-            "80,000 Total assets 624,000 600,000 580,000 560,000\n"
+            "12,831 Fixed assets 13\n"
+            "Right-of-use assets\n"
+            "Total assets 100,080\n"
+            "1,932 15,070\n"
+            "80,000 624,000"
         ),
         page_text=(
             "Consolidated Statement of Financial Position\n"
@@ -314,13 +315,11 @@ def test_hk_dual_currency_cash_flow_recovers_hk_rows_from_page_text() -> None:
         ],
         cells=[],
         local_context=(
-            "Consolidated Statement of Cash Flows\n"
-            "for the year ended 31 December 2025\n"
-            "2025 # 2025 2024 2023\n"
-            "US$ million Note HK$ million HK$ million HK$ million\n"
-            "9,826 Cash generated from operating activities before interest expenses and tax 76,645 68,174 65,000\n"
-            "(1,000) Interest paid (7,800) (7,100) (6,900)\n"
-            "(900) Tax paid (7,020) (6,500) (6,200)\n"
+            "9,826 Cash generated from operating activities before interest expenses and tax\n"
+            "Interest paid\n"
+            "Tax paid 76,645\n"
+            "(1,000) (7,800)\n"
+            "(900) (7,020)"
         ),
         page_text=(
             "Consolidated Statement of Cash Flows\n"
@@ -347,6 +346,11 @@ def test_hk_dual_currency_cash_flow_recovers_hk_rows_from_page_text() -> None:
         "2025FY",
         "2024FY",
         "2023FY",
+    ]
+    assert [column.value_time_shape for column in table.period_columns[:3]] == [
+        "duration",
+        "duration",
+        "duration",
     ]
     assert [row.label_raw for row in table.body_rows[:3]] == [
         "Cash generated from operating activities before interest expenses and tax",
