@@ -150,6 +150,35 @@ def test_hk00001_2025_dual_currency_main_statement_labels_are_recovered() -> Non
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
+def test_hk00001_2025_remaining_main_statement_labels_are_classified() -> None:
+    tables = PdfTableStructureAdapter().extract_tables(
+        pdf_path=str(_hk_annual_anchor("00001", "2025_annual_en.pdf")),
+        pdf_url=None,
+        market="HK",
+    )
+
+    income_labels = _flatten_labels(
+        [table for table in tables if table.table_kind == "income_statement"]
+    )
+    balance_labels = _flatten_labels(
+        [table for table in tables if table.table_kind == "balance_sheet"]
+    )
+    cash_flow_labels = _flatten_labels(
+        [table for table in tables if table.table_kind == "cash_flow_statement"]
+    )
+
+    assert "cost of inventories sold" in income_labels
+    assert "total assets less current liabilities" in balance_labels
+    assert "total assets" not in balance_labels
+    assert "tax paid" in cash_flow_labels
+    assert (
+        "cash generated from operating activities before interest expenses, other finance costs, tax paid, and changes in working capital"
+        in cash_flow_labels
+    )
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_hk_quarter_sample_exposes_non_empty_period_columns() -> None:
     adapter = PdfTableStructureAdapter()
 
