@@ -1742,6 +1742,47 @@ def test_hk_09987_2025_surfaces_p4c_statement_metric_subset() -> None:
 
 @pytest.mark.real_pdf
 @pytest.mark.slow
+def test_hk00001_2025_main_statement_metrics_are_deterministic() -> None:
+    pdf_path = _resolve_sample("hk_stocks", "00001", "annual", "2025_annual_en.pdf")
+
+    payload = _extract_payload_for_pdf(pdf_path, market="HK")
+    expected_metrics = {
+        "revenue": "income_statement",
+        "total_profit": "income_statement",
+        "cash": "balance_sheet",
+        "fix_assets": "balance_sheet",
+        "goodwill": "balance_sheet",
+        "inventories": "balance_sheet",
+    }
+    candidates_by_metric: dict[str, dict[str, object]] = {}
+    for candidate in payload.get("candidate_facts", []):
+        if not isinstance(candidate, dict):
+            continue
+        metric_id = str(candidate.get("metric_id"))
+        extensions = candidate.get("extensions")
+        if metric_id not in expected_metrics or not isinstance(extensions, dict):
+            continue
+        if candidate.get("period_id") != "2025FY":
+            continue
+        if candidate.get("entity_scope") != "consolidated":
+            continue
+        if candidate.get("extraction_method") != "table_semantics":
+            continue
+        if candidate.get("statement_type") != expected_metrics[metric_id]:
+            continue
+        if extensions.get("table_kind") != expected_metrics[metric_id]:
+            continue
+        if extensions.get("semantic_source") != "deterministic":
+            continue
+        candidates_by_metric[metric_id] = candidate
+
+    assert set(candidates_by_metric) == set(expected_metrics)
+    for metric_id, candidate in candidates_by_metric.items():
+        assert candidate["numeric_value"] is not None, metric_id
+
+
+@pytest.mark.real_pdf
+@pytest.mark.slow
 def test_cn_601919_2025_surfaces_p4d_parent_statement_subset() -> None:
     pdf_path = _resolve_sample("cn_stocks", "601919", "annual", "2025_年度报告.pdf")
 
