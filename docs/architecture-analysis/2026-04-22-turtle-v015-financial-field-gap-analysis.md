@@ -53,11 +53,48 @@ HK.00001 2025 年报暴露的问题不是 Turtle 字段 alias 优先缺口，而
 - slow path summary：`total=32`、`present=4`、`absent=25`、`not_surfaced=3`，fallback call counts 为 `table_kind=32, row_label=16, currency=0, unit=4`
 
 结论：HK.00001 的主报表结构恢复已经进入 deterministic 回归保护，但完整 Turtle
-availability 仍不能解读为“字段覆盖完成”。`operating_cost`、`operating_profit`、
-`total_assets`、`operating_cash_flow` 等字段在当前 report-level availability 中仍未
-稳定露出，下一轮应继续按新增样本接入流程区分 `structure_recovery_gap`、
+availability 在该轮仍不能解读为“字段覆盖完成”。`operating_cost`、`operating_profit`、
+`total_assets`、`operating_cash_flow` 等字段当时仍需后续 report-level availability
+复查，下一轮应继续按新增样本接入流程区分 `structure_recovery_gap`、
 `metric_mapping_gap`、`absent` 和 `not_surfaced`，不要把 slow path fallback 的存在当成
 字段准确性的替代证据。
+
+### 2026-04-29 HK.00001 Remaining Main Statement Metrics Follow-up
+
+Task 5 复查基于完整 deterministic E2E 产物，不依赖 semantic fallback：
+
+- command：`FRA_E2E_DETERMINISTIC_ONLY=true FRA_E2E_EXPECTED_METRIC_IDS=revenue,operating_cost,operating_profit,total_assets,total_liabilities,cash,operating_cash_flow,c_paid_for_taxes FRA_E2E_MARKET=HK FRA_E2E_STOCK_CODE=00001 FRA_E2E_FISCAL_YEAR=2025 FRA_E2E_REPORT_TYPE=annual FRA_E2E_PDF_PATH=../report/downloads/hk_stocks/00001/annual/2025_annual_en.pdf FRA_E2E_OUTPUT_DIR=/tmp/hk00001_2025_remaining_metrics scripts/run-real-pdf-e2e-evaluation.sh`
+- report：`/tmp/hk00001_2025_remaining_metrics/HK_00001_2025_annual_deterministic_metric_availability.md`
+- summary：`total=8`、`present=5`、`absent=3`、`not_surfaced=0`
+- fallback call counts：`table_kind=0`、`row_label=0`、`currency=0`、`unit=0`
+
+deterministic present 明细：
+
+- `revenue=280036.0`，`HKD`，source `table_semantics`，semantic_source `deterministic`，`recovered_by_fallback=false`
+- `operating_cost=-113608.0`，`HKD`，semantic_source `deterministic`
+- `cash=143748.0`，`HKD`，semantic_source `deterministic`
+- `operating_cash_flow=62567.0`，`HKD`，semantic_source `deterministic`
+- `c_paid_for_taxes=-5571.0`，`HKD`，semantic_source `deterministic`
+
+deterministic absent 明细：
+
+- `operating_profit`
+- `total_assets`
+- `total_liabilities`
+
+重要纠偏：此前计划曾预期 `operating_cash_flow` 可能 absent；实际 Task 4 与
+deterministic report 证明 HK.00001 2025 有合法最终行
+`Net cash from operating activities`，因此 `operating_cash_flow=62567.0` 已稳定走
+deterministic 主路径。
+
+负控结论仍成立：不得把
+`cash generated from operating activities before interest expenses, other finance costs, tax paid, and changes in working capital`
+映射到 `operating_cash_flow`；也不得把
+`total assets less current liabilities` 映射到 `total_assets`。
+
+结论：HK.00001 2025 剩余主报表字段中，`operating_cost`、`operating_cash_flow`、
+`c_paid_for_taxes` 已进入 deterministic 主路径；`operating_profit`、`total_assets`、
+`total_liabilities` 当前明确 classified as absent，且本轮无 `not_surfaced` 字段。
 
 ## 1. 目的
 

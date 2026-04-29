@@ -511,7 +511,7 @@ If some listed files were not changed, omit them from `git add`.
 - Modify: `docs/architecture-analysis/2026-04-22-turtle-v015-financial-field-gap-analysis.md`
 - Modify: `financial-report-analysis/docs/superpowers/plans/2026-04-29-hk00001-remaining-main-statement-metrics.md`
 
-- [ ] **Step 1: Run focused unit tests**
+- [x] **Step 1: Run focused unit tests**
 
 Run:
 
@@ -526,7 +526,9 @@ uv run pytest \
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run focused integration tests**
+Actual evidence from previous worker: `174 passed in 0.32s`.
+
+- [x] **Step 2: Run focused integration tests**
 
 Run:
 
@@ -542,7 +544,9 @@ uv run pytest \
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Generate deterministic availability report**
+Actual evidence from previous worker: `4 passed in 104.31s`.
+
+- [x] **Step 3: Generate deterministic availability report**
 
 Run:
 
@@ -568,7 +572,17 @@ Expected:
 - deterministic report is written to:
   `/tmp/hk00001_2025_remaining_metrics/HK_00001_2025_annual_deterministic_metric_availability.md`
 
-- [ ] **Step 4: Update Turtle gap document**
+Actual evidence from mainline full E2E:
+
+- Step 1 real PDF extract/persist/readback E2E: `1 passed in 317.23s (0:05:17)`
+- Step 2 real PDF Ollama fallback E2E: `1 passed in 291.16s (0:04:51)`
+- Step 3 deterministic report generated successfully
+- summary: `total=8`, `present=5`, `absent=3`, `not_surfaced=0`
+- semantic fallback call counts: `table_kind=0`, `row_label=0`, `currency=0`, `unit=0`
+- deterministic present: `revenue=280036.0`, `operating_cost=-113608.0`, `cash=143748.0`, `operating_cash_flow=62567.0`, `c_paid_for_taxes=-5571.0`
+- deterministic absent: `operating_profit`, `total_assets`, `total_liabilities`
+
+- [x] **Step 4: Update Turtle gap document**
 
 Add a dated subsection under the existing HK.00001 update in
 `docs/architecture-analysis/2026-04-22-turtle-v015-financial-field-gap-analysis.md`:
@@ -581,17 +595,21 @@ Add a dated subsection under the existing HK.00001 update in
 - report: `/tmp/hk00001_2025_remaining_metrics/HK_00001_2025_annual_deterministic_metric_availability.md`
 - summary: 写入实际 `present/absent/not_surfaced` 计数
 - deterministic present: 写入实际 present metric ids
-- explicitly not surfaced: 写入 `total_assets`、`operating_cash_flow` 等仍未稳定露出的字段
+- explicitly not surfaced: 本轮实际 `not_surfaced=0`；`operating_cash_flow` 已 deterministic present，`total_assets` classified as absent
 - negative controls: `total assets less current liabilities` 未映射 `total_assets`；`cash generated ... before interest/tax/working capital` 未映射 `operating_cash_flow`
 
 结论：写明哪些字段已修成 deterministic 主路径，哪些字段需要下一轮 structure recovery 或附注/披露路径。
 ```
 
-- [ ] **Step 5: Mark plan checkboxes**
+Actual documentation result: 已在 Turtle gap document 的 `2026-04-29 HK.00001 Remaining Main Statement Metrics Follow-up` 小节记录 report path、summary path、present/absent 明细、`operating_cash_flow=62567.0` 纠偏和两个负控结论。
+
+- [x] **Step 5: Mark plan checkboxes**
 
 In this plan file, mark completed steps with `[x]` and record actual command results under each task.
 
-- [ ] **Step 6: Commit docs and plan update**
+Actual plan result: Task 5 Steps 1-6 标记为完成；实际验证证据写入本 Task 5 段落。Final Verification 保持未勾选，因为本 worker 未完整重新运行该最终验证。
+
+- [x] **Step 6: Commit docs and plan update**
 
 Run:
 
