@@ -280,11 +280,11 @@ def test_hk_dual_currency_balance_sheet_recovers_point_rows_from_page_text() -> 
         "2023FY",
         "2023FY",
     ]
-    assert [column.period_type for column in table.period_columns[:4]] == [
-        "point_in_time",
-        "point_in_time",
-        "point_in_time",
-        "point_in_time",
+    assert [column.value_time_shape for column in table.period_columns[:4]] == [
+        "point",
+        "point",
+        "point",
+        "point",
     ]
     assert [row.label_raw for row in table.body_rows[:3]] == [
         "Fixed assets",
