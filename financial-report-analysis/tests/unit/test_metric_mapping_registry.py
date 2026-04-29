@@ -933,7 +933,7 @@ def test_metric_mapping_registry_does_not_map_total_assets_less_current_liabilit
         market="HK",
     )
 
-    assert definition is None or definition.metric_id != "total_assets"
+    assert definition is None
 
 
 def test_metric_mapping_registry_does_not_map_cash_generated_before_interest_tax_working_capital() -> None:
@@ -950,4 +950,4 @@ def test_metric_mapping_registry_does_not_map_cash_generated_before_interest_tax
         market="HK",
     )
 
-    assert definition is None or definition.metric_id != "operating_cash_flow"
+    assert definition is None
