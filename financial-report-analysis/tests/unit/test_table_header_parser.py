@@ -166,6 +166,12 @@ def test_detect_table_unit_uses_local_context() -> None:
     assert detect_table_unit("单位：万元") == "万元"
 
 
+def test_detect_table_unit_preserves_in_us_dollar_millions_plural() -> None:
+    assert (
+        detect_table_unit("(in US$ millions, except per share data)") == "US$ millions"
+    )
+
+
 def test_detect_table_unit_accepts_singular_hk_dollar_million() -> None:
     assert detect_table_unit("US$ million Note HK$ million HK$ million") == "HK$ million"
 

@@ -112,6 +112,10 @@ def detect_table_unit(local_context: str) -> str | None:
         return "千元"
     if "百万元" in text:
         return "百万元"
+    if re.search(r"\bin\s+US\$\s+millions\b", text, re.IGNORECASE):
+        return "US$ millions"
+    if re.search(r"\bin\s+HK\$\s+millions\b", text, re.IGNORECASE):
+        return "HK$ millions"
     hk_match = re.search(r"\bHK\$\s*million(?:s)?\b", text, re.IGNORECASE)
     if hk_match is not None:
         return "HK$ million"
