@@ -32,6 +32,33 @@ roadmap、reconciliation spec 和当前代码为准。
 
 新阶段不应恢复旧 P4/P5 计划，而应从这些开放方向里挑一个最小字段族，按样本接入流程重新写 focused spec / plan。
 
+## 0.1 2026-04-29 HK.00001 2025 双币种主报表恢复更新
+
+HK.00001 2025 年报暴露的问题不是 Turtle 字段 alias 优先缺口，而是 HK 英文年报
+双币种主报表结构恢复缺口。该年报主表页面同时展示 `US$ million` 和
+`HK$ million`，pdfplumber 会把行抽成“US$ 展示值 + 多行 label/Note + HK$ 值”的
+错位结构，导致主报表行标签和 HK$ 数值绑定失败。
+
+本轮修复后，结构层在 HK annual main statement 页面从 page text 恢复
+`[label, HK current, HK prior...]` 行，并丢弃 US$ 展示列与 Note 列。聚焦验证结果：
+
+- focused unit：`152 passed in 0.23s`
+- focused integration：`56 passed in 2048.95s`
+- HK.00001 deterministic availability report：
+  `/tmp/hk00001_2025_after_dual_currency_fix/HK_00001_2025_annual_deterministic_metric_availability.md`
+- deterministic present：`revenue=280036.0`、`total_profit=26607.0`、`cash=143748.0`、`fix_assets=100080.0`、`goodwill=274553.0`
+- deterministic absent：`inventory`
+- slow path E2E report：
+  `/tmp/hk00001_2025_after_dual_currency_fix/HK_00001_2025_annual_metric_availability.md`
+- slow path summary：`total=32`、`present=4`、`absent=25`、`not_surfaced=3`，fallback call counts 为 `table_kind=32, row_label=16, currency=0, unit=4`
+
+结论：HK.00001 的主报表结构恢复已经进入 deterministic 回归保护，但完整 Turtle
+availability 仍不能解读为“字段覆盖完成”。`operating_cost`、`operating_profit`、
+`total_assets`、`operating_cash_flow` 等字段在当前 report-level availability 中仍未
+稳定露出，下一轮应继续按新增样本接入流程区分 `structure_recovery_gap`、
+`metric_mapping_gap`、`absent` 和 `not_surfaced`，不要把 slow path fallback 的存在当成
+字段准确性的替代证据。
+
 ## 1. 目的
 
 这份文档只回答两个问题：

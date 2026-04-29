@@ -40,6 +40,7 @@ Turtle 投资输入覆盖路线已经按字段族推进：
 
 - `09987 2025` 作为 “HK mixed-structure note/disclosure supplement path” 的样本锚点。
 - `02498 2022` 作为 “HK statement-row path” 的样本锚点。
+- `00001 2025` 作为 “HK dual-currency main statement recovery path” 的样本锚点。
 - `601919 2025` 作为 “CN standard balance-sheet statement-row path” 的样本锚点。
 
 禁止：
@@ -355,6 +356,31 @@ known_special_shape: main statement incomplete, debt details may appear in notes
 - table model tests
 - table structure ingestion tests
 - focused real-PDF structure regression
+
+### 6.1.1 HK 双币种主报表结构检查
+
+当新 HK 英文样本出现大量 `numeric_only_statement_block`、`table_kind` fallback 和
+`row_label` fallback，但 PDF 正文能搜索到 `Consolidated Income Statement`、
+`Consolidated Statement of Financial Position`、`Consolidated Statement of Cash Flows`
+等主报表标题时，优先检查结构恢复，而不是先补 metric alias。
+
+典型页面特征：
+
+- 表头同时包含 `US$ million` 和 `HK$ million`。
+- 数据行形态类似 `35,902 Revenue 5 280,036 281,351 275,575`。
+- pdfplumber 表格形态为首列 US$ 展示值，中间 cell 包含多行 label/Note，后续行 label 为空。
+
+处理顺序：
+
+1. 只在 HK annual main statement 页面从 page text 恢复 `[label, HK current, HK prior...]` 行。
+2. 丢弃 US$ 展示列与 Note 列，保留 HK$ current/prior values。
+3. 用 focused unit 和 real-PDF structure regression 锁定行标签、period columns、statement kind。
+4. 确认关键主报表 facts 在禁用 fallback 时也能从 deterministic source 产出。
+5. 再评估剩余 Turtle 字段是 alias 缺口、真实 absent、not_surfaced，还是 phase 外字段。
+
+HK.00001 2025 的验证经验显示，slow path availability report 可以证明 fallback 链路可用，
+但不能替代 deterministic 主路径验收。字段准确性收口时必须同时记录无 fallback 的 focused
+availability 或 candidate fact 回归。
 
 ### 6.2 补 table semantics
 
