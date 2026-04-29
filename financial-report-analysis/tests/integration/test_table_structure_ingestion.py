@@ -32,12 +32,18 @@ def _hk_annual_anchor(stock_code: str, filename: str) -> Path:
     return _sample_pdf("hk_stocks", stock_code, "annual", filename)
 
 
+def _labels_for_table(table: ParsedTable) -> set[str]:
+    return {
+        " ".join(row.label_raw.lower().split())
+        for row in table.body_rows
+        if row.label_raw
+    }
+
+
 def _flatten_labels(tables: list[ParsedTable]) -> set[str]:
     labels: set[str] = set()
     for table in tables:
-        for row in table.body_rows:
-            if row.label_raw:
-                labels.add(" ".join(row.label_raw.lower().split()))
+        labels.update(_labels_for_table(table))
     return labels
 
 
@@ -157,15 +163,48 @@ def test_hk00001_2025_remaining_main_statement_labels_are_classified() -> None:
         market="HK",
     )
 
-    income_labels = _flatten_labels(
-        [table for table in tables if table.table_kind == "income_statement"]
+    income_table = next(
+        (
+            table
+            for table in tables
+            if table.table_kind == "income_statement"
+            and table.page_range == (134, 134)
+            and table.title_text == "Consolidated Income Statement"
+            and table.statement_scope_guess == "consolidated"
+            and table.semantic_ambiguity_reason == "dual_currency_statement_block"
+        ),
+        None,
     )
-    balance_labels = _flatten_labels(
-        [table for table in tables if table.table_kind == "balance_sheet"]
+    balance_table = next(
+        (
+            table
+            for table in tables
+            if table.table_kind == "balance_sheet"
+            and table.page_range == (136, 136)
+            and table.title_text == "Consolidated Statement of Financial Position"
+            and table.statement_scope_guess == "consolidated"
+            and table.semantic_ambiguity_reason == "dual_currency_statement_block"
+        ),
+        None,
     )
-    cash_flow_labels = _flatten_labels(
-        [table for table in tables if table.table_kind == "cash_flow_statement"]
+    cash_flow_table = next(
+        (
+            table
+            for table in tables
+            if table.table_kind == "cash_flow_statement"
+            and table.page_range == (141, 141)
+            and table.semantic_ambiguity_reason == "dual_currency_statement_block"
+        ),
+        None,
     )
+
+    assert income_table is not None
+    assert balance_table is not None
+    assert cash_flow_table is not None
+
+    income_labels = _labels_for_table(income_table)
+    balance_labels = _labels_for_table(balance_table)
+    cash_flow_labels = _labels_for_table(cash_flow_table)
 
     assert "cost of inventories sold" in income_labels
     assert "total assets less current liabilities" in balance_labels
