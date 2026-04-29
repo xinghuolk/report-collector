@@ -77,12 +77,16 @@ class PdfTableStructureAdapter:
                 title_text = continuation_title
                 table_kind = classify_table_kind(title_text, market=market)
         if table_kind == "unknown":
-            main_statement_kind = (
-                self._main_statement_kind_from_title(title_text)
-                if market == "HK"
-                and self._has_dual_currency_million_context(block.page_text)
-                else None
-            )
+            main_statement_kind = None
+            if market == "HK" and self._has_dual_currency_million_context(
+                block.page_text
+            ):
+                candidate_kind = self._main_statement_kind_from_title(title_text)
+                if candidate_kind is not None and self._has_annual_statement_context(
+                    page_text=block.page_text,
+                    table_kind=candidate_kind,
+                ):
+                    main_statement_kind = candidate_kind
             if main_statement_kind is not None:
                 table_kind = main_statement_kind
         if table_kind == "unknown":
@@ -337,8 +341,7 @@ class PdfTableStructureAdapter:
             return []
         if not PdfTableStructureAdapter._has_annual_statement_context(
             page_text=page_text,
-            lines=lines,
-            unit_index=unit_index,
+            table_kind=table_kind,
         ):
             return []
 
@@ -535,22 +538,17 @@ class PdfTableStructureAdapter:
     def _has_annual_statement_context(
         *,
         page_text: str,
-        lines: list[str],
-        unit_index: int,
+        table_kind: str,
     ) -> bool:
-        normalized_text = re.sub(r"\s+", " ", page_text).casefold()
-        if (
-            "year ended" in normalized_text
-            or "as at 31 december" in normalized_text
-            or "31 december" in normalized_text
-        ):
-            return True
-
-        nearby_lines = lines[max(0, unit_index - 3) : unit_index + 1]
-        return any(
-            PdfTableStructureAdapter._recover_bare_year_header_row(line) is not None
-            for line in nearby_lines
-        )
+        normalized = re.sub(r"\s+", " ", page_text).casefold()
+        if table_kind in {"income_statement", "cash_flow_statement"}:
+            return "year ended" in normalized or "years ended" in normalized
+        if table_kind == "balance_sheet":
+            return (
+                "as at 31 december" in normalized
+                or "at 31 december" in normalized
+            )
+        return False
 
     @staticmethod
     def _is_main_statement_title(title_text: str) -> bool:
