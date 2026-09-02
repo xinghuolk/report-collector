@@ -6,18 +6,20 @@ import asyncio
 import json
 import re
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 from datetime import datetime
-from loguru import logger
-from cachetools import TTLCache
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
-from ..pdf_sources.cninfo_downloader import CninfoDownloader
-from ..pdf_sources.hkex_downloader import HKEXDownloader
+from cachetools import TTLCache
+from loguru import logger
+
+from ..config import Config
 from ..pdf_manager import PDFManager
 from ..pdf_parser import PDFContentExtractor
+from ..pdf_sources.cninfo_downloader import CninfoDownloader
+from ..pdf_sources.hkex_downloader import HKEXDownloader
 from ..utils.validators import DataValidator
-from ..config import Config
 
 
 class PDFHandler:
@@ -360,7 +362,11 @@ class PDFHandler:
     async def download_report(self, stock_code: str, market: str = "CN",
                             report_type: str = "annual", report_url: str = None,
                             report_title: str = "",
-                            auto_extract: bool = False) -> Dict[str, Any]:
+                            auto_extract: bool = False,
+                            report_year: Optional[int] = None,
+                            language: str = "en",
+                            announcement_at: Optional[datetime] = None,
+                            announcement_date: Optional[str] = None) -> Dict[str, Any]:
         """
         下载财报PDF
 
@@ -371,6 +377,10 @@ class PDFHandler:
             report_url: 报告URL
             report_title: 报告标题
             auto_extract: 下载后是否自动提取并缓存财务数据
+            report_year: 报告年份
+            language: 报告语言（en/zh）
+            announcement_at: 带时区的公告时间
+            announcement_date: 公告日期
 
         Returns:
             下载结果字典
@@ -428,6 +438,88 @@ class PDFHandler:
                     return result
                 else:
                     return {"success": False, "error": "PDF下载失败"}
+
+            elif market == "HK":
+                if not report_url:
+                    return {"success": False, "error": "港股报告URL不能为空"}
+
+                parsed_url = urlsplit(report_url)
+                if parsed_url.scheme != "https":
+                    return {"success": False, "error": "港股报告URL必须使用HTTPS"}
+                hostname = (parsed_url.hostname or "").lower()
+                if not (
+                    hostname == "www1.hkexnews.hk"
+                    or hostname.endswith(".hkexnews.hk")
+                ):
+                    return {
+                        "success": False,
+                        "error": "港股报告URL必须属于hkexnews.hk",
+                    }
+                if report_year is None:
+                    return {"success": False, "error": "港股报告年份不能为空"}
+                if language not in {"en", "zh"}:
+                    return {"success": False, "error": "港股报告语言必须为en或zh"}
+
+                report_data = {
+                    "stock_code": stock_code,
+                    "title": report_title,
+                    "report_type": report_type,
+                    "year": report_year,
+                    "language": language,
+                    "web_path": report_url,
+                    "release_time": announcement_date or "",
+                    "announcement_at": announcement_at,
+                    "announcement_date": announcement_date,
+                    "market": "SEHK",
+                }
+                success, message, file_path = await self.hk_downloader.download_pdf(
+                    report_url, report_data
+                )
+                if not success or not file_path:
+                    return {"success": False, "error": message}
+
+                metadata = {
+                    "title": report_title,
+                    "release_time": announcement_date or "",
+                    "announcement_at": (
+                        announcement_at.isoformat() if announcement_at else None
+                    ),
+                    "announcement_date": announcement_date,
+                    "web_path": report_url,
+                    "period_hint": self._build_hk_period_hint(
+                        report_type=report_type,
+                        title=report_title,
+                        year=report_year,
+                    ),
+                    "language": language,
+                }
+                pdf_info = {
+                    "stock_code": stock_code,
+                    "market": market,
+                    "report_type": report_type,
+                    "report_year": report_year,
+                    "announcement_date": announcement_at,
+                    "original_title": report_title,
+                    "file_path": file_path,
+                    "file_name": Path(file_path).name,
+                    "source_url": report_url,
+                    "source_name": "港交所披露易",
+                    "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                }
+                pdf_id = await self.pdf_manager.add_pdf(pdf_info)
+
+                return {
+                    "success": True,
+                    "data": {
+                        "pdf_id": pdf_id,
+                        "file_path": file_path,
+                        "file_name": Path(file_path).name,
+                        "stock_code": stock_code,
+                        "market": market,
+                        "report_year": report_year,
+                        "language": language,
+                    },
+                }
 
             else:
                 return {"success": False, "error": f"暂不支持{market}市场的下载"}
