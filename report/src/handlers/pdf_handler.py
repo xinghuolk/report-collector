@@ -144,6 +144,14 @@ class PDFHandler:
                 raise ValueError
             return None, release_date.isoformat()
         except ValueError:
+            pass
+
+        try:
+            release_date = date.fromisoformat(cleaned)
+            if release_date.isoformat() != cleaned:
+                raise ValueError
+            return None, release_date.isoformat()
+        except ValueError:
             raise ValueError("报告公告时间无效") from None
 
     @staticmethod
@@ -348,7 +356,14 @@ class PDFHandler:
     ) -> dict[str, Any]:
         if report.get("stock_code") != stock_code:
             raise ValueError("报告证券代码与请求不匹配")
-        if report.get("report_type") != requested_type:
+        source_type = report.get("report_type")
+        type_matches = source_type == requested_type
+        if market == "CN" and requested_type == "quarterly":
+            type_matches = type_matches or source_type in (
+                "quarterly_1",
+                "quarterly_3",
+            )
+        if not type_matches:
             raise ValueError("报告类型与请求不匹配")
 
         report_year = report.get("year")

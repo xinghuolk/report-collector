@@ -95,16 +95,11 @@ class TestReportTypeClassification:
         assert downloader._classify_report_type("annual report 2023") == "annual"
 
     def test_classify_semi_annual_report(self, downloader):
-        """测试半年报分类
-
-        注意：由于实现中检查顺序问题，以下情况会被误识别为 annual：
-        - '半年度报告' 包含 '年度报告'
-        - '半年报' 包含 '年报'
-        - 'semi-annual report' 包含 'annual report'
-        只有 '中报' 关键词可以正确识别半年报
-        """
-        # 使用 '中报' 关键词可以正确识别
+        """测试常见半年报标题优先于其中包含的年报关键词"""
+        assert downloader._classify_report_type("平安银行2023年半年度报告") == "semi_annual"
+        assert downloader._classify_report_type("中国平安2023年半年报") == "semi_annual"
         assert downloader._classify_report_type("中国平安2023年中报") == "semi_annual"
+        assert downloader._classify_report_type("semi-annual report 2023") == "semi_annual"
 
     def test_classify_quarterly_report(self, downloader):
         """测试季报分类"""

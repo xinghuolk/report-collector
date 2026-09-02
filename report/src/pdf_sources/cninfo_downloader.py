@@ -537,12 +537,12 @@ class CninfoDownloader:
         """根据标题智能分类报告类型"""
         title_lower = title.lower()
         
-        # 年报
-        if any(keyword in title for keyword in ['年度报告', '年报', 'annual report']):
-            return 'annual'
-        # 半年报    
-        elif any(keyword in title for keyword in ['半年度报告', '半年报', '中报', 'semi-annual']):
+        # 半年报关键词包含年报关键词，必须优先匹配
+        if any(keyword in title for keyword in ['半年度报告', '半年报', '中报', 'semi-annual']):
             return 'semi_annual'
+        # 年报
+        elif any(keyword in title for keyword in ['年度报告', '年报', 'annual report']):
+            return 'annual'
         # 一季报
         elif any(keyword in title for keyword in ['第一季度报告', '一季度报告', '一季报', 'first quarter']):
             return 'quarterly_1'

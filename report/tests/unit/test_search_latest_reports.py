@@ -1,6 +1,8 @@
 import pytest
 
 from src.handlers.pdf_handler import PDFHandler
+from src.pdf_sources.cninfo_downloader import CninfoDownloader
+from src.pdf_sources.hkex_downloader import HKEXDownloader
 
 CN_REPORT: dict[str, object] = {
     "stock_code": "600519",
@@ -145,6 +147,97 @@ async def test_hk_search_preserves_date_without_synthesizing_timestamp():
 
 
 @pytest.mark.parametrize(
+    ("title", "requested_type"),
+    [
+        pytest.param(
+            "贵州茅台2025年半年度报告", "semi_annual", id="semi-annual"
+        ),
+        pytest.param("贵州茅台2025年第一季度报告", "quarterly", id="quarterly-1"),
+        pytest.param("贵州茅台2025年第三季度报告", "quarterly", id="quarterly-3"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_cn_parser_output_normalizes_at_search_boundary(
+    tmp_path, title: str, requested_type: str
+):
+    downloader = CninfoDownloader(
+        download_dir=str(tmp_path / "cn-downloads"),
+        db_path=str(tmp_path / "cn.db"),
+    )
+    reports = downloader._parse_search_results(
+        {
+            "announcements": [
+                {
+                    "announcementId": "report-2025",
+                    "announcementTitle": title,
+                    "secCode": "600519",
+                    "secName": "贵州茅台",
+                    "announcementTime": 1774916100000,
+                    "adjunctUrl": "finalpage/2026-03-31/report.PDF",
+                    "adjunctSize": 1024,
+                }
+            ]
+        },
+        requested_type,
+    )
+    handler = handler_with_reports("CN", reports)
+
+    result = await handler.search_latest_reports(
+        stock_code="600519",
+        market="CN",
+        report_types=[requested_type],
+    )
+
+    assert result["success"] is True
+    assert result["data"][0]["report_type"] == requested_type
+
+
+@pytest.mark.asyncio
+async def test_cn_quarterly_search_rejects_unrelated_source_type():
+    handler = handler_with_reports("CN", [CN_REPORT])
+
+    result = await handler.search_latest_reports(
+        stock_code="600519",
+        market="CN",
+        report_types=["quarterly"],
+    )
+
+    assert result == {"success": False, "error": "报告类型与请求不匹配"}
+
+
+@pytest.mark.asyncio
+async def test_hk_parser_iso_date_normalizes_at_search_boundary(tmp_path):
+    downloader = HKEXDownloader(
+        download_dir=str(tmp_path / "hk-downloads"),
+        db_path=str(tmp_path / "hk.db"),
+    )
+    report = downloader._parse_announcement(
+        {
+            "stock": [{"sc": "700", "sn": "Tencent"}],
+            "title": "Tencent 2025 Annual Report",
+            "webPath": "/listedco/report.pdf",
+            "newsId": "annual-2025",
+            "relTime": "2026-03-18",
+            "size": "10MB",
+            "market": "SEHK",
+        },
+        "annual",
+    )
+    assert report is not None
+    handler = handler_with_reports("HK", [report])
+
+    result = await handler.search_latest_reports(
+        stock_code="00700",
+        market="HK",
+        report_types=["annual"],
+    )
+
+    assert result["success"] is True
+    assert result["data"][0]["announcement_at"] is None
+    assert result["data"][0]["announcement_date"] == "2026-03-18"
+
+
+@pytest.mark.parametrize(
     ("override", "expected_error"),
     [
         pytest.param(
@@ -156,6 +249,11 @@ async def test_hk_search_preserves_date_without_synthesizing_timestamp():
             {"report_type": "semi_annual"},
             "报告类型与请求不匹配",
             id="report-type",
+        ),
+        pytest.param(
+            {"report_type": ["annual"]},
+            "报告类型与请求不匹配",
+            id="non-string-report-type",
         ),
     ],
 )
