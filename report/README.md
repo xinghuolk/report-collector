@@ -62,6 +62,25 @@ curl -X POST http://127.0.0.1:8000/api/v1/reports/hk/download \
   -d '{"stock_code":"00700","url":"https://www1.hkexnews.hk/listedco/report.pdf","title":"Tencent 2025 Annual Report","report_type":"annual","report_year":2025,"language":"en","announcement_at":"2026-03-18T16:30:00+08:00","announcement_date":"2026-03-18"}'
 ```
 
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "pdf_id": 123,
+    "file_path": "/data/reports/00700/annual/2025_annual_en.pdf",
+    "file_name": "2025_annual_en.pdf",
+    "stock_code": "00700",
+    "market": "HK",
+    "report_year": 2025,
+    "language": "en"
+  },
+  "error": null,
+  "message": "下载成功"
+}
+```
+
 ### 查询
 - `GET /api/v1/pdfs/{pdf_id}` - 获取PDF详情
 - `GET /api/v1/stats` - 获取收集统计
