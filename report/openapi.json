@@ -266,7 +266,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_dict_str__Any__"
+                  "$ref": "#/components/schemas/APIResponse_Dict_str__Any__"
                 }
               }
             }
@@ -308,7 +308,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_dict_str__Any__"
+                  "$ref": "#/components/schemas/APIResponse_Dict_str__Any__"
                 }
               }
             }
@@ -350,7 +350,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_dict_str__Any__"
+                  "$ref": "#/components/schemas/APIResponse_Dict_str__Any__"
                 }
               }
             }
@@ -392,7 +392,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_dict_str__Any__"
+                  "$ref": "#/components/schemas/APIResponse_Dict_str__Any__"
                 }
               }
             }
@@ -518,7 +518,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_dict_str__Any__"
+                  "$ref": "#/components/schemas/APIResponse_Dict_str__Any__"
                 }
               }
             }
@@ -1037,57 +1037,6 @@
         ],
         "title": "APIResponse[Dict[str, Any]]"
       },
-      "APIResponse_dict_str__Any__": {
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "title": "Success",
-            "description": "操作是否成功"
-          },
-          "data": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data",
-            "description": "返回数据"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error",
-            "description": "错误信息"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Message",
-            "description": "提示信息"
-          }
-        },
-        "type": "object",
-        "required": [
-          "success"
-        ],
-        "title": "APIResponse[dict[str, Any]]"
-      },
       "BatchDownloadRequest": {
         "properties": {
           "stock_code": {
@@ -1331,7 +1280,8 @@
           "announcement_date": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "format": "date"
               },
               {
                 "type": "null"

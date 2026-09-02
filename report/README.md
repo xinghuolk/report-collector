@@ -49,10 +49,15 @@ uv run python -m src.server --mode http --host 0.0.0.0 --port 8000
 
 使用已选报告的 HKEX HTTPS URL 下载单份港股财报：服务会在校验后按请求中提供的
 `url` 原样下载，不搜索报告，也不会调用提取或缓存。该接口固定使用 `market=HK` 和
-`auto_extract=false`；响应使用现有的 `APIResponse` 结构。
+`auto_extract=false`；仅允许默认 HTTPS 端口或显式 `443`，且不会跟随重定向。下载内容
+必须以 `%PDF-` 开头才会原子写入并登记。若同一报告标识对应不同 URL，后续文件使用
+稳定的 URL 哈希后缀，避免复用其他来源的内容；相同 URL 仅复用有匹配来源记录的有效 PDF。
 
 `announcement_at` 和 `announcement_date` 均为独立的可选字段。`announcement_at` 必须是
-带 `Z` 或 UTC 偏移量的 ISO/RFC3339 时间；仅提供 `announcement_date` 时不会合成时间戳。
+带 `Z` 或 UTC 偏移量的 ISO/RFC3339 时间，原始字符串会原样保存在元数据中；其换算后的
+UTC 值写入元数据 `announcement_at_utc`，并以 UTC 无时区值写入旧版
+`ReportPDF.announcement_date` 列。仅提供 `announcement_date` 时不会合成时间戳；该日期
+必须是实际存在的规范 `YYYY-MM-DD`。
 请求会校验五位港股代码、HKEX HTTPS 主机、`annual`/`semi_annual`/`quarterly` 报告类型、
 1990--2100 年、`en`/`zh` 语言，以及（提供时）非空白标题。
 

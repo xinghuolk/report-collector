@@ -85,10 +85,9 @@ async def test_hk_download_route_forwards_selected_report():
         "auto_extract": False,
         "report_year": 2025,
         "language": "en",
-        "announcement_at": datetime.fromisoformat("2026-03-18T16:30:00+08:00"),
+        "announcement_at": "2026-03-18T16:30:00+08:00",
         "announcement_date": "2026-03-18",
     }
-    assert forwarded["announcement_at"].isoformat() == "2026-03-18T16:30:00+08:00"
     handler.search_available_reports.assert_not_awaited()
 
 
@@ -97,12 +96,12 @@ async def test_hk_download_route_forwards_selected_report():
     [
         (
             {"announcement_at": "2026-03-18T16:30:00-04:00"},
-            datetime.fromisoformat("2026-03-18T16:30:00-04:00"),
+            "2026-03-18T16:30:00-04:00",
             None,
         ),
         (
             {"announcement_at": "2026-03-18T16:30:00Z"},
-            datetime(2026, 3, 18, 16, 30, tzinfo=timezone.utc),
+            "2026-03-18T16:30:00Z",
             None,
         ),
         ({"announcement_date": "2026-03-18"}, None, "2026-03-18"),
@@ -125,6 +124,26 @@ async def test_hk_download_route_accepts_announcement_fields_independently(
 async def test_hk_download_route_rejects_naive_announcement_at():
     response, handler = await post_hk_download(
         hk_download_payload(announcement_at="2026-03-18T16:30:00")
+    )
+
+    assert response.status_code == 422
+    handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "announcement_date",
+    [
+        pytest.param("2026-02-30", id="nonexistent-date"),
+        pytest.param("2026-2-03", id="noncanonical-date"),
+        pytest.param("not-a-date", id="invalid-date"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_rejects_invalid_announcement_date(
+    announcement_date,
+):
+    response, handler = await post_hk_download(
+        hk_download_payload(announcement_date=announcement_date)
     )
 
     assert response.status_code == 422
@@ -161,6 +180,7 @@ async def test_hk_download_route_rejects_announcement_at_without_explicit_offset
             "https://www1.hkexnews.hk.evil.test/report.pdf", id="spoofed-hkex"
         ),
         pytest.param("http://www1.hkexnews.hk/report.pdf", id="http"),
+        pytest.param("https://www1.hkexnews.hk:444/report.pdf", id="nonstandard-port"),
     ],
 )
 @pytest.mark.asyncio
@@ -216,6 +236,44 @@ async def test_hk_download_route_accepts_hkex_subdomain_without_rewriting_url():
 
     assert response.status_code == 200
     assert handler.download_report.await_args.kwargs["report_url"] == url
+
+
+@pytest.mark.asyncio
+async def test_hk_download_route_accepts_explicit_https_port_without_rewriting_url():
+    url = "https://www1.hkexnews.hk:443/listedco/report.pdf"
+
+    response, handler = await post_hk_download(hk_download_payload(url=url))
+
+    assert response.status_code == 200
+    assert handler.download_report.await_args.kwargs["report_url"] == url
+
+
+def test_hk_download_openapi_marks_announcement_fields_with_string_formats():
+    schema = create_app().openapi()["components"]["schemas"]["HKSingleDownloadRequest"]
+
+    announcement_at = schema["properties"]["announcement_at"]["anyOf"][0]
+    announcement_date = schema["properties"]["announcement_date"]["anyOf"][0]
+    assert announcement_at == {"type": "string", "format": "date-time"}
+    assert announcement_date == {"type": "string", "format": "date"}
+
+
+def test_existing_download_openapi_response_schema_names_are_stable():
+    paths = create_app().openapi()["paths"]
+    response_refs = {
+        path: paths[path][method]["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ]["$ref"]
+        for path, method in (
+            ("/api/v1/reports/cn/download", "post"),
+            ("/api/v1/reports/cn/batch-download", "post"),
+            ("/api/v1/reports/hk/batch-download", "post"),
+            ("/api/v1/pdfs", "get"),
+        )
+    }
+
+    assert set(response_refs.values()) == {
+        "#/components/schemas/APIResponse_Dict_str__Any__"
+    }
 
 
 @pytest.mark.parametrize(
@@ -311,10 +369,11 @@ async def test_download_report_uses_exact_hk_url_and_persists_metadata(
             "language": "en",
             "web_path": HKEX_URL,
             "release_time": "2026-03-18",
-            "announcement_at": announced_at,
+            "announcement_at": "2026-03-18T16:30:00+00:00",
             "announcement_date": "2026-03-18",
             "market": "SEHK",
         },
+        exact=True,
     )
     extract_pdf_content.assert_not_awaited()
 
@@ -332,11 +391,13 @@ async def test_download_report_uses_exact_hk_url_and_persists_metadata(
     assert row.file_name == "2025_annual_en.pdf"
     assert row.source_url == HKEX_URL
     assert row.source_name == "港交所披露易"
+    assert row.announcement_date == datetime(2026, 3, 18, 16, 30)
     metadata = json.loads(row.metadata_json)
     assert metadata == {
         "title": "Tencent 2025 Annual Report",
         "release_time": "2026-03-18",
         "announcement_at": "2026-03-18T16:30:00+00:00",
+        "announcement_at_utc": "2026-03-18T16:30:00Z",
         "announcement_date": "2026-03-18",
         "web_path": HKEX_URL,
         "period_hint": "2025_fy",
@@ -358,8 +419,26 @@ async def test_download_report_uses_exact_hk_url_and_persists_metadata(
             {"report_url": "https://www1.hkexnews.hk.evil.test/report.pdf"},
             "港股报告URL必须属于hkexnews.hk",
         ),
+        (
+            {"report_url": "https://www1.hkexnews.hk:444/report.pdf"},
+            "港股报告URL端口必须为443",
+        ),
         ({"report_year": None}, "港股报告年份不能为空"),
+        ({"report_year": 1989}, "港股报告年份必须在1990到2100之间"),
+        ({"report_year": 2101}, "港股报告年份必须在1990到2100之间"),
+        (
+            {"report_type": "all"},
+            "港股报告类型必须为annual、semi_annual或quarterly",
+        ),
         ({"language": "fr"}, "港股报告语言必须为en或zh"),
+        (
+            {"announcement_date": "2026-02-30"},
+            "港股公告日期必须为YYYY-MM-DD",
+        ),
+        (
+            {"announcement_date": "2026-2-03"},
+            "港股公告日期必须为YYYY-MM-DD",
+        ),
     ],
 )
 async def test_download_report_rejects_invalid_hk_selection(
@@ -443,6 +522,8 @@ async def test_download_report_does_not_invent_timestamp_from_announcement_date(
     "announcement_at",
     [
         pytest.param(datetime(2026, 3, 18, 16, 30), id="naive"),
+        pytest.param("2026-03-18T16:30:00", id="naive-string"),
+        pytest.param("not-a-timestamp", id="invalid-string"),
         pytest.param(
             datetime(2026, 3, 18, 16, 30, tzinfo=BrokenTimezone()),
             id="broken-tzinfo",

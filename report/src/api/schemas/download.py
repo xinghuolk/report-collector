@@ -2,10 +2,16 @@
 下载相关Schema
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Annotated
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
+
+RawAnnouncementTimestamp = Annotated[
+    str, Field(json_schema_extra={"format": "date-time"})
+]
+CanonicalAnnouncementDate = Annotated[str, Field(json_schema_extra={"format": "date"})]
 
 
 class DownloadRequest(BaseModel):
@@ -23,8 +29,8 @@ class HKSingleDownloadRequest(DownloadRequest):
     report_type: str = Field(pattern=r"^(annual|semi_annual|quarterly)$")
     report_year: int = Field(ge=1990, le=2100)
     language: str = Field(pattern=r"^(en|zh)$")
-    announcement_at: datetime | None = None
-    announcement_date: str | None = None
+    announcement_at: RawAnnouncementTimestamp | None = None
+    announcement_date: CanonicalAnnouncementDate | None = None
 
     @field_validator("url")
     @classmethod
@@ -35,6 +41,12 @@ class HKSingleDownloadRequest(DownloadRequest):
         hostname = (parsed_url.hostname or "").lower()
         if not (hostname == "www1.hkexnews.hk" or hostname.endswith(".hkexnews.hk")):
             raise ValueError("url must belong to hkexnews.hk")
+        try:
+            port = parsed_url.port
+        except ValueError:
+            raise ValueError("url port must be 443")
+        if port not in {None, 443}:
+            raise ValueError("url port must be 443")
         return value
 
     @field_validator("title")
@@ -61,13 +73,17 @@ class HKSingleDownloadRequest(DownloadRequest):
             raise ValueError("announcement_at must include a timezone")
         return value
 
-    @field_validator("announcement_at")
+    @field_validator("announcement_date")
     @classmethod
-    def validate_announcement_at_timezone(
-        cls, value: datetime | None
-    ) -> datetime | None:
-        if value is not None and value.utcoffset() is None:
-            raise ValueError("announcement_at must include a timezone")
+    def validate_announcement_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            parsed_value = date.fromisoformat(value)
+        except (TypeError, ValueError):
+            raise ValueError("announcement_date must be YYYY-MM-DD")
+        if parsed_value.isoformat() != value:
+            raise ValueError("announcement_date must be YYYY-MM-DD")
         return value
 
 

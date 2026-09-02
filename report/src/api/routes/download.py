@@ -2,7 +2,9 @@
 下载API路由
 """
 
-from typing import Any
+# Keep typing.Dict in response generics to preserve published OpenAPI component names.
+# ruff: noqa: UP006, UP035
+from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends, Query
 
@@ -14,13 +16,13 @@ from ..schemas.download import BatchDownloadRequest, HKSingleDownloadRequest
 router = APIRouter()
 
 
-@router.post("/reports/cn/download", response_model=APIResponse[dict[str, Any]])
+@router.post("/reports/cn/download", response_model=APIResponse[Dict[str, Any]])
 async def download_cn_report(
     stock_code: str = Body(..., description="股票代码"),
     url: str = Body(..., description="下载URL"),
     title: str | None = Body(default=None, description="文件标题"),
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[dict[str, Any]]:
+) -> APIResponse[Dict[str, Any]]:
     """
     下载单个A股财报PDF
 
@@ -43,11 +45,11 @@ async def download_cn_report(
     )
 
 
-@router.post("/reports/cn/batch-download", response_model=APIResponse[dict[str, Any]])
+@router.post("/reports/cn/batch-download", response_model=APIResponse[Dict[str, Any]])
 async def batch_download_cn_reports(
     request: BatchDownloadRequest,
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[dict[str, Any]]:
+) -> APIResponse[Dict[str, Any]]:
     """
     批量下载A股财报PDF
 
@@ -70,11 +72,11 @@ async def batch_download_cn_reports(
     )
 
 
-@router.post("/reports/hk/download", response_model=APIResponse[dict[str, Any]])
+@router.post("/reports/hk/download", response_model=APIResponse[Dict[str, Any]])
 async def download_hk_report(
     request: HKSingleDownloadRequest,
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[dict[str, Any]]:
+) -> APIResponse[Dict[str, Any]]:
     """下载单个已选择的港股财报PDF。"""
     result = await handler.download_report(
         stock_code=request.stock_code,
@@ -97,11 +99,11 @@ async def download_hk_report(
     )
 
 
-@router.post("/reports/hk/batch-download", response_model=APIResponse[dict[str, Any]])
+@router.post("/reports/hk/batch-download", response_model=APIResponse[Dict[str, Any]])
 async def batch_download_hk_reports(
     request: BatchDownloadRequest,
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[dict[str, Any]]:
+) -> APIResponse[Dict[str, Any]]:
     """
     批量下载港股财报PDF
 
@@ -124,7 +126,7 @@ async def batch_download_hk_reports(
     )
 
 
-@router.get("/pdfs", response_model=APIResponse[dict[str, Any]])
+@router.get("/pdfs", response_model=APIResponse[Dict[str, Any]])
 async def list_downloaded_pdfs(
     stock_code: str | None = Query(default=None, description="股票代码筛选"),
     market: str | None = Query(default=None, description="市场筛选 (CN/HK/US)"),
@@ -139,7 +141,7 @@ async def list_downloaded_pdfs(
         description="排序方向: desc/asc",
     ),
     handler: PDFHandler = Depends(get_pdf_handler),
-) -> APIResponse[dict[str, Any]]:
+) -> APIResponse[Dict[str, Any]]:
     """
     列出已下载的PDF文件
 
