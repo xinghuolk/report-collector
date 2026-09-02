@@ -100,9 +100,14 @@ async def test_hk_download_route_forwards_selected_report():
             datetime.fromisoformat("2026-03-18T16:30:00-04:00"),
             None,
         ),
+        (
+            {"announcement_at": "2026-03-18T16:30:00Z"},
+            datetime(2026, 3, 18, 16, 30, tzinfo=timezone.utc),
+            None,
+        ),
         ({"announcement_date": "2026-03-18"}, None, "2026-03-18"),
     ],
-    ids=["timestamp-only", "date-only"],
+    ids=["offset-timestamp-only", "z-timestamp-only", "date-only"],
 )
 @pytest.mark.asyncio
 async def test_hk_download_route_accepts_announcement_fields_independently(
@@ -124,6 +129,93 @@ async def test_hk_download_route_rejects_naive_announcement_at():
 
     assert response.status_code == 422
     handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "announcement_at",
+    [
+        pytest.param(0, id="unix-epoch-number"),
+        pytest.param(1773841800, id="unix-timestamp-number"),
+        pytest.param("1773841800", id="unix-timestamp-string"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_rejects_announcement_at_without_explicit_offset(
+    announcement_at,
+):
+    response, handler = await post_hk_download(
+        hk_download_payload(announcement_at=announcement_at)
+    )
+
+    assert response.status_code == 422
+    handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("not-a-url", id="invalid"),
+        pytest.param("https://example.com/report.pdf", id="non-hkex"),
+        pytest.param(
+            "https://www1.hkexnews.hk.evil.test/report.pdf", id="spoofed-hkex"
+        ),
+        pytest.param("http://www1.hkexnews.hk/report.pdf", id="http"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_rejects_invalid_url(url):
+    response, handler = await post_hk_download(hk_download_payload(url=url))
+
+    assert response.status_code == 422
+    handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "title", [pytest.param("", id="empty"), pytest.param(" \t", id="blank")]
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_rejects_blank_title(title):
+    response, handler = await post_hk_download(hk_download_payload(title=title))
+
+    assert response.status_code == 422
+    handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hk_download_route_preserves_nonblank_title():
+    title = "  Tencent 2025 Annual Report  "
+
+    response, handler = await post_hk_download(hk_download_payload(title=title))
+
+    assert response.status_code == 200
+    assert handler.download_report.await_args.kwargs["report_title"] == title
+
+
+@pytest.mark.parametrize(
+    "title_override",
+    [pytest.param({}, id="omitted"), pytest.param({"title": None}, id="null")],
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_accepts_missing_title(title_override):
+    payload = hk_download_payload(**title_override)
+    if not title_override:
+        payload.pop("title")
+
+    response, handler = await post_hk_download(payload)
+
+    assert response.status_code == 200
+    assert handler.download_report.await_args.kwargs["report_title"] == ""
+
+
+@pytest.mark.asyncio
+async def test_hk_download_route_accepts_hkex_subdomain_without_rewriting_url():
+    url = "https://documents.hkexnews.hk/listedco/report.pdf"
+
+    response, handler = await post_hk_download(hk_download_payload(url=url))
+
+    assert response.status_code == 200
+    assert handler.download_report.await_args.kwargs["report_url"] == url
 
 
 @pytest.mark.parametrize(
