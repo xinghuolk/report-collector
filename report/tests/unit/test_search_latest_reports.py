@@ -205,3 +205,89 @@ async def test_search_fails_when_hk_report_identity_is_malformed(
     )
 
     assert result == {"success": False, "error": expected_error}
+
+
+@pytest.mark.parametrize(
+    ("market", "stock_code", "source_report", "expected_error"),
+    [
+        pytest.param(
+            "CN",
+            "600519",
+            {
+                **CN_REPORT,
+                "announcement_time": "",
+                "announcement_date": "2026-02-30",
+            },
+            "报告公告日期无效",
+            id="cn-announcement-date",
+        ),
+        pytest.param(
+            "HK",
+            "00700",
+            {**HK_REPORT, "release_time": "30/02/2026"},
+            "报告公告时间无效",
+            id="hk-release-time",
+        ),
+        pytest.param(
+            "HK",
+            "00700",
+            {**HK_REPORT, "release_time": "3/2/2026"},
+            "报告公告时间无效",
+            id="hk-noncanonical-date",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_search_fails_when_source_announcement_value_is_malformed(
+    market: str,
+    stock_code: str,
+    source_report: dict[str, object],
+    expected_error: str,
+):
+    handler = handler_with_reports(market, [source_report])
+
+    result = await handler.search_latest_reports(
+        stock_code=stock_code,
+        market=market,
+        report_types=["annual"],
+    )
+
+    assert result == {"success": False, "error": expected_error}
+
+
+@pytest.mark.parametrize(
+    ("market", "stock_code", "source_report"),
+    [
+        pytest.param(
+            "CN",
+            "600519",
+            {
+                key: value
+                for key, value in CN_REPORT.items()
+                if key not in {"announcement_time", "announcement_date"}
+            },
+            id="cn",
+        ),
+        pytest.param(
+            "HK",
+            "00700",
+            {key: value for key, value in HK_REPORT.items() if key != "release_time"},
+            id="hk",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_search_accepts_missing_source_announcement_value(
+    market: str, stock_code: str, source_report: dict[str, object]
+):
+    handler = handler_with_reports(market, [source_report])
+
+    result = await handler.search_latest_reports(
+        stock_code=stock_code,
+        market=market,
+        report_types=["annual"],
+    )
+
+    assert result["success"] is True
+    assert result["data"][0]["announcement_at"] is None
+    assert result["data"][0]["announcement_date"] is None

@@ -121,21 +121,30 @@ class PDFHandler:
         release_time: str | None,
     ) -> tuple[datetime | None, str | None]:
         """解析港股披露易发布时间或公告日期"""
-        if not release_time:
+        if release_time in (None, ""):
             return None, None
+        if not isinstance(release_time, str):
+            raise ValueError("报告公告时间无效")
 
         cleaned = release_time.replace("Release Time:", "").strip()
         try:
-            release_dt = datetime.strptime(cleaned, "%d/%m/%Y %H:%M")
+            timed_format = "%d/%m/%Y %H:%M"
+            release_dt = datetime.strptime(cleaned, timed_format)
+            if release_dt.strftime(timed_format) != cleaned:
+                raise ValueError
             aware_release = release_dt.replace(tzinfo=ZoneInfo("Asia/Hong_Kong"))
             return aware_release, aware_release.date().isoformat()
         except ValueError:
             pass
 
         try:
-            return None, datetime.strptime(cleaned, "%d/%m/%Y").date().isoformat()
+            date_format = "%d/%m/%Y"
+            release_date = datetime.strptime(cleaned, date_format).date()
+            if release_date.strftime(date_format) != cleaned:
+                raise ValueError
+            return None, release_date.isoformat()
         except ValueError:
-            return None, None
+            raise ValueError("报告公告时间无效") from None
 
     @staticmethod
     def _parse_cn_announcement_time(report: dict[str, Any]) -> datetime | None:
@@ -358,11 +367,18 @@ class PDFHandler:
         url = self._validate_latest_report_url(report.get("pdf_url"), market)
         if market == "CN":
             language = "zh"
+            raw_announcement_date = report.get("announcement_date")
+            source_announcement_date = None
+            if raw_announcement_date not in (None, ""):
+                source_announcement_date = self._canonical_date(
+                    raw_announcement_date
+                )
+                if source_announcement_date is None:
+                    raise ValueError("报告公告日期无效")
+
             announcement_dt = self._parse_cn_announcement_time(report)
             if announcement_dt is None:
-                announcement_date = self._canonical_date(
-                    report.get("announcement_date")
-                )
+                announcement_date = source_announcement_date
             else:
                 announcement_date = announcement_dt.date().isoformat()
         else:
@@ -779,11 +795,11 @@ class PDFHandler:
                 downloaded_files = []
                 for file_path, matched_report in download_results:
                     downloaded_files.append(file_path)
-                    announcement_date = (
-                        self._parse_hk_release_time(matched_report.get("release_time"))
-                        if matched_report
-                        else None
-                    )
+                    announcement_date = None
+                    if matched_report:
+                        announcement_date, _ = self._parse_hk_release_time(
+                            matched_report.get("release_time")
+                        )
                     pdf_info = {
                         "stock_code": stock_code,
                         "market": market,
