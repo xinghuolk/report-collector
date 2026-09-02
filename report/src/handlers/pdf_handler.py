@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from cachetools import TTLCache
 from loguru import logger
@@ -116,36 +117,38 @@ class PDFHandler:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    def _parse_hk_release_time(release_time: Optional[str]) -> Optional[datetime]:
-        """解析港股披露易发布时间"""
+    def _parse_hk_release_time(
+        release_time: str | None,
+    ) -> tuple[datetime | None, str | None]:
+        """解析港股披露易发布时间或公告日期"""
         if not release_time:
-            return None
+            return None, None
 
         cleaned = release_time.replace("Release Time:", "").strip()
-        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
-            try:
-                return datetime.strptime(cleaned, fmt)
-            except ValueError:
-                continue
-        return None
+        try:
+            release_dt = datetime.strptime(cleaned, "%d/%m/%Y %H:%M")
+            aware_release = release_dt.replace(tzinfo=ZoneInfo("Asia/Hong_Kong"))
+            return aware_release, aware_release.date().isoformat()
+        except ValueError:
+            pass
+
+        try:
+            return None, datetime.strptime(cleaned, "%d/%m/%Y").date().isoformat()
+        except ValueError:
+            return None, None
 
     @staticmethod
-    def _parse_cn_announcement_time(report: Dict[str, Any]) -> Optional[datetime]:
+    def _parse_cn_announcement_time(report: dict[str, Any]) -> datetime | None:
         """解析A股公告发布时间"""
         raw_ts = report.get("announcement_time")
-        if raw_ts:
+        if raw_ts not in (None, "") and not isinstance(raw_ts, bool):
             try:
-                return datetime.fromtimestamp(int(raw_ts) / 1000)
-            except (ValueError, TypeError):
+                return datetime.fromtimestamp(
+                    int(raw_ts) / 1000,
+                    tz=ZoneInfo("Asia/Shanghai"),
+                )
+            except (OSError, OverflowError, ValueError, TypeError):
                 pass
-
-        date_text = report.get("announcement_date")
-        if date_text:
-            try:
-                return datetime.strptime(date_text, "%Y-%m-%d")
-            except ValueError:
-                return None
-
         return None
 
     @staticmethod
@@ -289,39 +292,114 @@ class PDFHandler:
         return normalized or ["annual", "semi_annual", "quarterly"]
 
     @staticmethod
-    def _report_identity(report: Dict[str, Any], market: str) -> str:
-        """生成报告去重标识"""
+    def _canonical_date(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return value if parsed.isoformat() == value else None
+
+    @staticmethod
+    def _validate_latest_report_url(url: object, market: str) -> str:
+        if not isinstance(url, str) or not url:
+            raise ValueError("报告URL不能为空")
+
+        parsed = urlsplit(url)
+        if parsed.scheme != "https":
+            raise ValueError("报告URL必须使用HTTPS")
+        if not parsed.netloc or not parsed.path:
+            raise ValueError("报告URL无效")
+
+        hostname = (parsed.hostname or "").lower()
         if market == "CN":
-            return (
-                report.get("adjunct_url")
-                or report.get("announcement_id")
-                or report.get("pdf_url")
-                or report.get("announcement_title")
-                or ""
+            is_official = hostname == "static.cninfo.com.cn"
+        else:
+            is_official = hostname == "www1.hkexnews.hk" or hostname.endswith(
+                ".hkexnews.hk"
             )
-        return (
-            report.get("web_path")
-            or report.get("news_id")
-            or report.get("pdf_url")
-            or report.get("title")
-            or ""
-        )
+        if not is_official:
+            raise ValueError("报告URL不是官方来源")
 
-    def _with_publish_time(self, report: Dict[str, Any], market: str) -> Dict[str, Any]:
-        """补充统一的发布时间字段"""
+        try:
+            port = parsed.port
+        except ValueError:
+            raise ValueError("报告URL无效") from None
+        if port not in {None, 443}:
+            raise ValueError("报告URL端口必须为443")
+        return url
+
+    def _normalize_latest_report(
+        self,
+        report: dict[str, Any],
+        market: str,
+        stock_code: str,
+        requested_type: str,
+    ) -> dict[str, Any]:
+        if report.get("stock_code") != stock_code:
+            raise ValueError("报告证券代码与请求不匹配")
+        if report.get("report_type") != requested_type:
+            raise ValueError("报告类型与请求不匹配")
+
+        report_year = report.get("year")
+        if (
+            isinstance(report_year, bool)
+            or not isinstance(report_year, int)
+            or not 1990 <= report_year <= 2100
+        ):
+            raise ValueError("报告年份无效")
+
+        title_key = "announcement_title" if market == "CN" else "title"
+        title = report.get(title_key)
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("报告标题不能为空")
+
+        url = self._validate_latest_report_url(report.get("pdf_url"), market)
         if market == "CN":
-            publish_dt = self._parse_cn_announcement_time(report)
+            language = "zh"
+            announcement_dt = self._parse_cn_announcement_time(report)
+            if announcement_dt is None:
+                announcement_date = self._canonical_date(
+                    report.get("announcement_date")
+                )
+            else:
+                announcement_date = announcement_dt.date().isoformat()
         else:
-            publish_dt = self._parse_hk_release_time(report.get("release_time"))
+            language = report.get("language")
+            if language not in {"en", "zh"}:
+                raise ValueError("报告语言无效")
+            announcement_dt, announcement_date = self._parse_hk_release_time(
+                report.get("release_time")
+            )
 
-        if publish_dt:
-            report["publish_time"] = publish_dt.isoformat()
-            report["publish_timestamp"] = int(publish_dt.timestamp())
-        else:
-            report["publish_time"] = None
-            report["publish_timestamp"] = 0
+        return {
+            "stock_code": stock_code,
+            "market": market,
+            "report_type": requested_type,
+            "report_year": report_year,
+            "title": title,
+            "url": url,
+            "language": language,
+            "announcement_at": (
+                announcement_dt.isoformat() if announcement_dt is not None else None
+            ),
+            "announcement_date": announcement_date,
+        }
 
-        return report
+    @staticmethod
+    def _latest_report_sort_key(
+        report: dict[str, Any],
+    ) -> tuple[int, int, float]:
+        announcement_at = report.get("announcement_at")
+        if isinstance(announcement_at, str):
+            parsed_at = datetime.fromisoformat(announcement_at)
+            return parsed_at.date().toordinal(), 1, parsed_at.timestamp()
+
+        announcement_date = report.get("announcement_date")
+        if isinstance(announcement_date, str):
+            return date.fromisoformat(announcement_date).toordinal(), 0, 0.0
+        return 0, 0, 0.0
 
     async def search_latest_reports(
         self,
@@ -378,17 +456,21 @@ class PDFHandler:
             results = await asyncio.gather(*tasks)
             merged: Dict[str, Dict[str, Any]] = {}
 
-            for report_list in results:
+            for requested_type, report_list in zip(
+                normalized_types, results, strict=True
+            ):
                 for report in report_list:
-                    enriched = self._with_publish_time(report, market)
-                    identity = self._report_identity(enriched, market)
-                    if not identity:
-                        identity = f"{enriched.get('title')}_{enriched.get('publish_time')}"
-                    merged[identity] = enriched
+                    normalized = self._normalize_latest_report(
+                        report,
+                        market,
+                        stock_code,
+                        requested_type,
+                    )
+                    merged[normalized["url"]] = normalized
 
             sorted_reports = sorted(
                 merged.values(),
-                key=lambda item: item.get("publish_timestamp", 0),
+                key=self._latest_report_sort_key,
                 reverse=True,
             )
 
