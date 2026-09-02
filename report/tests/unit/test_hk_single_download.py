@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,6 +8,11 @@ from sqlalchemy import select
 from src.pdf_manager import ReportPDF
 
 HKEX_URL = "https://www1.hkexnews.hk/listedco/report.pdf"
+
+
+class BrokenTimezone(tzinfo):
+    def utcoffset(self, dt):
+        raise RuntimeError("broken timezone")
 
 
 @pytest.mark.asyncio
@@ -185,3 +190,59 @@ async def test_download_report_does_not_invent_timestamp_from_announcement_date(
     report_data = download_pdf.await_args.args[1]
     assert report_data["announcement_at"] is None
     assert report_data["announcement_date"] == "2026-03-18"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "announcement_at",
+    [
+        pytest.param(datetime(2026, 3, 18, 16, 30), id="naive"),
+        pytest.param(
+            datetime(2026, 3, 18, 16, 30, tzinfo=BrokenTimezone()),
+            id="broken-tzinfo",
+        ),
+    ],
+)
+async def test_download_report_rejects_announcement_at_without_valid_offset(
+    pdf_handler, monkeypatch, announcement_at
+):
+    download_pdf = AsyncMock()
+    monkeypatch.setattr(pdf_handler.hk_downloader, "download_pdf", download_pdf)
+
+    result = await pdf_handler.download_report(
+        stock_code="00700",
+        market="HK",
+        report_type="annual",
+        report_url=HKEX_URL,
+        report_title="Tencent 2025 Annual Report",
+        report_year=2025,
+        language="en",
+        announcement_at=announcement_at,
+    )
+
+    assert result == {"success": False, "error": "港股公告时间必须包含时区"}
+    download_pdf.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_download_report_fails_when_pdf_metadata_is_not_persisted(
+    pdf_handler, tmp_path, monkeypatch
+):
+    missing_pdf = tmp_path / "missing.pdf"
+    download_pdf = AsyncMock(return_value=(True, "下载成功", str(missing_pdf)))
+    monkeypatch.setattr(pdf_handler.hk_downloader, "download_pdf", download_pdf)
+
+    result = await pdf_handler.download_report(
+        stock_code="00700",
+        market="HK",
+        report_type="annual",
+        report_url=HKEX_URL,
+        report_title="Tencent 2025 Annual Report",
+        report_year=2025,
+        language="en",
+    )
+
+    assert result == {"success": False, "error": "PDF元数据保存失败"}
+    async with pdf_handler.pdf_manager.async_session() as session:
+        rows = (await session.scalars(select(ReportPDF))).all()
+    assert rows == []

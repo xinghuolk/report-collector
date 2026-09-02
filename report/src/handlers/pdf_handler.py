@@ -459,6 +459,16 @@ class PDFHandler:
                     return {"success": False, "error": "港股报告年份不能为空"}
                 if language not in {"en", "zh"}:
                     return {"success": False, "error": "港股报告语言必须为en或zh"}
+                if announcement_at is not None:
+                    try:
+                        announcement_offset = announcement_at.utcoffset()
+                    except Exception:
+                        announcement_offset = None
+                    if announcement_offset is None:
+                        return {
+                            "success": False,
+                            "error": "港股公告时间必须包含时区",
+                        }
 
                 report_data = {
                     "stock_code": stock_code,
@@ -507,6 +517,8 @@ class PDFHandler:
                     "metadata_json": json.dumps(metadata, ensure_ascii=False),
                 }
                 pdf_id = await self.pdf_manager.add_pdf(pdf_info)
+                if pdf_id is None:
+                    return {"success": False, "error": "PDF元数据保存失败"}
 
                 return {
                     "success": True,
