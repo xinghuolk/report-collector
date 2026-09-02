@@ -1,13 +1,169 @@
 import json
 from datetime import datetime, timezone, tzinfo
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx2 as httpx
 import pytest
 from sqlalchemy import select
 
+from src.api.app import create_app
+from src.api.dependencies import get_pdf_handler
 from src.pdf_manager import ReportPDF
 
 HKEX_URL = "https://www1.hkexnews.hk/listedco/report.pdf"
+
+
+def hk_download_payload(**overrides):
+    payload = {
+        "stock_code": "00700",
+        "url": HKEX_URL,
+        "title": "Tencent 2025 Annual Report",
+        "report_type": "annual",
+        "report_year": 2025,
+        "language": "en",
+    }
+    payload.update(overrides)
+    return payload
+
+
+async def post_hk_download(payload, handler_result=None):
+    if handler_result is None:
+        handler_result = {
+            "success": True,
+            "data": {"pdf_id": 7, "file_path": "/tmp/report.pdf"},
+        }
+    handler = SimpleNamespace(
+        download_report=AsyncMock(return_value=handler_result),
+        search_available_reports=AsyncMock(
+            side_effect=AssertionError("exact download must not search")
+        ),
+    )
+
+    async def override_pdf_handler():
+        return handler
+
+    app = create_app()
+    app.dependency_overrides[get_pdf_handler] = override_pdf_handler
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/v1/reports/hk/download",
+            json=payload,
+            follow_redirects=False,
+        )
+    return response, handler
+
+
+@pytest.mark.asyncio
+async def test_hk_download_route_forwards_selected_report():
+    response, handler = await post_hk_download(
+        hk_download_payload(
+            announcement_at="2026-03-18T16:30:00+08:00",
+            announcement_date="2026-03-18",
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.history == []
+    assert response.json() == {
+        "success": True,
+        "data": {"pdf_id": 7, "file_path": "/tmp/report.pdf"},
+        "error": None,
+        "message": "下载成功",
+    }
+    handler.download_report.assert_awaited_once()
+    forwarded = handler.download_report.await_args.kwargs
+    assert forwarded == {
+        "stock_code": "00700",
+        "market": "HK",
+        "report_type": "annual",
+        "report_url": HKEX_URL,
+        "report_title": "Tencent 2025 Annual Report",
+        "auto_extract": False,
+        "report_year": 2025,
+        "language": "en",
+        "announcement_at": datetime.fromisoformat("2026-03-18T16:30:00+08:00"),
+        "announcement_date": "2026-03-18",
+    }
+    assert forwarded["announcement_at"].isoformat() == "2026-03-18T16:30:00+08:00"
+    handler.search_available_reports.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("payload_overrides", "expected_announcement_at", "expected_date"),
+    [
+        (
+            {"announcement_at": "2026-03-18T16:30:00-04:00"},
+            datetime.fromisoformat("2026-03-18T16:30:00-04:00"),
+            None,
+        ),
+        ({"announcement_date": "2026-03-18"}, None, "2026-03-18"),
+    ],
+    ids=["timestamp-only", "date-only"],
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_accepts_announcement_fields_independently(
+    payload_overrides, expected_announcement_at, expected_date
+):
+    response, handler = await post_hk_download(hk_download_payload(**payload_overrides))
+
+    assert response.status_code == 200
+    forwarded = handler.download_report.await_args.kwargs
+    assert forwarded["announcement_at"] == expected_announcement_at
+    assert forwarded["announcement_date"] == expected_date
+
+
+@pytest.mark.asyncio
+async def test_hk_download_route_rejects_naive_announcement_at():
+    response, handler = await post_hk_download(
+        hk_download_payload(announcement_at="2026-03-18T16:30:00")
+    )
+
+    assert response.status_code == 422
+    handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(hk_download_payload(stock_code="0700"), id="four-digit-code"),
+        pytest.param(
+            {
+                key: value
+                for key, value in hk_download_payload().items()
+                if key != "report_year"
+            },
+            id="missing-year",
+        ),
+        pytest.param(hk_download_payload(report_type="all"), id="all-report-type"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_hk_download_route_rejects_invalid_selection(payload):
+    response, handler = await post_hk_download(payload)
+
+    assert response.status_code == 422
+    handler.download_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hk_download_route_returns_handler_failure():
+    response, handler = await post_hk_download(
+        hk_download_payload(),
+        handler_result={"success": False, "error": "HTTP错误: 503"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": False,
+        "data": None,
+        "error": "HTTP错误: 503",
+        "message": None,
+    }
+    handler.download_report.assert_awaited_once()
 
 
 class BrokenTimezone(tzinfo):
@@ -137,9 +293,7 @@ async def test_download_report_rejects_invalid_hk_selection(
 
 
 @pytest.mark.asyncio
-async def test_download_report_returns_hk_downloader_failure(
-    pdf_handler, monkeypatch
-):
+async def test_download_report_returns_hk_downloader_failure(pdf_handler, monkeypatch):
     download_pdf = AsyncMock(return_value=(False, "HTTP错误: 503", None))
     monkeypatch.setattr(pdf_handler.hk_downloader, "download_pdf", download_pdf)
 
