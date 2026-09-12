@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -132,6 +133,53 @@ async def test_exact_download_respects_stale_conventional_path_provenance(
     second_path = Path(second[2] or "")
     assert second_path.name == "2025_annual_en_e8e97fbaf899.pdf"
     assert second_path.read_bytes() == PDF_TWO
+    rows = downloader.get_downloaded_reports(stock_code="00700")
+    assert {(row["web_path"], row["_file_path"]) for row in rows} == {
+        (first_url, str(first_path)),
+        (second_url, str(second_path)),
+    }
+
+
+@pytest.mark.asyncio
+async def test_exact_download_reserves_distinct_paths_for_concurrent_urls(
+    downloader: HKEXDownloader, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_url = "https://www1.hkexnews.hk/listedco/first.pdf"
+    second_url = "https://www1.hkexnews.hk/listedco/second.pdf"
+    install_http_stub(
+        monkeypatch,
+        [StubResponse(200, PDF_ONE), StubResponse(200, PDF_TWO)],
+    )
+    writes_started = 0
+    both_writes_started = asyncio.Event()
+    original_write = HKEXDownloader._write_pdf_atomically
+
+    async def synchronized_write(filepath: Path, content: bytes) -> None:
+        nonlocal writes_started
+        writes_started += 1
+        if writes_started == 2:
+            both_writes_started.set()
+        try:
+            await asyncio.wait_for(both_writes_started.wait(), timeout=0.1)
+        except TimeoutError:
+            pass
+        await original_write(filepath, content)
+
+    monkeypatch.setattr(
+        HKEXDownloader, "_write_pdf_atomically", staticmethod(synchronized_write)
+    )
+
+    first, second = await asyncio.gather(
+        downloader.download_pdf(first_url, report_data(first_url), exact=True),
+        downloader.download_pdf(second_url, report_data(second_url), exact=True),
+    )
+
+    assert first[0] is True
+    assert second[0] is True
+    first_path = Path(first[2] or "")
+    second_path = Path(second[2] or "")
+    assert first_path != second_path
+    assert {first_path.read_bytes(), second_path.read_bytes()} == {PDF_ONE, PDF_TWO}
     rows = downloader.get_downloaded_reports(stock_code="00700")
     assert {(row["web_path"], row["_file_path"]) for row in rows} == {
         (first_url, str(first_path)),

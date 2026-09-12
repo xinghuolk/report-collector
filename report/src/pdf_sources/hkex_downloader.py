@@ -132,6 +132,7 @@ class HKEXDownloader:
 
         # 股票代碼到內部 ID 的緩存
         self._stock_id_cache: Dict[str, int] = {}
+        self._exact_download_locks: Dict[str, asyncio.Lock] = {}
 
         # 文件組織
         self.max_files_per_dir = 1000
@@ -954,19 +955,16 @@ class HKEXDownloader:
 
             # 檢查是否已存在
             if exact:
-                recorded_path = self._get_recorded_path(pdf_url)
-                if recorded_path is not None and self._is_pdf_file(recorded_path):
-                    logger.info(f"文件已存在: {recorded_path}")
-                    return True, "文件已存在", str(recorded_path)
-                if recorded_path is not None:
-                    filepath = recorded_path
-                elif conventional_filepath.exists() or self._has_recorded_path(
-                    conventional_filepath
-                ):
-                    url_hash = hashlib.sha256(pdf_url.encode("utf-8")).hexdigest()[:12]
-                    filepath = conventional_filepath.with_name(
-                        f"{conventional_filepath.stem}_{url_hash}"
-                        f"{conventional_filepath.suffix}"
+                lock_key = str(conventional_filepath.resolve())
+                lock = self._exact_download_locks.setdefault(lock_key, asyncio.Lock())
+                async with lock:
+                    return await self._download_exact_pdf(
+                        pdf_url=pdf_url,
+                        report_data=report_data,
+                        stock_code=stock_code,
+                        report_type=report_type,
+                        subpath=subpath,
+                        conventional_filepath=conventional_filepath,
                     )
             elif filepath.exists():
                 logger.info(f"文件已存在: {stock_code}/{report_type}/{filename}")
@@ -1010,6 +1008,67 @@ class HKEXDownloader:
         except Exception as e:
             logger.error(f"下載PDF異常: {e}, URL: {pdf_url}")
             return False, f"下載異常: {str(e)}", None
+
+    async def _download_exact_pdf(
+        self,
+        *,
+        pdf_url: str,
+        report_data: dict[str, Any],
+        stock_code: str,
+        report_type: str,
+        subpath: Path,
+        conventional_filepath: Path,
+    ) -> tuple[bool, str, str | None]:
+        """下載一個指定來源URL的PDF，並在鎖內保留唯一文件路徑。"""
+        recorded_path = self._get_recorded_path(pdf_url)
+        if recorded_path is not None and self._is_pdf_file(recorded_path):
+            logger.info(f"文件已存在: {recorded_path}")
+            return True, "文件已存在", str(recorded_path)
+
+        filepath = recorded_path or conventional_filepath
+        if recorded_path is None and (
+            conventional_filepath.exists()
+            or self._has_recorded_path(conventional_filepath)
+        ):
+            url_hash = hashlib.sha256(pdf_url.encode("utf-8")).hexdigest()[:12]
+            filepath = conventional_filepath.with_name(
+                f"{conventional_filepath.stem}_{url_hash}"
+                f"{conventional_filepath.suffix}"
+            )
+
+        timeout = aiohttp.ClientTimeout(total=300)
+        async with aiohttp.ClientSession(headers=self.headers, timeout=timeout) as session:
+            async with session.get(pdf_url, allow_redirects=False) as response:
+                if response.status != 200:
+                    logger.error(f"下載失敗: HTTP {response.status}, URL: {pdf_url}")
+                    return False, f"HTTP錯誤: {response.status}", None
+
+                content = await response.read()
+                if not content.startswith(b"%PDF-"):
+                    logger.error(f"下載內容不是PDF, URL: {pdf_url}")
+                    return False, "響應內容不是PDF", None
+
+                await self._write_pdf_atomically(filepath, content)
+
+                database_report = dict(report_data)
+                database_report["web_path"] = pdf_url
+                inserted = await self._insert_to_database(
+                    database_report,
+                    str(subpath),
+                    filepath.name,
+                    str(filepath),
+                    len(content),
+                )
+                if not inserted:
+                    filepath.unlink(missing_ok=True)
+                    return False, "數據庫記錄失敗", None
+
+                relative_path = (
+                    f"{stock_code}/{self._normalize_report_type(report_type)}/"
+                    f"{filepath.name}"
+                )
+                logger.info(f"PDF下載成功: {relative_path} ({len(content)} bytes)")
+                return True, "下載成功", str(filepath)
 
     async def _insert_to_database(
         self,
