@@ -486,18 +486,28 @@ class PDFHandler:
 
             results = await asyncio.gather(*tasks)
             merged: Dict[str, Dict[str, Any]] = {}
+            normalization_errors: List[str] = []
 
             for requested_type, report_list in zip(
                 normalized_types, results, strict=True
             ):
                 for report in report_list:
-                    normalized = self._normalize_latest_report(
-                        report,
-                        market,
-                        stock_code,
-                        requested_type,
-                    )
+                    try:
+                        normalized = self._normalize_latest_report(
+                            report,
+                            market,
+                            stock_code,
+                            requested_type,
+                        )
+                    except ValueError as e:
+                        logger.warning(f"跳过无效报告结果: {e}")
+                        normalization_errors.append(str(e))
+                        continue
                     merged[normalized["url"]] = normalized
+
+            if not merged and any(results):
+                error = normalization_errors[0] if normalization_errors else "没有有效的报告结果"
+                return {"success": False, "error": error}
 
             sorted_reports = sorted(
                 merged.values(),
@@ -709,6 +719,7 @@ class PDFHandler:
                     "source_url": report_url,
                     "source_name": "港交所披露易",
                     "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                    "dedupe_by_source_url": True,
                 }
                 pdf_id = await self.pdf_manager.add_pdf(pdf_info)
                 if pdf_id is None:

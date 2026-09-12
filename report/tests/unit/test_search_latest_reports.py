@@ -353,6 +353,26 @@ async def test_search_fails_when_source_announcement_value_is_malformed(
     assert result == {"success": False, "error": expected_error}
 
 
+@pytest.mark.asyncio
+async def test_search_skips_malformed_report_when_valid_reports_remain():
+    malformed_report = {**HK_REPORT, "language": "tc"}
+    valid_report = {
+        **HK_REPORT,
+        "pdf_url": "https://www1.hkexnews.hk/listedco/valid.pdf",
+    }
+    handler = handler_with_reports("HK", [malformed_report, valid_report])
+
+    result = await handler.search_latest_reports(
+        stock_code="00700",
+        market="HK",
+        report_types=["annual"],
+    )
+
+    assert result["success"] is True
+    assert result["count"] == 1
+    assert result["data"][0]["url"] == valid_report["pdf_url"]
+
+
 @pytest.mark.parametrize(
     ("market", "stock_code", "source_report"),
     [
