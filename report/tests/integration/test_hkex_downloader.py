@@ -1080,7 +1080,7 @@ class TestDownloadStockReportsEnglish:
             )
 
             # 验证下载的是英文版本
-            for filepath in downloaded:
+            for filepath, _report in downloaded:
                 # 文件名应该包含 _en 而不是 _zh
                 assert "_en.pdf" in filepath or "_en" in filepath
 
