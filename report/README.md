@@ -41,8 +41,50 @@ uv run python -m src.server --mode http --host 0.0.0.0 --port 8000
 ### 下载
 - `POST /api/v1/reports/cn/download` - 下载单个A股财报
 - `POST /api/v1/reports/cn/batch-download` - 批量下载A股
+- `POST /api/v1/reports/hk/download` - 下载单个已选择的港股财报
 - `POST /api/v1/reports/hk/batch-download` - 批量下载港股
 - `GET /api/v1/pdfs` - 列出已下载PDF
+
+### 下载已选择的港股财报
+
+使用已选报告的 HKEX HTTPS URL 下载单份港股财报：服务会在校验后按请求中提供的
+`url` 原样下载，不搜索报告，也不会调用提取或缓存。该接口固定使用 `market=HK` 和
+`auto_extract=false`；仅允许默认 HTTPS 端口或显式 `443`，且不会跟随重定向。下载内容
+必须以 `%PDF-` 开头才会原子写入并登记。若同一报告标识对应不同 URL，后续文件使用
+稳定的 URL 哈希后缀，避免复用其他来源的内容；相同 URL 仅复用有匹配来源记录的有效 PDF。
+
+`announcement_at` 和 `announcement_date` 均为独立的可选字段。`announcement_at` 必须是
+带 `Z` 或 UTC 偏移量的 ISO/RFC3339 时间，原始字符串会原样保存在元数据中；其换算后的
+UTC 值写入元数据 `announcement_at_utc`，并以 UTC 无时区值写入旧版
+`ReportPDF.announcement_date` 列。仅提供 `announcement_date` 时不会合成时间戳；该日期
+必须是实际存在的规范 `YYYY-MM-DD`。
+请求会校验五位港股代码、HKEX HTTPS 主机、`annual`/`semi_annual`/`quarterly` 报告类型、
+1990--2100 年、`en`/`zh` 语言，以及（提供时）非空白标题。
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/reports/hk/download \
+  -H 'Content-Type: application/json' \
+  -d '{"stock_code":"00700","url":"https://www1.hkexnews.hk/listedco/report.pdf","title":"Tencent 2025 Annual Report","report_type":"annual","report_year":2025,"language":"en","announcement_at":"2026-03-18T16:30:00+08:00","announcement_date":"2026-03-18"}'
+```
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "pdf_id": 123,
+    "file_path": "/data/reports/00700/annual/2025_annual_en.pdf",
+    "file_name": "2025_annual_en.pdf",
+    "stock_code": "00700",
+    "market": "HK",
+    "report_year": 2025,
+    "language": "en"
+  },
+  "error": null,
+  "message": "下载成功"
+}
+```
 
 ### 查询
 - `GET /api/v1/pdfs/{pdf_id}` - 获取PDF详情

@@ -780,7 +780,20 @@ class TestDownloadStockReports:
         with patch.object(
             handler.hk_downloader, "download_stock_reports", new_callable=AsyncMock
         ) as mock_download:
-            mock_download.return_value = [str(pdf_file)]
+            mock_download.return_value = [
+                (
+                    str(pdf_file),
+                    {
+                        "stock_code": "00700",
+                        "title": "Tencent 2025 Annual Report",
+                        "pdf_url": "https://www1.hkexnews.hk/listedco/report.pdf",
+                        "report_type": "annual",
+                        "year": 2025,
+                        "language": "en",
+                        "release_time": "18/03/2026 16:42",
+                    },
+                )
+            ]
 
             result = await handler.download_stock_reports(
                 "00700", market="HK", max_count=1
@@ -788,6 +801,36 @@ class TestDownloadStockReports:
 
             assert result["success"] is True
             assert result["data"]["downloaded_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_download_hk_persists_release_time(self, handler, tmp_path):
+        pdf_file = tmp_path / "hk-report.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4\n%%EOF")
+        matched_report = {
+            "stock_code": "00700",
+            "title": "Tencent 2025 Annual Report",
+            "pdf_url": "https://www1.hkexnews.hk/listedco/report.pdf",
+            "report_type": "annual",
+            "year": 2025,
+            "language": "en",
+            "release_time": "18/03/2026 16:42",
+        }
+
+        with patch.object(
+            handler.hk_downloader, "download_stock_reports", new_callable=AsyncMock
+        ) as mock_download:
+            mock_download.return_value = [(str(pdf_file), matched_report)]
+
+            result = await handler.download_stock_reports(
+                "00700", market="HK", max_count=1
+            )
+
+        assert result["success"] is True
+        assert result["data"]["downloaded_count"] == 1
+        assert len(result["data"]["pdf_ids"]) == 1
+        stored = await handler.pdf_manager.get_pdf_by_id(result["data"]["pdf_ids"][0])
+        assert stored is not None
+        assert stored["announcement_date"] == "2026-03-18T16:42:00"
 
     @pytest.mark.asyncio
     async def test_download_unsupported_market(self, handler):

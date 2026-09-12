@@ -1,14 +1,17 @@
 """
 下载API路由
 """
-from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query, Body
+# Keep typing.Dict in response generics to preserve published OpenAPI component names.
+# ruff: noqa: UP006, UP035
+from typing import Any, Dict
 
+from fastapi import APIRouter, Body, Depends, Query
+
+from ...handlers.pdf_handler import PDFHandler
 from ..dependencies import get_pdf_handler
 from ..schemas.common import APIResponse
-from ..schemas.download import BatchDownloadRequest
-from ...handlers.pdf_handler import PDFHandler
+from ..schemas.download import BatchDownloadRequest, HKSingleDownloadRequest
 
 router = APIRouter()
 
@@ -17,7 +20,7 @@ router = APIRouter()
 async def download_cn_report(
     stock_code: str = Body(..., description="股票代码"),
     url: str = Body(..., description="下载URL"),
-    title: Optional[str] = Body(default=None, description="文件标题"),
+    title: str | None = Body(default=None, description="文件标题"),
     handler: PDFHandler = Depends(get_pdf_handler),
 ) -> APIResponse[Dict[str, Any]]:
     """
@@ -63,7 +66,36 @@ async def batch_download_cn_reports(
         success=result.get("success", False),
         data=result.get("data") if result.get("success") else None,
         error=result.get("error"),
-        message=f"下载了 {result.get('data', {}).get('downloaded_count', 0)} 个文件" if result.get("success") else None,
+        message=f"下载了 {result.get('data', {}).get('downloaded_count', 0)} 个文件"
+        if result.get("success")
+        else None,
+    )
+
+
+@router.post("/reports/hk/download", response_model=APIResponse[Dict[str, Any]])
+async def download_hk_report(
+    request: HKSingleDownloadRequest,
+    handler: PDFHandler = Depends(get_pdf_handler),
+) -> APIResponse[Dict[str, Any]]:
+    """下载单个已选择的港股财报PDF。"""
+    result = await handler.download_report(
+        stock_code=request.stock_code,
+        market="HK",
+        report_type=request.report_type,
+        report_url=request.url,
+        report_title=request.title or "",
+        auto_extract=False,
+        report_year=request.report_year,
+        language=request.language,
+        announcement_at=request.announcement_at,
+        announcement_date=request.announcement_date,
+    )
+
+    return APIResponse(
+        success=result.get("success", False),
+        data=result.get("data") if result.get("success") else None,
+        error=result.get("error"),
+        message="下载成功" if result.get("success") else None,
     )
 
 
@@ -88,15 +120,17 @@ async def batch_download_hk_reports(
         success=result.get("success", False),
         data=result.get("data") if result.get("success") else None,
         error=result.get("error"),
-        message=f"下载了 {result.get('data', {}).get('downloaded_count', 0)} 个文件" if result.get("success") else None,
+        message=f"下载了 {result.get('data', {}).get('downloaded_count', 0)} 个文件"
+        if result.get("success")
+        else None,
     )
 
 
 @router.get("/pdfs", response_model=APIResponse[Dict[str, Any]])
 async def list_downloaded_pdfs(
-    stock_code: Optional[str] = Query(default=None, description="股票代码筛选"),
-    market: Optional[str] = Query(default=None, description="市场筛选 (CN/HK/US)"),
-    report_type: Optional[str] = Query(default=None, description="报告类型筛选"),
+    stock_code: str | None = Query(default=None, description="股票代码筛选"),
+    market: str | None = Query(default=None, description="市场筛选 (CN/HK/US)"),
+    report_type: str | None = Query(default=None, description="报告类型筛选"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
     sort_by: str = Query(
         default="download_time",
@@ -127,6 +161,8 @@ async def list_downloaded_pdfs(
             "pdfs": result.get("data", []),
             "count": result.get("count", 0),
         }
-        return APIResponse(success=True, data=data, message=f"共 {result.get('count', 0)} 条记录")
+        return APIResponse(
+            success=True, data=data, message=f"共 {result.get('count', 0)} 条记录"
+        )
     else:
         return APIResponse(success=False, error=result.get("error"))

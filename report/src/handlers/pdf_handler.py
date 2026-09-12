@@ -6,18 +6,21 @@ import asyncio
 import json
 import re
 import time
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from datetime import datetime
-from loguru import logger
-from cachetools import TTLCache
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
-from ..pdf_sources.cninfo_downloader import CninfoDownloader
-from ..pdf_sources.hkex_downloader import HKEXDownloader
+from cachetools import TTLCache
+from loguru import logger
+
+from ..config import Config
 from ..pdf_manager import PDFManager
 from ..pdf_parser import PDFContentExtractor
+from ..pdf_sources.cninfo_downloader import CninfoDownloader
+from ..pdf_sources.hkex_downloader import HKEXDownloader
 from ..utils.validators import DataValidator
-from ..config import Config
 
 
 class PDFHandler:
@@ -114,36 +117,55 @@ class PDFHandler:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    def _parse_hk_release_time(release_time: Optional[str]) -> Optional[datetime]:
-        """解析港股披露易发布时间"""
-        if not release_time:
-            return None
+    def _parse_hk_release_time(
+        release_time: str | None,
+    ) -> tuple[datetime | None, str | None]:
+        """解析港股披露易发布时间或公告日期"""
+        if release_time in (None, ""):
+            return None, None
+        if not isinstance(release_time, str):
+            raise ValueError("报告公告时间无效")
 
         cleaned = release_time.replace("Release Time:", "").strip()
-        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
-            try:
-                return datetime.strptime(cleaned, fmt)
-            except ValueError:
-                continue
-        return None
+        try:
+            timed_format = "%d/%m/%Y %H:%M"
+            release_dt = datetime.strptime(cleaned, timed_format)
+            if release_dt.strftime(timed_format) != cleaned:
+                raise ValueError
+            aware_release = release_dt.replace(tzinfo=ZoneInfo("Asia/Hong_Kong"))
+            return aware_release, aware_release.date().isoformat()
+        except ValueError:
+            pass
+
+        try:
+            date_format = "%d/%m/%Y"
+            release_date = datetime.strptime(cleaned, date_format).date()
+            if release_date.strftime(date_format) != cleaned:
+                raise ValueError
+            return None, release_date.isoformat()
+        except ValueError:
+            pass
+
+        try:
+            release_date = date.fromisoformat(cleaned)
+            if release_date.isoformat() != cleaned:
+                raise ValueError
+            return None, release_date.isoformat()
+        except ValueError:
+            raise ValueError("报告公告时间无效") from None
 
     @staticmethod
-    def _parse_cn_announcement_time(report: Dict[str, Any]) -> Optional[datetime]:
+    def _parse_cn_announcement_time(report: dict[str, Any]) -> datetime | None:
         """解析A股公告发布时间"""
         raw_ts = report.get("announcement_time")
-        if raw_ts:
+        if raw_ts not in (None, "") and not isinstance(raw_ts, bool):
             try:
-                return datetime.fromtimestamp(int(raw_ts) / 1000)
-            except (ValueError, TypeError):
+                return datetime.fromtimestamp(
+                    int(raw_ts) / 1000,
+                    tz=ZoneInfo("Asia/Shanghai"),
+                )
+            except (OSError, OverflowError, ValueError, TypeError):
                 pass
-
-        date_text = report.get("announcement_date")
-        if date_text:
-            try:
-                return datetime.strptime(date_text, "%Y-%m-%d")
-            except ValueError:
-                return None
-
         return None
 
     @staticmethod
@@ -218,6 +240,57 @@ class PDFHandler:
         return json.dumps(metadata, ensure_ascii=False)
 
     @staticmethod
+    def _parse_exact_announcement_at(
+        announcement_at: str | datetime | None,
+    ) -> tuple[str | None, datetime | None]:
+        if announcement_at is None:
+            return None, None
+
+        if isinstance(announcement_at, str):
+            raw_announcement_at = announcement_at
+            if not re.search(r"(?:Z|[+-]\d{2}:\d{2})$", raw_announcement_at):
+                raise ValueError("港股公告时间必须包含时区")
+            iso_value = (
+                f"{raw_announcement_at[:-1]}+00:00"
+                if raw_announcement_at.endswith("Z")
+                else raw_announcement_at
+            )
+            try:
+                parsed_announcement_at = datetime.fromisoformat(iso_value)
+            except ValueError:
+                raise ValueError("港股公告时间必须包含时区")
+        elif isinstance(announcement_at, datetime):
+            try:
+                raw_announcement_at = announcement_at.isoformat()
+            except Exception:
+                raise ValueError("港股公告时间必须包含时区")
+            parsed_announcement_at = announcement_at
+        else:
+            raise ValueError("港股公告时间必须包含时区")
+
+        try:
+            announcement_offset = parsed_announcement_at.utcoffset()
+        except Exception:
+            announcement_offset = None
+        if announcement_offset is None:
+            raise ValueError("港股公告时间必须包含时区")
+
+        operational_utc = parsed_announcement_at.astimezone(timezone.utc).replace(
+            tzinfo=None
+        )
+        return raw_announcement_at, operational_utc
+
+    @staticmethod
+    def _is_canonical_announcement_date(announcement_date: object) -> bool:
+        if not isinstance(announcement_date, str):
+            return False
+        try:
+            parsed_date = date.fromisoformat(announcement_date)
+        except ValueError:
+            return False
+        return parsed_date.isoformat() == announcement_date
+
+    @staticmethod
     def _normalize_report_types(
         report_types: Optional[List[str]], market: str
     ) -> List[str]:
@@ -236,39 +309,128 @@ class PDFHandler:
         return normalized or ["annual", "semi_annual", "quarterly"]
 
     @staticmethod
-    def _report_identity(report: Dict[str, Any], market: str) -> str:
-        """生成报告去重标识"""
+    def _canonical_date(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return value if parsed.isoformat() == value else None
+
+    @staticmethod
+    def _validate_latest_report_url(url: object, market: str) -> str:
+        if not isinstance(url, str) or not url:
+            raise ValueError("报告URL不能为空")
+
+        parsed = urlsplit(url)
+        if parsed.scheme != "https":
+            raise ValueError("报告URL必须使用HTTPS")
+        if not parsed.netloc or not parsed.path:
+            raise ValueError("报告URL无效")
+
+        hostname = (parsed.hostname or "").lower()
         if market == "CN":
-            return (
-                report.get("adjunct_url")
-                or report.get("announcement_id")
-                or report.get("pdf_url")
-                or report.get("announcement_title")
-                or ""
+            is_official = hostname == "static.cninfo.com.cn"
+        else:
+            is_official = hostname == "www1.hkexnews.hk" or hostname.endswith(
+                ".hkexnews.hk"
             )
-        return (
-            report.get("web_path")
-            or report.get("news_id")
-            or report.get("pdf_url")
-            or report.get("title")
-            or ""
-        )
+        if not is_official:
+            raise ValueError("报告URL不是官方来源")
 
-    def _with_publish_time(self, report: Dict[str, Any], market: str) -> Dict[str, Any]:
-        """补充统一的发布时间字段"""
+        try:
+            port = parsed.port
+        except ValueError:
+            raise ValueError("报告URL无效") from None
+        if port not in {None, 443}:
+            raise ValueError("报告URL端口必须为443")
+        return url
+
+    def _normalize_latest_report(
+        self,
+        report: dict[str, Any],
+        market: str,
+        stock_code: str,
+        requested_type: str,
+    ) -> dict[str, Any]:
+        if report.get("stock_code") != stock_code:
+            raise ValueError("报告证券代码与请求不匹配")
+        source_type = report.get("report_type")
+        type_matches = source_type == requested_type
+        if market == "CN" and requested_type == "quarterly":
+            type_matches = type_matches or source_type in (
+                "quarterly_1",
+                "quarterly_3",
+            )
+        if not type_matches:
+            raise ValueError("报告类型与请求不匹配")
+
+        report_year = report.get("year")
+        if (
+            isinstance(report_year, bool)
+            or not isinstance(report_year, int)
+            or not 1990 <= report_year <= 2100
+        ):
+            raise ValueError("报告年份无效")
+
+        title_key = "announcement_title" if market == "CN" else "title"
+        title = report.get(title_key)
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("报告标题不能为空")
+
+        url = self._validate_latest_report_url(report.get("pdf_url"), market)
         if market == "CN":
-            publish_dt = self._parse_cn_announcement_time(report)
-        else:
-            publish_dt = self._parse_hk_release_time(report.get("release_time"))
+            language = "zh"
+            raw_announcement_date = report.get("announcement_date")
+            source_announcement_date = None
+            if raw_announcement_date not in (None, ""):
+                source_announcement_date = self._canonical_date(
+                    raw_announcement_date
+                )
+                if source_announcement_date is None:
+                    raise ValueError("报告公告日期无效")
 
-        if publish_dt:
-            report["publish_time"] = publish_dt.isoformat()
-            report["publish_timestamp"] = int(publish_dt.timestamp())
+            announcement_dt = self._parse_cn_announcement_time(report)
+            if announcement_dt is None:
+                announcement_date = source_announcement_date
+            else:
+                announcement_date = announcement_dt.date().isoformat()
         else:
-            report["publish_time"] = None
-            report["publish_timestamp"] = 0
+            language = report.get("language")
+            if language not in {"en", "zh"}:
+                raise ValueError("报告语言无效")
+            announcement_dt, announcement_date = self._parse_hk_release_time(
+                report.get("release_time")
+            )
 
-        return report
+        return {
+            "stock_code": stock_code,
+            "market": market,
+            "report_type": requested_type,
+            "report_year": report_year,
+            "title": title,
+            "url": url,
+            "language": language,
+            "announcement_at": (
+                announcement_dt.isoformat() if announcement_dt is not None else None
+            ),
+            "announcement_date": announcement_date,
+        }
+
+    @staticmethod
+    def _latest_report_sort_key(
+        report: dict[str, Any],
+    ) -> tuple[int, int, float]:
+        announcement_at = report.get("announcement_at")
+        if isinstance(announcement_at, str):
+            parsed_at = datetime.fromisoformat(announcement_at)
+            return parsed_at.date().toordinal(), 1, parsed_at.timestamp()
+
+        announcement_date = report.get("announcement_date")
+        if isinstance(announcement_date, str):
+            return date.fromisoformat(announcement_date).toordinal(), 0, 0.0
+        return 0, 0, 0.0
 
     async def search_latest_reports(
         self,
@@ -324,18 +486,32 @@ class PDFHandler:
 
             results = await asyncio.gather(*tasks)
             merged: Dict[str, Dict[str, Any]] = {}
+            normalization_errors: List[str] = []
 
-            for report_list in results:
+            for requested_type, report_list in zip(
+                normalized_types, results, strict=True
+            ):
                 for report in report_list:
-                    enriched = self._with_publish_time(report, market)
-                    identity = self._report_identity(enriched, market)
-                    if not identity:
-                        identity = f"{enriched.get('title')}_{enriched.get('publish_time')}"
-                    merged[identity] = enriched
+                    try:
+                        normalized = self._normalize_latest_report(
+                            report,
+                            market,
+                            stock_code,
+                            requested_type,
+                        )
+                    except ValueError as e:
+                        logger.warning(f"跳过无效报告结果: {e}")
+                        normalization_errors.append(str(e))
+                        continue
+                    merged[normalized["url"]] = normalized
+
+            if not merged and any(results):
+                error = normalization_errors[0] if normalization_errors else "没有有效的报告结果"
+                return {"success": False, "error": error}
 
             sorted_reports = sorted(
                 merged.values(),
-                key=lambda item: item.get("publish_timestamp", 0),
+                key=self._latest_report_sort_key,
                 reverse=True,
             )
 
@@ -360,7 +536,11 @@ class PDFHandler:
     async def download_report(self, stock_code: str, market: str = "CN",
                             report_type: str = "annual", report_url: str = None,
                             report_title: str = "",
-                            auto_extract: bool = False) -> Dict[str, Any]:
+                            auto_extract: bool = False,
+                            report_year: Optional[int] = None,
+                            language: str = "en",
+                            announcement_at: str | datetime | None = None,
+                            announcement_date: Optional[str] = None) -> Dict[str, Any]:
         """
         下载财报PDF
 
@@ -371,6 +551,10 @@ class PDFHandler:
             report_url: 报告URL
             report_title: 报告标题
             auto_extract: 下载后是否自动提取并缓存财务数据
+            report_year: 报告年份
+            language: 报告语言（en/zh）
+            announcement_at: 带时区的原始公告时间；直接调用兼容datetime
+            announcement_date: YYYY-MM-DD格式公告日期
 
         Returns:
             下载结果字典
@@ -428,6 +612,131 @@ class PDFHandler:
                     return result
                 else:
                     return {"success": False, "error": "PDF下载失败"}
+
+            elif market == "HK":
+                if not report_url:
+                    return {"success": False, "error": "港股报告URL不能为空"}
+
+                parsed_url = urlsplit(report_url)
+                if parsed_url.scheme != "https":
+                    return {"success": False, "error": "港股报告URL必须使用HTTPS"}
+                hostname = (parsed_url.hostname or "").lower()
+                if not (
+                    hostname == "www1.hkexnews.hk"
+                    or hostname.endswith(".hkexnews.hk")
+                ):
+                    return {
+                        "success": False,
+                        "error": "港股报告URL必须属于hkexnews.hk",
+                    }
+                try:
+                    report_port = parsed_url.port
+                except ValueError:
+                    report_port = -1
+                if report_port not in {None, 443}:
+                    return {"success": False, "error": "港股报告URL端口必须为443"}
+                if report_year is None:
+                    return {"success": False, "error": "港股报告年份不能为空"}
+                if (
+                    isinstance(report_year, bool)
+                    or not isinstance(report_year, int)
+                    or not 1990 <= report_year <= 2100
+                ):
+                    return {
+                        "success": False,
+                        "error": "港股报告年份必须在1990到2100之间",
+                    }
+                if report_type not in {"annual", "semi_annual", "quarterly"}:
+                    return {
+                        "success": False,
+                        "error": "港股报告类型必须为annual、semi_annual或quarterly",
+                    }
+                if language not in {"en", "zh"}:
+                    return {"success": False, "error": "港股报告语言必须为en或zh"}
+                if announcement_date is not None and not (
+                    self._is_canonical_announcement_date(announcement_date)
+                ):
+                    return {
+                        "success": False,
+                        "error": "港股公告日期必须为YYYY-MM-DD",
+                    }
+                try:
+                    raw_announcement_at, operational_announcement_at = (
+                        self._parse_exact_announcement_at(announcement_at)
+                    )
+                except ValueError as error:
+                    return {"success": False, "error": str(error)}
+
+                announcement_at_utc = None
+                if operational_announcement_at is not None:
+                    announcement_at_utc = (
+                        operational_announcement_at.replace(tzinfo=timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
+
+                report_data = {
+                    "stock_code": stock_code,
+                    "title": report_title,
+                    "report_type": report_type,
+                    "year": report_year,
+                    "language": language,
+                    "web_path": report_url,
+                    "release_time": announcement_date or "",
+                    "announcement_at": raw_announcement_at,
+                    "announcement_date": announcement_date,
+                    "market": "SEHK",
+                }
+                success, message, file_path = await self.hk_downloader.download_pdf(
+                    report_url, report_data, exact=True
+                )
+                if not success or not file_path:
+                    return {"success": False, "error": message}
+
+                metadata = {
+                    "title": report_title,
+                    "release_time": announcement_date or "",
+                    "announcement_at": raw_announcement_at,
+                    "announcement_at_utc": announcement_at_utc,
+                    "announcement_date": announcement_date,
+                    "web_path": report_url,
+                    "period_hint": self._build_hk_period_hint(
+                        report_type=report_type,
+                        title=report_title,
+                        year=report_year,
+                    ),
+                    "language": language,
+                }
+                pdf_info = {
+                    "stock_code": stock_code,
+                    "market": market,
+                    "report_type": report_type,
+                    "report_year": report_year,
+                    "announcement_date": operational_announcement_at,
+                    "original_title": report_title,
+                    "file_path": file_path,
+                    "file_name": Path(file_path).name,
+                    "source_url": report_url,
+                    "source_name": "港交所披露易",
+                    "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                    "dedupe_by_source_url": True,
+                }
+                pdf_id = await self.pdf_manager.add_pdf(pdf_info)
+                if pdf_id is None:
+                    return {"success": False, "error": "PDF元数据保存失败"}
+
+                return {
+                    "success": True,
+                    "data": {
+                        "pdf_id": pdf_id,
+                        "file_path": file_path,
+                        "file_name": Path(file_path).name,
+                        "stock_code": stock_code,
+                        "market": market,
+                        "report_year": report_year,
+                        "language": language,
+                    },
+                }
 
             else:
                 return {"success": False, "error": f"暂不支持{market}市场的下载"}
@@ -512,11 +821,11 @@ class PDFHandler:
                 downloaded_files = []
                 for file_path, matched_report in download_results:
                     downloaded_files.append(file_path)
-                    announcement_date = (
-                        self._parse_hk_release_time(matched_report.get("release_time"))
-                        if matched_report
-                        else None
-                    )
+                    announcement_date = None
+                    if matched_report:
+                        announcement_date, _ = self._parse_hk_release_time(
+                            matched_report.get("release_time")
+                        )
                     pdf_info = {
                         "stock_code": stock_code,
                         "market": market,

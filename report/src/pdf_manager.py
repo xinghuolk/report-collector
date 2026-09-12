@@ -156,12 +156,23 @@ class PDFManager:
                 logger.warning(f"PDF文件不存在: {file_path}")
                 return None
                 
-            # 检查是否已存在相同文件
+            # 检查是否已存在相同文件或相同来源
             async with self.async_session() as session:
-                existing = await session.execute(
-                    select(ReportPDF).where(ReportPDF.file_hash == file_hash)
-                )
-                existing_record = existing.scalar_one_or_none()
+                dedupe_by_source_url = pdf_info.get("dedupe_by_source_url") is True
+                existing_record = None
+                if dedupe_by_source_url and pdf_info.get("source_url"):
+                    existing = await session.execute(
+                        select(ReportPDF).where(
+                            ReportPDF.source_url == pdf_info["source_url"]
+                        )
+                    )
+                    existing_record = existing.scalar_one_or_none()
+                elif not dedupe_by_source_url:
+                    existing = await session.execute(
+                        select(ReportPDF).where(ReportPDF.file_hash == file_hash)
+                    )
+                    existing_record = existing.scalar_one_or_none()
+
                 if existing_record:
                     updated = False
 

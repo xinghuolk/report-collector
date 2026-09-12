@@ -167,6 +167,45 @@ class TestPDFRecordCRUD:
         assert refreshed["report_quarter"] == 4
 
     @pytest.mark.asyncio
+    async def test_add_pdf_can_dedupe_by_source_url_for_exact_downloads(
+        self, pdf_manager, temp_pdf_file, tmp_path
+    ):
+        """测试精确下载可按来源URL去重，保留相同内容的不同公告"""
+        first_pdf = tmp_path / "first.pdf"
+        first_pdf.write_bytes(temp_pdf_file.read_bytes())
+        second_pdf = tmp_path / "second.pdf"
+        second_pdf.write_bytes(temp_pdf_file.read_bytes())
+
+        first_info = {
+            "stock_code": "00700",
+            "market": "HK",
+            "report_type": "annual",
+            "report_year": 2025,
+            "original_title": "First announcement",
+            "file_path": str(first_pdf),
+            "file_name": first_pdf.name,
+            "source_url": "https://www1.hkexnews.hk/listedco/first.pdf",
+            "source_name": "港交所披露易",
+            "dedupe_by_source_url": True,
+        }
+        second_info = {
+            **first_info,
+            "original_title": "Second announcement",
+            "file_path": str(second_pdf),
+            "file_name": second_pdf.name,
+            "source_url": "https://www1.hkexnews.hk/listedco/second.pdf",
+        }
+
+        first_id = await pdf_manager.add_pdf(first_info)
+        second_id = await pdf_manager.add_pdf(second_info)
+        same_source_id = await pdf_manager.add_pdf(first_info)
+
+        assert first_id is not None
+        assert second_id is not None
+        assert second_id != first_id
+        assert same_source_id == first_id
+
+    @pytest.mark.asyncio
     async def test_get_pdf_by_id_exists(self, pdf_manager, temp_pdf_file):
         """测试根据ID获取存在的PDF"""
         pdf_info = {

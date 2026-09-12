@@ -53,6 +53,7 @@ dependencies = [
 [project.optional-dependencies]
 # PDF处理扩展（可选）
 pdf = [
+    "pypdf>=3.0.0",
     "PyPDF2>=3.0.0",
     "pdfplumber>=0.9.0",
     "pymupdf>=1.23.0",
