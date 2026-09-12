@@ -71,6 +71,10 @@ class HKEXDownloader:
     ]
 
     QUARTERLY_HEADLINE_QUERIES = ["quarterly", "results announcement"]
+    SEMI_ANNUAL_HEADLINE_QUERIES = {
+        "EN": "interim results",
+        "ZH": "中期業績",
+    }
 
     # 報告類型中英文對照
     REPORT_TYPE_NAMES = {
@@ -346,6 +350,26 @@ class HKEXDownloader:
             logger.error(f"獲取股票內部ID異常: {e}")
             return None
 
+    @staticmethod
+    def _release_time_sort_key(report: Dict[str, Any]) -> datetime:
+        """解析披露易发布时间，用于跨查询结果的全局排序。"""
+        release_time = str(report.get("release_time") or "")
+        date_patterns = (
+            (r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}", "%d/%m/%Y %H:%M"),
+            (r"\d{2}/\d{2}/\d{4}", "%d/%m/%Y"),
+            (r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}", "%Y-%m-%d %H:%M"),
+            (r"\d{4}-\d{2}-\d{2}", "%Y-%m-%d"),
+        )
+        for pattern, date_format in date_patterns:
+            match = re.search(pattern, release_time)
+            if match:
+                return datetime.strptime(match.group(), date_format)
+
+        try:
+            return datetime(int(report.get("year")), 1, 1)
+        except (TypeError, ValueError):
+            return datetime.min
+
     async def search_reports(self,
                            stock_code: str = "",
                            report_type: str = 'annual',
@@ -443,6 +467,7 @@ class HKEXDownloader:
                 filtered_results.append(enriched)
 
         logger.info(f"找到 {len(filtered_results)} 個符合條件的財報")
+        filtered_results.sort(key=self._release_time_sort_key, reverse=True)
         for item in filtered_results:
             logger.debug(
                 f"  [{item.get('language','?')}] {item.get('title','')} | {item.get('web_path','')}"
@@ -466,15 +491,6 @@ class HKEXDownloader:
         # 使用內部 ID（如果有）或股票代碼
         stock_id_value = str(internal_id) if internal_id else stock_code
 
-        # 根據報告類型設置不同的搜索參數
-        # 季度報告在港交所屬於"公告與通知"類別，不是"財務報告"類別
-        if report_type == 'quarterly':
-            t1code = '-1'  # 搜索所有類別
-            headline_queries = self.QUARTERLY_HEADLINE_QUERIES
-        else:
-            t1code = '40000'  # 財務報告類別（年報、中報）
-            headline_queries = [""]
-
         # 同時搜索英文和繁體中文界面
         merged_results: Dict[str, Dict[str, Any]] = {}
 
@@ -482,7 +498,20 @@ class HKEXDownloader:
             timeout = aiohttp.ClientTimeout(total=60)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 for lang in ['EN', 'ZH']:
-                    for headline in headline_queries:
+                    if report_type == 'quarterly':
+                        search_queries = [
+                            ('-1', headline)
+                            for headline in self.QUARTERLY_HEADLINE_QUERIES
+                        ]
+                    elif report_type == 'semi_annual':
+                        search_queries = [
+                            ('40000', ''),
+                            ('-1', self.SEMI_ANNUAL_HEADLINE_QUERIES[lang]),
+                        ]
+                    else:
+                        search_queries = [('40000', '')]
+
+                    for t1code, headline in search_queries:
                         form_data = {
                             'lang': lang,  # 英文或繁體中文界面
                             'category': '0',
@@ -501,27 +530,42 @@ class HKEXDownloader:
                             'sortByDate': 'desc',
                         }
 
-                        async with session.post(
-                            self.search_url,
-                            data=form_data,
-                            headers={
-                                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                                'Origin': 'https://www1.hkexnews.hk',
-                                'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
-                            }
-                        ) as response:
-                            if response.status != 200:
-                                logger.warning(f"搜索請求失敗: {response.status}, lang={lang}, headline={headline}")
-                                continue
+                        try:
+                            async with session.post(
+                                self.search_url,
+                                data=form_data,
+                                headers={
+                                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+                                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                    'Origin': 'https://www1.hkexnews.hk',
+                                    'Referer': 'https://www1.hkexnews.hk/search/titlesearch.xhtml',
+                                }
+                            ) as response:
+                                if response.status != 200:
+                                    logger.warning(
+                                        f"搜索請求失敗: {response.status}, "
+                                        f"lang={lang}, headline={headline}"
+                                    )
+                                    continue
 
-                            html = await response.text()
-                            results = self._parse_search_html(html, stock_code, report_type)
-                            for item in results:
-                                identity = item.get("web_path") or item.get("pdf_url") or item.get("title")
-                                if identity:
-                                    merged_results[identity] = item
+                                html = await response.text()
+                                results = self._parse_search_html(
+                                    html, stock_code, report_type
+                                )
+                                for item in results:
+                                    identity = (
+                                        item.get("web_path")
+                                        or item.get("pdf_url")
+                                        or item.get("title")
+                                    )
+                                    if identity:
+                                        merged_results[identity] = item
+                        except Exception as e:
+                            logger.error(
+                                f"HTML搜索請求異常: {e}, lang={lang}, "
+                                f"t1code={t1code}, headline={headline}"
+                            )
 
             logger.info(f"搜索中英文界面共找到 {len(merged_results)} 個去重結果")
 

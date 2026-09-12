@@ -490,6 +490,230 @@ class TestSearchReports:
 
             assert len(results) == 1
 
+    @pytest.mark.asyncio
+    async def test_semi_annual_search_includes_interim_results_announcements(
+        self, downloader
+    ):
+        """中期业绩公告应从公告与通知类别进入半年报结果。"""
+        empty_html = "<html><body></body></html>"
+        formal_report_html = """
+        <html><body><table class="table"><tr>
+            <td>20/08/2026 16:42</td>
+            <td>
+                <div class="headline">
+                    Financial Statements/ESG Information - [Interim/Half-Year Report]
+                </div>
+                <a href="/listedco/listconews/sehk/2026/0820/2026082000001.pdf">
+                    INTERIM REPORT 2026
+                </a>
+            </td>
+            <td>2MB</td>
+        </tr></table></body></html>
+        """
+        english_html = """
+        <html><body><table class="table"><tr>
+            <td>25/08/2026 12:06</td>
+            <td>
+                <div class="headline">Announcements and Notices - [Interim Results]</div>
+                <a href="/listedco/listconews/sehk/2026/0825/2026082500237.pdf">
+                    ANNOUNCEMENT OF INTERIM RESULTS FOR THE SIX-MONTH PERIOD
+                    ENDED 30 JUNE 2026
+                </a>
+            </td>
+            <td>636KB</td>
+        </tr></table></body></html>
+        """
+        chinese_html = """
+        <html><body><table class="table"><tr>
+            <td>25/08/2026 12:06</td>
+            <td>
+                <div class="headline">公告及通告 - [中期業績]</div>
+                <a href="/listedco/listconews/sehk/2026/0825/2026082500238_c.pdf">
+                    截至二零二六年六月三十日止六個月之中期業績公告
+                </a>
+            </td>
+            <td>696KB</td>
+        </tr></table></body></html>
+        """
+
+        def post_response(*args, **kwargs):
+            form_data = kwargs["data"]
+            html = empty_html
+            if form_data["t1code"] == "40000":
+                html = formal_report_html
+            elif (
+                form_data["t1code"] == "-1"
+                and form_data["lang"] == "EN"
+                and form_data["headline"] == "interim results"
+            ):
+                html = english_html
+            elif (
+                form_data["t1code"] == "-1"
+                and form_data["lang"] == "ZH"
+                and form_data["headline"] == "中期業績"
+            ):
+                html = chinese_html
+
+            response = AsyncMock()
+            response.status = 200
+            response.text = AsyncMock(return_value=html)
+            response.__aenter__ = AsyncMock(return_value=response)
+            response.__aexit__ = AsyncMock(return_value=None)
+            return response
+
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post = MagicMock(side_effect=post_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_class.return_value = mock_session
+
+            with patch.object(
+                downloader,
+                "_get_stock_internal_id",
+                new=AsyncMock(return_value=1078),
+            ):
+                results = await downloader.search_reports(
+                    stock_code="00506",
+                    report_type="semi_annual",
+                    start_date="2026-08-20",
+                    end_date="2026-08-31",
+                    limit=10,
+                )
+
+        result_paths = [result["web_path"] for result in results]
+        assert len(results) == 3
+        assert len(set(result_paths)) == 3
+        assert set(result_paths) == {
+            "/listedco/listconews/sehk/2026/0820/2026082000001.pdf",
+            "/listedco/listconews/sehk/2026/0825/2026082500237.pdf",
+            "/listedco/listconews/sehk/2026/0825/2026082500238_c.pdf",
+        }
+        assert mock_session.post.call_count == 4
+        assert {
+            (
+                call.kwargs["data"]["lang"],
+                call.kwargs["data"]["t1code"],
+                call.kwargs["data"]["headline"],
+            )
+            for call in mock_session.post.call_args_list
+        } == {
+            ("EN", "40000", ""),
+            ("EN", "-1", "interim results"),
+            ("ZH", "40000", ""),
+            ("ZH", "-1", "中期業績"),
+        }
+        assert {
+            (call.kwargs["data"]["from"], call.kwargs["data"]["to"])
+            for call in mock_session.post.call_args_list
+        } == {("20260820", "20260831")}
+
+    @pytest.mark.asyncio
+    async def test_semi_annual_search_applies_limit_after_release_time_sort(
+        self, downloader
+    ):
+        """多来源合并后应先按发布时间排序，再应用数量限制。"""
+        reports = [
+            {
+                "title": "INTERIM REPORT 2025",
+                "year": 2025,
+                "release_time": "Release Time:19/09/2025 16:42",
+                "web_path": "/2025-interim-report.pdf",
+                "pdf_url": "https://www1.hkexnews.hk/2025-interim-report.pdf",
+            },
+            {
+                "title": (
+                    "ANNOUNCEMENT OF INTERIM RESULTS FOR THE SIX-MONTH "
+                    "PERIOD ENDED 30 JUNE 2026"
+                ),
+                "year": 2026,
+                "release_time": "Release Time:25/08/2026 12:10",
+                "web_path": "/2026-interim-results.pdf",
+                "pdf_url": "https://www1.hkexnews.hk/2026-interim-results.pdf",
+            },
+        ]
+
+        with (
+            patch.object(
+                downloader,
+                "_get_stock_internal_id",
+                new=AsyncMock(return_value=1078),
+            ),
+            patch.object(
+                downloader,
+                "_search_via_html",
+                new=AsyncMock(return_value=reports),
+            ),
+        ):
+            results = await downloader.search_reports(
+                stock_code="00506",
+                report_type="semi_annual",
+                limit=1,
+            )
+
+        assert [result["web_path"] for result in results] == [
+            "/2026-interim-results.pdf"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_semi_annual_search_continues_after_one_query_fails(
+        self, downloader
+    ):
+        """一个公告查询失败时，仍应执行其他语言和来源的查询。"""
+        empty_html = "<html><body></body></html>"
+        chinese_formal_html = """
+        <html><body><table class="table"><tr>
+            <td>19/09/2025 16:42</td>
+            <td>
+                <div class="headline">財務報表 - [中期/半年度報告]</div>
+                <a href="/listedco/listconews/sehk/2025/0919/2025091900591_c.pdf">
+                    2025年中期報告
+                </a>
+            </td>
+            <td>2MB</td>
+        </tr></table></body></html>
+        """
+
+        def post_response(*args, **kwargs):
+            form_data = kwargs["data"]
+            if (
+                form_data["lang"] == "EN"
+                and form_data["t1code"] == "-1"
+                and form_data["headline"] == "interim results"
+            ):
+                raise TimeoutError("announcement query timed out")
+
+            html = empty_html
+            if form_data["lang"] == "ZH" and form_data["t1code"] == "40000":
+                html = chinese_formal_html
+
+            response = AsyncMock()
+            response.status = 200
+            response.text = AsyncMock(return_value=html)
+            response.__aenter__ = AsyncMock(return_value=response)
+            response.__aexit__ = AsyncMock(return_value=None)
+            return response
+
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post = MagicMock(side_effect=post_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_class.return_value = mock_session
+
+            results = await downloader._search_via_html(
+                stock_code="00506",
+                report_type="semi_annual",
+                limit=10,
+                internal_id=1078,
+                start_date=datetime(2025, 9, 1),
+                end_date=datetime(2025, 9, 30),
+            )
+
+        assert [result["web_path"] for result in results] == [
+            "/listedco/listconews/sehk/2025/0919/2025091900591_c.pdf"
+        ]
+
 
 class TestDownloadPDF:
     """PDF下载测试（异步）"""
