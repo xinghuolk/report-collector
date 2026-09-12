@@ -130,6 +130,8 @@ class TestFactEvidenceMapping:
             and fact["period_id"] == "2025Q3_YTD"
         )
         assert gross_margin_fact["is_derived"] is True
+        assert gross_margin_fact["source_method"] == "derived"
+        assert gross_margin_fact["derivation_formula"]
         assert len(gross_margin_fact["evidence_ids"]) >= 1
 
     def test_cross_check_failed_issue_is_emitted(self) -> None:

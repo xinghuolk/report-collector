@@ -1,0 +1,426 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Any, Callable, Mapping, cast
+
+from financial_report_analysis.p5.models import (
+    MissingStatus,
+    P5DatasetArtifact,
+    P5DatasetRow,
+    P5ExtractedArtifact,
+)
+from financial_report_analysis.p5.governance_policy import (
+    DownstreamGovernanceDecision,
+    evaluate_downstream_fact_consumption,
+)
+
+P5_DATASET_VERSION = "1.0"
+_MISSING_STATUS_VALUES: tuple[MissingStatus, ...] = (
+    "present",
+    "absent",
+    "not_surfaced",
+    "out_of_scope",
+    "unknown",
+)
+_MISSING_STATUS_GROUPS = (
+    "working_capital_missing_status",
+    "debt_missing_status",
+    "asset_missing_status",
+    "cash_health_missing_status",
+)
+
+
+def assemble_dataset(
+    *,
+    dataset_id: str,
+    artifacts: tuple[P5ExtractedArtifact, ...],
+    required_metric_ids: tuple[str, ...] = (),
+    now_func: Callable[[], str] | None = None,
+) -> P5DatasetArtifact:
+    created_at = now_func() if now_func is not None else _utc_now_iso()
+    consumable_facts, blocked_facts = _split_governed_facts(artifacts)
+    present_rows = [
+        _present_row_from_fact(artifact, fact)
+        for artifact, fact, _decision in consumable_facts
+    ]
+    missing_rows = _missing_rows(
+        artifacts=artifacts,
+        present_rows=present_rows,
+        required_metric_ids=required_metric_ids,
+    )
+    rows = tuple(
+        sorted(
+            [*present_rows, *missing_rows],
+            key=_row_sort_key,
+        )
+    )
+    source_artifacts = tuple(sorted({artifact.artifact_id for artifact in artifacts}))
+
+    return P5DatasetArtifact(
+        dataset_id=dataset_id,
+        dataset_version=P5_DATASET_VERSION,
+        created_at=created_at,
+        issuer_count=len({artifact.manifest_entry.issuer_id for artifact in artifacts}),
+        periods=tuple(sorted({row.fiscal_year for row in rows})),
+        metrics=tuple(sorted({row.metric_id for row in rows})),
+        rows=rows,
+        quality_summary=_quality_summary(
+            artifacts=artifacts,
+            present_rows=tuple(present_rows),
+            rows=rows,
+            blocked_facts=tuple(blocked_facts),
+        ),
+        source_artifacts=source_artifacts,
+    )
+
+
+def _split_governed_facts(
+    artifacts: tuple[P5ExtractedArtifact, ...],
+) -> tuple[
+    list[tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]],
+    list[tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]],
+]:
+    consumable: list[
+        tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]
+    ] = []
+    blocked: list[
+        tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision]
+    ] = []
+    for artifact in artifacts:
+        for fact in artifact.canonical_facts:
+            decision = evaluate_downstream_fact_consumption(fact)
+            target = consumable if decision.allowed else blocked
+            target.append((artifact, fact, decision))
+    return consumable, blocked
+
+
+def _present_row_from_fact(
+    artifact: P5ExtractedArtifact,
+    fact: Mapping[str, Any],
+) -> P5DatasetRow:
+    entry = artifact.manifest_entry
+    extensions = _mapping_value(fact.get("extensions"))
+    metric_governance = _mapping_value_or_none(extensions.get("metric_governance"))
+    lifecycle_consumption = None
+    if metric_governance is not None:
+        lifecycle_consumption = _mapping_value_or_none(
+            metric_governance.get("lifecycle_consumption")
+        )
+    return P5DatasetRow(
+        issuer_id=entry.issuer_id,
+        market=entry.market,
+        stock_code=entry.stock_code,
+        fiscal_year=entry.fiscal_year,
+        metric_id=_text_value(fact.get("metric_id"), "metric_id"),
+        entity_scope=_text_value(fact.get("entity_scope"), "entity_scope", default="unknown"),
+        period_scope=_text_value(extensions.get("period_scope"), "period_scope", default="unknown"),
+        statement_type=_text_value(
+            fact.get("statement_type"),
+            "statement_type",
+            default="metrics",
+        ),
+        value=_numeric_value(fact.get("numeric_value")),
+        currency=_optional_text_value(fact.get("currency")),
+        unit=_optional_text_value(
+            fact.get("normalized_unit") if fact.get("normalized_unit") is not None else fact.get("raw_unit")
+        ),
+        quality_status=_optional_text_value(fact.get("quality_status")),
+        missing_status="present",
+        source_fact_id=_optional_text_value(fact.get("fact_id")),
+        source_artifact_id=artifact.artifact_id,
+        evidence_bundle_id=_optional_text_value(fact.get("evidence_bundle_id")),
+        lifecycle_consumption=lifecycle_consumption,
+    )
+
+
+def _missing_rows(
+    *,
+    artifacts: tuple[P5ExtractedArtifact, ...],
+    present_rows: list[P5DatasetRow],
+    required_metric_ids: tuple[str, ...],
+) -> list[P5DatasetRow]:
+    present_artifact_metrics = {
+        (row.source_artifact_id, row.metric_id)
+        for row in present_rows
+    }
+    present_row_keys = {
+        _missing_row_key(row)
+        for row in present_rows
+    }
+    rows: list[P5DatasetRow] = []
+    for artifact in artifacts:
+        artifact_missing_status = _flatten_missing_status(artifact.missing_status)
+        metric_ids = sorted(
+            set(required_metric_ids)
+            | set(artifact_missing_status.keys())
+        )
+        for metric_id in metric_ids:
+            missing_status = artifact_missing_status.get(metric_id, "unknown")
+            if (
+                missing_status == "present"
+                and (artifact.artifact_id, metric_id) in present_artifact_metrics
+            ):
+                continue
+            if missing_status == "present":
+                missing_status = "not_surfaced"
+            missing_row = P5DatasetRow(
+                issuer_id=artifact.manifest_entry.issuer_id,
+                market=artifact.manifest_entry.market,
+                stock_code=artifact.manifest_entry.stock_code,
+                fiscal_year=artifact.manifest_entry.fiscal_year,
+                metric_id=metric_id,
+                entity_scope="consolidated",
+                period_scope="unknown",
+                statement_type="metrics",
+                value=None,
+                currency=None,
+                unit=None,
+                quality_status=None,
+                missing_status=missing_status,
+                source_fact_id=None,
+                source_artifact_id=artifact.artifact_id,
+                evidence_bundle_id=None,
+                lifecycle_consumption=None,
+            )
+            if _missing_row_key(missing_row) not in present_row_keys:
+                rows.append(missing_row)
+    return rows
+
+
+def _flatten_missing_status(
+    missing_status: Mapping[str, Mapping[str, str]],
+) -> dict[str, MissingStatus]:
+    flattened: dict[str, MissingStatus] = {}
+    for group_name in _MISSING_STATUS_GROUPS:
+        group = _mapping_value(missing_status.get(group_name))
+        for metric_id, status in group.items():
+            normalized_status = _missing_status_value(status)
+            if metric_id not in flattened:
+                flattened[metric_id] = normalized_status
+    return flattened
+
+
+def _quality_summary(
+    *,
+    artifacts: tuple[P5ExtractedArtifact, ...],
+    present_rows: tuple[P5DatasetRow, ...],
+    rows: tuple[P5DatasetRow, ...],
+    blocked_facts: tuple[
+        tuple[P5ExtractedArtifact, Mapping[str, Any], DownstreamGovernanceDecision],
+        ...,
+    ],
+) -> dict[str, Any]:
+    missing_by_metric: dict[str, int] = defaultdict(int)
+    missing_by_issuer: dict[str, int] = defaultdict(int)
+    unknown_count = 0
+    for row in rows:
+        if row.missing_status == "present":
+            continue
+        missing_by_metric[row.metric_id] += 1
+        missing_by_issuer[row.issuer_id] += 1
+        if row.missing_status == "unknown":
+            unknown_count += 1
+
+    governance_blocked_by_metric: dict[str, int] = defaultdict(int)
+    governance_blocked_by_reason: dict[str, int] = defaultdict(int)
+    governance_blocked_source_fact_ids: list[str] = []
+    for _artifact, fact, decision in blocked_facts:
+        metric_id = fact.get("metric_id")
+        if isinstance(metric_id, str):
+            governance_blocked_by_metric[metric_id] += 1
+        governance_blocked_by_reason[decision.reason] += 1
+        fact_id = fact.get("fact_id")
+        if isinstance(fact_id, str):
+            governance_blocked_source_fact_ids.append(fact_id)
+
+    return {
+        "present_row_count": sum(1 for row in rows if row.missing_status == "present"),
+        "missing_row_count": sum(1 for row in rows if row.missing_status != "present"),
+        "missing_by_metric": dict(sorted(missing_by_metric.items())),
+        "missing_by_issuer": dict(sorted(missing_by_issuer.items())),
+        "unknown_count": unknown_count,
+        "review_required_artifacts": sorted(
+            artifact.artifact_id
+            for artifact in artifacts
+            if artifact.quality_gate != "pass"
+        ),
+        "duplicate_fact_conflicts": _duplicate_fact_conflicts(present_rows),
+        "scope_mismatch_warnings": _scope_mismatch_warnings(present_rows),
+        "governance_blocked_fact_count": len(blocked_facts),
+        "governance_blocked_by_metric": dict(
+            sorted(governance_blocked_by_metric.items())
+        ),
+        "governance_blocked_by_reason": dict(
+            sorted(governance_blocked_by_reason.items())
+        ),
+        "governance_blocked_source_fact_ids": sorted(
+            governance_blocked_source_fact_ids
+        ),
+    }
+
+
+def _duplicate_fact_conflicts(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, Any]]:
+    grouped: dict[
+        tuple[str, int, str, str, str, str],
+        list[P5DatasetRow],
+    ] = defaultdict(list)
+    for row in rows:
+        if row.missing_status != "present":
+            continue
+        grouped[_duplicate_conflict_key(row)].append(row)
+
+    conflicts: list[dict[str, Any]] = []
+    for key in sorted(grouped):
+        key_rows = grouped[key]
+        unique_values = sorted(
+            {
+                row.value
+                for row in key_rows
+                if row.value is not None
+            }
+        )
+        if len(unique_values) <= 1:
+            continue
+        issuer_id, fiscal_year, metric_id, entity_scope, period_scope, statement_type = key
+        conflicts.append(
+            {
+                "issuer_id": issuer_id,
+                "fiscal_year": fiscal_year,
+                "metric_id": metric_id,
+                "entity_scope": entity_scope,
+                "period_scope": period_scope,
+                "statement_type": statement_type,
+                "values": unique_values,
+                "source_fact_ids": sorted(
+                    row.source_fact_id
+                    for row in key_rows
+                    if row.source_fact_id is not None
+                ),
+            }
+        )
+    return conflicts
+
+
+def _scope_mismatch_warnings(rows: tuple[P5DatasetRow, ...]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, int, str], set[str]] = defaultdict(set)
+    for row in rows:
+        if row.missing_status != "present":
+            continue
+        grouped[(row.issuer_id, row.fiscal_year, row.metric_id)].add(row.entity_scope)
+
+    warnings: list[dict[str, Any]] = []
+    for (issuer_id, fiscal_year, metric_id), scopes in sorted(grouped.items()):
+        if len(scopes) <= 1:
+            continue
+        if not ({"consolidated", "parent_company"} <= scopes or "unknown" in scopes):
+            continue
+        warnings.append(
+            {
+                "issuer_id": issuer_id,
+                "fiscal_year": fiscal_year,
+                "metric_id": metric_id,
+                "scopes": sorted(scopes),
+            }
+        )
+    return warnings
+
+
+def _row_sort_key(row: P5DatasetRow) -> tuple[object, ...]:
+    return (
+        row.issuer_id,
+        row.fiscal_year,
+        row.metric_id,
+        row.entity_scope,
+        row.period_scope,
+        row.statement_type,
+        row.source_artifact_id,
+        row.source_fact_id or "",
+    )
+
+
+def _row_key(row: P5DatasetRow) -> tuple[str, int, str, str, str, str, str]:
+    return (
+        row.issuer_id,
+        row.fiscal_year,
+        row.metric_id,
+        row.entity_scope,
+        row.period_scope,
+        row.statement_type,
+        row.source_fact_id or "",
+    )
+
+
+def _duplicate_conflict_key(row: P5DatasetRow) -> tuple[str, int, str, str, str, str]:
+    return (
+        row.issuer_id,
+        row.fiscal_year,
+        row.metric_id,
+        row.entity_scope,
+        row.period_scope,
+        row.statement_type,
+    )
+
+
+def _missing_row_key(row: P5DatasetRow) -> tuple[str, int, str, str, str, str]:
+    return (
+        row.issuer_id,
+        row.fiscal_year,
+        row.metric_id,
+        row.entity_scope,
+        row.period_scope,
+        row.statement_type,
+    )
+
+
+def _numeric_value(value: object) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return None
+
+
+def _optional_text_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _text_value(value: object, field_name: str, *, default: str | None = None) -> str:
+    if value is None:
+        if default is not None:
+            return default
+        raise ValueError(f"{field_name} is required")
+    text = str(value).strip()
+    if not text:
+        if default is not None:
+            return default
+        raise ValueError(f"{field_name} is required")
+    return text
+
+
+def _mapping_value(value: object) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("expected mapping value")
+    return dict(value)
+
+
+def _mapping_value_or_none(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return dict(value)
+
+
+def _missing_status_value(value: object) -> MissingStatus:
+    text = _text_value(value, "missing_status")
+    if text not in _MISSING_STATUS_VALUES:
+        raise ValueError(f"unsupported missing_status: {text}")
+    return cast(MissingStatus, text)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat()

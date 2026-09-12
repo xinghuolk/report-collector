@@ -12,7 +12,7 @@
 
 ## 2. 目标
 
-构建一个以 Python 包为主形态、并提供可选 HTTP adapter 的财报理解与分析能力。
+构建一个以独立 HTTP API 为主形态、并保留可嵌入 app factory 的财报理解与分析能力。
 
 该能力需要支持：
 
@@ -38,8 +38,8 @@
 
 推荐交付方式：
 
-1. 以 Python 包作为主要领域能力载体
-2. 提供可选 HTTP adapter，用于跨进程或跨项目调用
+1. `financial-report-analysis` 作为独立分析服务，对外暴露稳定 HTTP API
+2. 同时保留 Python 包与 app factory，供服务内部复用和宿主进程嵌入启动
 3. 包内部通过可复用 skills/components 编排流水线
 
 优先于以下方案：
@@ -50,14 +50,14 @@
 
 原因：
 
-- `TradingAgents-CN` 及类似项目是 Python 原生项目
-- 直接 import 是最低成本的复用方式
-- 可以在不把核心领域逻辑耦合到传输协议的前提下补 HTTP 能力
-- Python 包更适合版本管理、测试与数据契约演进
+- `/home/like/mycode/finanice/TradingAgents-CN` 与 `report/` 都需要稳定、可独立演进的跨项目契约
+- HTTP contract 比跨仓库 Python import 更容易部署、测试、版本治理与权限隔离
+- 保留包内 app factory 可以兼顾本地联调、单进程嵌入和未来组合部署
+- 核心领域逻辑仍保留在包内，不会因为引入 HTTP 层而倒灌回旧 extractor
 
 ## 5. 推荐架构
 
-目标系统应设计为围绕“财务事实账本”构建的领域包。
+目标系统应设计为围绕“财务事实账本”构建的独立分析服务，服务内部复用同一套领域包。
 
 端到端主流程：
 
@@ -79,6 +79,12 @@
 6. 派生事实生成
 7. 分析生成
 8. 存储与查询
+
+对外集成层次：
+
+1. `financial-report-analysis` 独立 FastAPI 服务
+2. `report/` 作为 forwarding client 暴露兼容入口
+3. `TradingAgents-CN` 推荐直连分析服务，不强制经过 `report/`
 
 系统应把“事实账本”而非“字段提取”作为中心抽象。
 
@@ -327,19 +333,19 @@ Canonical facts 是经过冲突裁决与校验后的主事实：
 
 ### 13.1 主路径
 
-Python import：
+独立 HTTP API：
 
-- 最适合 `TradingAgents-CN`
-- 版本化复用成本最低
-- 运行时开销最小
+- 适合 `TradingAgents-CN` 与 `report/` 共享同一份跨项目契约
+- 更利于服务化部署、版本治理和调用权限隔离
+- 允许 `report/` 作为 forwarding client 存在，而不承载分析核心实现
 
 ### 13.2 可选路径
 
-HTTP adapter：
+嵌入式 app factory：
 
-- 用于无法共享同一进程的项目
-- 用于服务化部署或集中执行分析
-- 必须是 Python 包外的一层封装，而不是替代 Python 包
+- 用于必须同进程承载的宿主环境
+- 用于本地联调或组合部署
+- 不能替代独立 HTTP API 作为主集成契约
 
 ## 14. 建议的包结构
 
@@ -354,8 +360,7 @@ financial_report_analysis/
   storage/
   analysis/
   adapters/
-    python/
-    http/
+  api/
 ```
 
 各目录职责：
@@ -366,7 +371,8 @@ financial_report_analysis/
 - `unit_policy/`：统一管理单位与币种转换策略
 - `storage/`：负责归档与读取
 - `analysis/`：负责确定性分析与解释性分析
-- `adapters/`：对外暴露接入接口
+- `adapters/`：对外暴露受控结果适配
+- `api/`：对外暴露 HTTP app、routes 与 schemas
 
 ## 15. 迁移方向
 
@@ -396,10 +402,10 @@ financial_report_analysis/
 推荐方向：
 
 - 先留在当前仓库中推进
-- 但从代码组织上设计成独立 Python 包
-- 后续按需补可选 HTTP adapter
+- 但从代码组织上设计成独立 analysis service + 包内领域实现
+- 主集成方式使用独立 HTTP API
 - 以财务事实账本为中心
 - 把单位策略和 TTM 作为一等能力
 - 按认知能力拆 skills，而不是按字段拆 extractor
 
-该设计既服务当前财报处理，也服务未来被 `TradingAgents-CN` 等 Python 项目复用。
+该设计既服务当前财报处理，也服务未来被 `TradingAgents-CN`、`report/` 等调用方通过统一 HTTP contract 复用。

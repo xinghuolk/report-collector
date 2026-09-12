@@ -148,3 +148,19 @@ curl -X POST "http://127.0.0.1:8000/api/v1/extract/content?schema=v2" \
   "quality": {"status": "ok", "issues": []}
 }
 ```
+## Financial Report Analysis Integration
+
+- Domain package and standalone service live under
+  `financial-report-analysis/`
+- `POST /api/v1/extract/analysis` in `report/` is an HTTP forwarding layer
+  only; it does not host the analysis core
+- Phase-1 supported scope:
+  - CN Chinese reports
+  - HK English reports
+- Phase-1 unsupported scope:
+  - HK non-English reports are surfaced as
+    `unsupported_in_phase1` with `quality_gate=review`
+- External callers should rely on the analysis envelope:
+  `canonical_fact_set_id`, `derived_fact_set_id`, `validation_report_id`,
+  `quality_gate`, `key_facts`, `ttm_facts`, `analysis_snapshot`,
+  `blocked_items`

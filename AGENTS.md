@@ -38,6 +38,17 @@ TypeScript (`pdf-reader-mcp/`):
 - TypeScript tests use Vitest with `*.test.ts` naming.
 - No fixed coverage threshold is enforced, but new changes should include tests and avoid reducing existing coverage meaningfully.
 
+### Real PDF / Ollama Validation Strategy
+- Do not use the full real-PDF matrix as the default close-out test for every change. Start with targeted unit tests and narrow mocked integration tests, then run the smallest relevant real-PDF node(s).
+- The `financial-report-analysis/scripts/run-real-pdf-matrix.sh` matrix is expensive and should be reserved for final validation of extraction/fallback changes or when explicitly requested.
+- The default real-PDF matrix intentionally excludes Ollama-backed nodes. Run Ollama-backed real-PDF tests only when semantic fallback behavior is in scope, and opt in explicitly with the script marker override.
+- Run real-PDF and live Ollama validation serially, not in parallel. Use per-test timeouts and log output when running the matrix so partial results survive interruption.
+- Current benchmark from the completed fallback-gating fix: HK `09987` Q3 row-label fallback calls were reduced from `124` to `11`, CN `601919` 2024 annual completed with `row_label = 2`, and the default real-PDF matrix passed `43` non-Ollama `real_pdf` nodes.
+- If real-PDF validation becomes slow again, first inspect fallback call counts and gating before increasing timeouts or broadening the test matrix.
+- For quick real-PDF smoke tests, prefer `REAL_PDF_LIMIT=3 REAL_PDF_JOBS=2 PER_TEST_TIMEOUT_SECONDS=240 financial-report-analysis/scripts/run-real-pdf-matrix.sh` from Git Bash. Ollama/external markers are forced back to one job unless `ALLOW_OLLAMA_PARALLEL=1` is explicitly set.
+- For performance profiling, separate PDF/table extraction time from Ollama fallback time. A recent live-Ollama probe on HK `09987` Q3 measured `20.72s` total, `8.11s` Ollama row-label fallback, and `12.61s` non-Ollama pipeline time. A promoted row-label Ollama-only probe measured `12` calls in `7.96s` with median `0.67s` per call.
+- `FRA_SEMANTIC_FALLBACK_MAX_CONCURRENCY=2` can be used for local Ollama concurrency experiments; keep the default at `1` for stable close-out validation.
+
 ## Commit & Pull Request Guidelines
 - Follow Conventional Commits where practical (`feat:`, `fix:`, `chore:`). Existing history uses `feat:`/`fix:` prefixes consistently.
 - Keep commits focused by subproject (avoid mixing unrelated `report/` and `pdf-reader-mcp/` changes in one commit).

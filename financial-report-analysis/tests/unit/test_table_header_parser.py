@@ -1,0 +1,183 @@
+import pytest
+
+from financial_report_analysis.ingestion.table_header_parser import (
+    detect_table_currency,
+    detect_table_unit,
+    parse_header_rows,
+)
+from financial_report_analysis.models.table import ParsedColumn
+
+
+def test_parse_header_rows_parses_cn_annual_period_columns() -> None:
+    columns = parse_header_rows(
+        title_text="合并利润表",
+        header_rows=[["项目", "2024年度", "2023年度"]],
+        market="CN",
+    )
+
+    assert columns == [
+        ParsedColumn(
+            column_id="column-1",
+            column_index=1,
+            header_text="2024年度",
+            period_id="2024FY",
+            value_time_shape="duration",
+            comparison_axis="current",
+            is_current=True,
+            is_comparison=False,
+        ),
+        ParsedColumn(
+            column_id="column-2",
+            column_index=2,
+            header_text="2023年度",
+            period_id="2023FY",
+            value_time_shape="duration",
+            comparison_axis="prior",
+            is_current=False,
+            is_comparison=True,
+        ),
+    ]
+
+
+def test_parse_header_rows_preserves_header_column_positions_with_blanks() -> None:
+    columns = parse_header_rows(
+        title_text="合并利润表",
+        header_rows=[["项目", "", "2024年度", "", "2023年度"]],
+        market="CN",
+    )
+
+    assert [column.column_index for column in columns] == [2, 4]
+    assert [column.column_id for column in columns] == ["column-2", "column-4"]
+
+
+def test_parse_header_rows_parses_cn_annual_end_date_form() -> None:
+    columns = parse_header_rows(
+        title_text="合并利润表",
+        header_rows=[["项目", "截至2024年12月31日止年度"]],
+        market="CN",
+    )
+
+    assert columns == [
+        ParsedColumn(
+            column_id="column-1",
+            column_index=1,
+            header_text="截至2024年12月31日止年度",
+            period_id="2024FY",
+            value_time_shape="duration",
+            comparison_axis="current",
+            is_current=True,
+            is_comparison=False,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("header_text", "expected_period_id"),
+    [
+        ("Three months ended 31 March 2025", "2025Q1"),
+        ("Three months ended 30 June 2025", "2025Q2"),
+        ("Three months ended 30 September 2025", "2025Q3"),
+        ("Three months ended 31 December 2025", "2025Q4"),
+    ],
+)
+def test_parse_header_rows_parses_hk_quarter_header(
+    header_text: str,
+    expected_period_id: str,
+) -> None:
+    columns = parse_header_rows(
+        title_text="Condensed Consolidated Statement of Profit or Loss",
+        header_rows=[["", header_text]],
+        market="HK",
+    )
+
+    assert columns == [
+        ParsedColumn(
+            column_id="column-1",
+            column_index=1,
+            header_text=header_text,
+            period_id=expected_period_id,
+            value_time_shape="duration",
+            comparison_axis="current",
+            is_current=True,
+            is_comparison=False,
+        )
+    ]
+
+
+def test_parse_header_rows_parses_hk_annual_balance_sheet_header_as_point_in_time() -> None:
+    columns = parse_header_rows(
+        title_text="Consolidated Balance Sheet",
+        header_rows=[["Item Note 31 December 2022 31 December 2021"]],
+        market="HK",
+    )
+
+    assert columns == [
+        ParsedColumn(
+            column_id="column-0",
+            column_index=0,
+            header_text="Item Note 31 December 2022 31 December 2021",
+            period_id="2022FY",
+            value_time_shape="point",
+            comparison_axis="current",
+            is_current=True,
+            is_comparison=False,
+        )
+    ]
+
+
+def test_parse_hk_bare_year_income_statement_headers_as_duration() -> None:
+    columns = parse_header_rows(
+        title_text="Consolidated Statements of Income",
+        header_rows=[["2025", "2024", "2023"]],
+        market="HK",
+    )
+
+    assert [
+        (column.column_index, column.period_id, column.value_time_shape)
+        for column in columns
+    ] == [
+        (0, "2025FY", "duration"),
+        (1, "2024FY", "duration"),
+        (2, "2023FY", "duration"),
+    ]
+
+
+def test_parse_hk_bare_year_balance_sheet_headers_as_point() -> None:
+    columns = parse_header_rows(
+        title_text="Consolidated Balance Sheets",
+        header_rows=[["2025", "2024"]],
+        market="HK",
+    )
+
+    assert [
+        (column.column_index, column.period_id, column.value_time_shape)
+        for column in columns
+    ] == [
+        (0, "2025FY", "point"),
+        (1, "2024FY", "point"),
+    ]
+
+
+def test_detect_table_currency_uses_local_chinese_context() -> None:
+    assert detect_table_currency("单位：万元 币种：人民币", market="CN") == "CNY"
+
+
+def test_detect_table_unit_uses_local_context() -> None:
+    assert detect_table_unit("单位：万元") == "万元"
+
+
+def test_detect_table_unit_preserves_in_us_dollar_millions_plural() -> None:
+    assert (
+        detect_table_unit("(in US$ millions, except per share data)") == "US$ millions"
+    )
+
+
+def test_detect_table_unit_accepts_singular_hk_dollar_million() -> None:
+    assert detect_table_unit("US$ million Note HK$ million HK$ million") == "HK$ million"
+
+
+def test_detect_table_unit_prefers_hk_dollar_when_us_and_hk_are_present() -> None:
+    assert (
+        detect_table_unit("US$ million Note HK$ million HK$ million HK$ million")
+        == "HK$ million"
+    )

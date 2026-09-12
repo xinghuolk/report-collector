@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+from financial_report_analysis.p5.models import P5DatasetArtifact, P5DatasetRow
+from financial_report_analysis.p5.turtle_export import build_turtle_export
+
+
+def test_build_turtle_export_maps_canonical_ids_to_turtle_aliases() -> None:
+    provenance = {
+        "source_review_item_id": "CN_601919_2025:candidate-1",
+        "lifecycle_entry_id": "metric-lifecycle:1",
+        "decision_id": "metric-lifecycle-decision:1",
+        "decision_action": "map_to_standard",
+        "source_candidate_metric_id": "custom::cash",
+        "target_metric_id": "cash",
+        "consumption_action": "map_to_standard",
+    }
+    dataset = P5DatasetArtifact(
+        dataset_id="p5_seed",
+        dataset_version="1.0",
+        created_at="2026-04-23T00:00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("cash", "operating_cash_flow", "revenue"),
+        rows=(
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="cash",
+                entity_scope="consolidated",
+                period_scope="point_in_time",
+                statement_type="balance_sheet",
+                value=100.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="fact-cash",
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id="bundle-cash",
+                lifecycle_consumption=provenance,
+            ),
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="operating_cash_flow",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="cash_flow_statement",
+                value=80.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="fact-ocf",
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id="bundle-ocf",
+            ),
+        ),
+        quality_summary={},
+        source_artifacts=("CN_601919_2025",),
+    )
+
+    export = build_turtle_export(dataset)
+
+    assert export.dataset_id == "p5_seed"
+    assert export.dataset_version == "1.0"
+    assert export.created_at == "2026-04-23T00:00:00"
+    assert export.alias_map["cash"] == "money_cap"
+    assert export.rows[0]["turtle_field"] == "money_cap"
+    assert export.rows[1]["turtle_field"] == "n_cashflow_act"
+    assert export.rows[0]["canonical_metric_id"] == "cash"
+    assert export.rows[1]["canonical_metric_id"] == "operating_cash_flow"
+    assert export.rows[0]["lifecycle_consumption"] == provenance
+    assert export.rows[1]["lifecycle_consumption"] is None
+
+
+def test_build_turtle_export_passes_through_post_p5_profit_fields() -> None:
+    dataset = P5DatasetArtifact(
+        dataset_id="p5_seed",
+        dataset_version="1.0",
+        created_at="2026-04-23T00:00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("fv_value_chg_gain", "selling_general_administrative"),
+        rows=(
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="selling_general_administrative",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="income_statement",
+                value=-120.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="fact-selling-general-administrative",
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id="bundle-sga",
+            ),
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="fv_value_chg_gain",
+                entity_scope="consolidated",
+                period_scope="duration",
+                statement_type="income_statement",
+                value=18.0,
+                currency="CNY",
+                unit="currency_amount",
+                quality_status="ok",
+                missing_status="present",
+                source_fact_id="fact-fv-value-chg-gain",
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id="bundle-fv-gain",
+            ),
+        ),
+        quality_summary={},
+        source_artifacts=("CN_601919_2025",),
+    )
+
+    export = build_turtle_export(dataset)
+
+    rows = {row["canonical_metric_id"]: row for row in export.rows}
+    assert (
+        rows["selling_general_administrative"]["turtle_field"]
+        == "selling_general_administrative"
+    )
+    assert rows["fv_value_chg_gain"]["turtle_field"] == "fv_value_chg_gain"
+
+
+def test_build_turtle_export_does_not_invent_values_for_missing_rows() -> None:
+    dataset = P5DatasetArtifact(
+        dataset_id="p5_seed",
+        dataset_version="1.0",
+        created_at="2026-04-23T00:00:00",
+        issuer_count=1,
+        periods=(2025,),
+        metrics=("revenue",),
+        rows=(
+            P5DatasetRow(
+                issuer_id="CN_601919",
+                market="CN",
+                stock_code="601919",
+                fiscal_year=2025,
+                metric_id="revenue",
+                entity_scope="consolidated",
+                period_scope="unknown",
+                statement_type="metrics",
+                value=None,
+                currency=None,
+                unit=None,
+                quality_status=None,
+                missing_status="not_surfaced",
+                source_fact_id=None,
+                source_artifact_id="CN_601919_2025",
+                evidence_bundle_id=None,
+            ),
+        ),
+        quality_summary={
+            "governance_blocked_fact_count": 1,
+            "governance_blocked_by_metric": {"revenue": 1},
+        },
+        source_artifacts=("CN_601919_2025",),
+    )
+
+    export = build_turtle_export(dataset)
+
+    assert len(export.rows) == 1
+    row = export.rows[0]
+    assert row["missing_status"] == "not_surfaced"
+    assert row["value"] is None
+    assert row["currency"] is None
+    assert row["unit"] is None
+    assert row["canonical_metric_id"] == "revenue"
+    assert row["turtle_field"] == "revenue"
+    assert row["lifecycle_consumption"] is None

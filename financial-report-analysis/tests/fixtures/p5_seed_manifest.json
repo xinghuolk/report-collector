@@ -1,0 +1,150 @@
+{
+  "manifest_id": "p5_seed_3_issuers_available_years",
+  "dataset_id": "p5_seed_3_issuers_available_years",
+  "manifest_version": "1.0",
+  "entries": [
+    {
+      "issuer_id": "CN_601919",
+      "market": "CN",
+      "stock_code": "601919",
+      "company_name": "中远海控",
+      "fiscal_year": 2023,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/601919/annual/2023_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_601919",
+      "market": "CN",
+      "stock_code": "601919",
+      "company_name": "中远海控",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/601919/annual/2024_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "CN_601919",
+      "market": "CN",
+      "stock_code": "601919",
+      "company_name": "中远海控",
+      "fiscal_year": 2025,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/cn_stocks/601919/annual/2025_年度报告.pdf",
+      "source": "report",
+      "report_language": "zh"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2021,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2021_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2022,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2022_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2023,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2023_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2024_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_09987",
+      "market": "HK",
+      "stock_code": "09987",
+      "company_name": "Yum China",
+      "fiscal_year": 2025,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/09987/annual/2025_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2020,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2020_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2021,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2021_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2022,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2022_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2023,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2023_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    },
+    {
+      "issuer_id": "HK_01810",
+      "market": "HK",
+      "stock_code": "01810",
+      "company_name": "Xiaomi",
+      "fiscal_year": 2024,
+      "report_type": "annual",
+      "pdf_path": "report/downloads/hk_stocks/01810/annual/2024_annual_en.pdf",
+      "source": "report",
+      "report_language": "en"
+    }
+  ]
+}

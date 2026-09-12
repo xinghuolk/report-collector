@@ -15,11 +15,12 @@
 
 接入层必须遵守以下原则：
 
-1. 外部项目通过 Python 包或 adapter 接入，不直接依赖底层解析细节
+1. 外部项目通过独立 HTTP API 接入，不直接依赖底层解析细节或跨仓库 import 核心实现
 2. 大模型不直接消费 `candidate_facts` 或原始 block payload
 3. 大模型不自行计算 TTM、不自行做单位换算、不自行解释未校验数字
 4. 财报分析包负责产出可信结构化结果，大模型负责解释和推理
 5. 接入层要显式暴露质量状态，防止上层把可疑数据当成确定事实
+6. `report/` 作为转发调用方时，应尽量透传 analysis service contract，而不是重新发明一套 analysis schema
 
 第一阶段港股输入策略：
 
@@ -42,18 +43,23 @@
 - 校验
 - 分析快照
 
-### 3.2 中间层：项目内 adapter/service
+### 3.2 中间层：独立 analysis service API
 
-在调用方项目内再包一层稳定接口，例如：
+主服务暴露稳定 HTTP contract，例如：
+
+- `POST /api/v1/analysis/extract`
+- `GET /health`
+
+这层统一屏蔽底层复杂对象和重算细节，是 `report/` 与 `TradingAgents-CN` 的共同上游。
+
+### 3.3 顶层：调用方 client / agent
+
+调用方项目内可以再包一层本地 client，例如：
 
 - `get_report_facts`
 - `get_report_analysis_snapshot`
 - `get_ttm_metrics`
 - `get_validation_report`
-
-这层统一屏蔽底层复杂对象和重算细节。
-
-### 3.3 顶层：大模型或 agent
 
 大模型只负责：
 
@@ -69,99 +75,66 @@
 
 ## 4. 主接入方式
 
-### 4.1 主路径：Python import
+### 4.1 主路径：独立 HTTP API
 
-对于 `TradingAgents-CN`，推荐主路径是直接 import 财报分析包。
+对于 `TradingAgents-CN` 和 `report/`，推荐主路径都是直接调用 `financial-report-analysis` 的独立 HTTP API。
 
-示意：
+推荐入口：
 
-```python
-from financial_report_analysis.pipeline import run_report_pipeline
-```
+- `POST /api/v1/analysis/extract`
+- `GET /health`
 
-或者：
+### 4.2 兼容路径：嵌入式 app factory
 
-```python
-from financial_report_analysis import analyze_report
-```
-
-### 4.2 可选路径：HTTP adapter
-
-当调用方无法共享同一进程时，再走 HTTP adapter。
-
-HTTP 层只是传输封装，不应替代 Python 包成为主能力载体。
+当部署环境要求同进程承载时，可嵌入启动 analysis app，但这不改变主集成契约仍为 HTTP。
 
 ## 5. 推荐适配接口
 
 ### 5.1 主入口
 
-```python
-analyze_report(document_ref, options) -> AnalysisResult
+```http
+POST /api/v1/analysis/extract
 ```
+
+请求体第一阶段支持：
+
+- `pdf_path`
+- `pdf_url`
+- 文件上传
+- `market`
+- 可选分析参数，如 `min_confidence`
 
 用途：
 
 - 给上层 agent 的主入口
 - 返回可以直接进入模型推理的结果集
 
-### 5.2 Canonical facts 查询
+### 5.2 健康检查
 
-```python
-get_canonical_facts(document_ref, filters) -> CanonicalFactSet
+```http
+GET /health
 ```
 
 用途：
 
-- 给需要高置信数值的基本面分析、估值分析模块使用
-
-### 5.3 TTM 指标查询
-
-```python
-get_ttm_metrics(entity_ref, as_of_period) -> DerivedFactSet
-```
-
-用途：
-
-- 给趋势分析、估值、财务比率分析模块使用
-
-### 5.4 校验结果查询
-
-```python
-get_validation_report(document_ref) -> ValidationReport
-```
-
-用途：
-
-- 给风控与分析前检查使用
-
-### 5.5 证据查询
-
-```python
-get_evidence_bundle(fact_id | issue_id | analysis_id) -> EvidenceBundle
-```
-
-用途：
-
-- 给“点击结论看依据”与复核流程使用
+- 给调用方做服务发现和存活检测
 
 ## 6. 建议输入对象
 
-```python
-@dataclass
-class ReportQuery:
-    market: Literal["CN", "HK"]
-    stock_code: str
-    report_type: Literal["annual", "interim", "quarterly"] | None = None
-    fiscal_year: int | None = None
-    fiscal_period: str | None = None
-    document_id: str | None = None
+```json
+{
+  "pdf_path": "/abs/path/to/report.pdf",
+  "pdf_url": null,
+  "market": "CN",
+  "min_confidence": null
+}
 ```
 
 设计原则：
 
-- 优先支持按 `document_id` 精确查询
-- 同时支持按市场、股票、期间进行业务查询
-- 对同一公司不同财年和不同披露类型保持可区分
+- 同时支持 `pdf_path`、`pdf_url`、上传文件，但第一阶段以 `pdf_path` 为 happy path
+- `report/` 转发时尽量透传请求体，而不是重组为另一套 analysis query
+- 后续可以扩展更多选项，但不能破坏主返回契约
 
 ## 7. 建议主返回对象
 
@@ -211,7 +184,7 @@ class AnalysisResult:
 
 ## 9. 质量闸门
 
-adapter 应统一输出：
+analysis service 应统一输出：
 
 - `quality_gate = pass | review | fail`
 
@@ -254,7 +227,7 @@ adapter 应统一输出：
 `TradingAgents-CN` 的 agent 使用本项目时，应遵守：
 
 1. 不直接读取本项目源码后自定义解释财报
-2. 不绕过 adapter 直接操作底层 fact pipeline
+2. 不绕过 HTTP contract 直接操作底层 fact pipeline
 3. 不在上层重新计算 TTM 或单位转换
 4. 不把 `quality_gate=review/fail` 的结果当成生产级确定结论
 5. 必要时引用 `evidence_bundle` 支撑输出结论
@@ -263,8 +236,8 @@ adapter 应统一输出：
 
 本项目的主交付物是：
 
-- Python 包
-- 可选 HTTP adapter
+- 独立 analysis service
+- 包内领域实现与 app factory
 
 不是：
 
@@ -279,7 +252,7 @@ skill 只应作为大模型或 agent 的“使用规范层”，例如告诉模�
 
 一句话总结：
 
-**功能复用靠 Python 包，模型使用规范靠 skill。**
+**跨项目复用靠独立 HTTP API，服务内部复用靠包，模型使用规范靠 skill。**
 
 ## 12. 当前代码状态的风险提示
 
@@ -300,8 +273,9 @@ skill 只应作为大模型或 agent 的“使用规范层”，例如告诉模�
 
 推荐接入方式是：
 
-- 财报分析项目产出独立 Python 包
-- `TradingAgents-CN` 在本项目之上包一层稳定 adapter
+- 财报分析项目产出独立 analysis service
+- `report/` 保留 `/extract/analysis`，但作为 HTTP forwarding client
+- `TradingAgents-CN` 推荐直连 analysis service
 - 上层大模型只消费经过质量闸门保护的结构化结果
 
 通过这种方式：
@@ -309,3 +283,58 @@ skill 只应作为大模型或 agent 的“使用规范层”，例如告诉模�
 - 财报解析与分析能力保持统一
 - 上层 agent 不会直接放大底层抽取误差
 - 后续版本升级、重算、审计和证据回链都更可控
+## 14. Task 7 Phase-1 Validation Matrix
+
+Task 7 should be driven by a small set of real sample reports rather than only
+synthetic payloads. The goal of this phase is not to prove a complete
+extractor. The goal is to lock down the Phase-1 service boundary, forwarding
+behavior, and quality-gate semantics with representative CN and HK inputs.
+
+### 14.1 Required Sample Anchors
+
+- CN annual happy path:
+  `report/downloads/cn_stocks/688008/annual/2024_年度报告.pdf`
+- HK English supported path:
+  `report/downloads/hk_stocks/09987/` quarterly and semi-annual English PDFs
+- HK non-English unsupported path:
+  `report/downloads/hk_stocks/01810/annual/2020_annual_zh.pdf`
+
+### 14.2 Expected Phase-1 Outcomes
+
+- CN annual sample:
+  the independent analysis service should accept the input and return a valid
+  analysis envelope. The outcome may be `pass` or `review`, but it must not be
+  treated as an input error.
+- HK English samples:
+  the supported path should continue to preserve period extraction, fact /
+  evidence mapping, and forwarding compatibility.
+- HK non-English sample:
+  Phase-1 must classify this as `unsupported_in_phase1` and expose it through
+  `quality_gate=review`, not `fail`.
+
+### 14.3 Task 7 Scope
+
+Task 7 is allowed to make small behavior fixes that are required to satisfy the
+real-sample matrix above, including:
+
+- language-policy branching in the analysis pipeline
+- quality-gate mapping fixes between `review` and `fail`
+- forwarding-layer regression fixes so that upstream gate semantics are not
+  rewritten
+- README and integration-spec synchronization
+
+Task 7 should not expand into a broad "complete extractor" effort.
+
+### 14.4 Acceptance Criteria
+
+- `financial-report-analysis/tests/integration/test_analysis_api.py` covers:
+  - CN annual real-sample happy path
+  - HK non-English unsupported path
+- `report/tests/integration/test_hk_09987_period_extraction.py` remains green
+  for the HK English supported path
+- `report/tests/integration/test_cn_annual_period_regression.py` remains green
+  for the CN annual sample path
+- forwarding-related tests in `report/` confirm that `quality_gate` and
+  unsupported semantics from the analysis service are preserved
+- `financial-report-analysis/README.md`, `report/README.md`, and this spec all
+  describe the same Phase-1 support boundary

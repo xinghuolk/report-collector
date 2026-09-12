@@ -1,0 +1,95 @@
+# Financial Report Analysis Service
+
+Independent analysis service for Phase-1 financial-report normalization and
+quality-gated output.
+
+## Scope
+
+- Primary delivery form: standalone FastAPI analysis service
+- Main endpoint: `POST /api/v1/analysis/extract`
+- Health check: `GET /health`
+- Phase-1 supported scope:
+  - CN listed-company Chinese reports
+  - HK listed-company English reports
+- Phase-1 unsupported scope:
+  - HK non-English reports are surfaced as
+    `unsupported_in_phase1` with `quality_gate=review`
+
+## Input Path
+
+- Happy path: `pdf_path`
+- Compatible inputs: `pdf_url`
+- The service owns its own ingestion path and does not import `report`'s
+  extractor implementation
+
+## Runtime Configuration
+
+Export these variables before starting the API. You can keep the same values in
+`.env` for local reference and load them with your shell tooling.
+
+```bash
+FRA_API_HOST=0.0.0.0
+FRA_API_PORT=8001
+FRA_STORAGE_DB_PATH=./data/financial_report_analysis.sqlite3
+```
+
+`FRA_STORAGE_DB_PATH` is a SQLite file path. The API creates the parent
+directory and database tables when the storage path is configured.
+
+Run the API with:
+
+```bash
+uv run financial-report-analysis-api
+```
+
+## Test Commands
+
+Use these three tiers for local validation:
+
+```bash
+# Fast regression: skip slow, real-PDF, Ollama, and external-service paths
+uv run pytest -m "not slow and not real_pdf and not ollama and not external"
+
+# Standard validation: include ordinary unit/integration tests, skip slow paths
+uv run pytest -m "not slow"
+
+# Full suite: includes slow, real-PDF, and service-dependent tests
+uv run pytest
+```
+
+For the real-PDF matrix, prefer the dedicated runner instead of `uv run pytest`:
+
+```bash
+REAL_PDF_LIMIT=3 REAL_PDF_JOBS=2 PER_TEST_TIMEOUT_SECONDS=240 \
+scripts/run-real-pdf-matrix.sh
+```
+
+Run the real-PDF extract/persist/readback smoke with:
+
+```bash
+uv run pytest tests/integration/test_real_pdf_extract_persist_e2e.py -q
+```
+
+To validate a different annual-report sample, point the smoke at another
+downloaded PDF fixture:
+
+```bash
+FRA_REAL_PDF_E2E_MARKET=CN \
+FRA_REAL_PDF_E2E_STOCK_CODE=600519 \
+FRA_REAL_PDF_E2E_FISCAL_YEAR=2025 \
+uv run pytest tests/integration/test_real_pdf_extract_persist_e2e.py -q
+```
+
+## Output Contract
+
+The service returns a stable analysis envelope containing:
+
+- `document`
+- `canonical_fact_set_id`
+- `derived_fact_set_id`
+- `validation_report_id`
+- `quality_gate`
+- `key_facts`
+- `ttm_facts`
+- `analysis_snapshot`
+- `blocked_items`

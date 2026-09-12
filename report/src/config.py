@@ -86,6 +86,11 @@ class Config:
     HTTP_PORT = int(os.getenv("HTTP_PORT", "8000"))
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
     API_PREFIX = "/api/v1"
+    ANALYSIS_SERVICE_BASE_URL = os.getenv(
+        "ANALYSIS_SERVICE_BASE_URL",
+        "http://127.0.0.1:8001",
+    )
+    ANALYSIS_EXTRACT_PATH = "/api/v1/analysis/extract"
     
     @classmethod
     def setup_directories(cls):

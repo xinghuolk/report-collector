@@ -1,0 +1,526 @@
+# Financial Report Analysis Metric Governance Umbrella Design
+
+> **Status:** Active umbrella spec
+> **Date:** 2026-04-25
+> **Scope Type:** Architecture and multi-phase roadmap
+> **Current Implementation Status:** Phase 1-4B plus downstream governance hardening implemented baseline
+
+## 1. Purpose
+
+This spec defines the long-term metric governance architecture for
+`financial-report-analysis`.
+
+The project now has enough extraction, persistence, review, lineage, recompute,
+availability, and Turtle export infrastructure that the next major risk is no
+longer "can the system extract anything?". The sharper risk is:
+
+```text
+unknown or unsupported field
+-> provisional/custom metric identity
+-> canonical promotion
+-> key facts / derived facts / Turtle export
+-> downstream analysis silently treats it as stable
+```
+
+Metric governance prevents that failure mode. It establishes clear boundaries
+between deterministic supported metric mapping, metric identity resolution,
+custom/provisional lifecycle, automatic consumption rules, and human/agent review
+surfaces.
+
+This is an umbrella design. It intentionally covers the full lifecycle. The
+original immediate target was Phase 1, but the current branch has implemented
+Phase 1 through Phase 4B. Treat the phase sections below as historical design
+rationale plus the implemented baseline, not as a pending Phase 1-only plan.
+
+## 2. Current Architecture Analysis
+
+### 2.1 Extraction and Mapping Path
+
+The current table-driven path is:
+
+```text
+pdf
+-> table structure recovery
+-> normalized table semantics
+-> MetricMappingRegistry
+-> candidate facts
+-> FactNormalizer / MetricRegistry
+-> ConflictResolver
+-> canonical facts
+-> derived facts
+-> validation / quality gate
+-> ReportAdapter key facts
+-> P5 dataset / Turtle export
+```
+
+The main statement extraction path uses
+`financial_report_analysis.registries.metric_mapping.MetricMappingRegistry`.
+That registry maps deterministic table semantics to supported metric ids. It is
+where fields like `revenue`, `total_assets`, `accounts_receiv`, or
+`restricted_cash` become first-class supported metrics.
+
+Separately,
+`financial_report_analysis.registries.metric_registry.MetricRegistry` can resolve
+raw labels to standard metrics or generate `custom::...` ids with
+`registry_status="provisional"`. This was the starting point for metric identity
+governance; the current implemented baseline now includes durable lifecycle
+registry behavior, review APIs, recompute audit, and controlled downstream
+consumption.
+
+### 2.2 Existing Strengths
+
+The codebase already has several pieces that should be preserved:
+
+- `MetricMappingRegistry` is deterministic and scoped by table kind, row label,
+  period shape, and market.
+- `MetricRegistry` can create stable provisional custom ids.
+- fact `extensions` already carry semantic provenance such as
+  `semantic_source`, `fallback_reason`, `unit_semantic_source`, and
+  `currency_semantic_source`.
+- `ConflictResolver` already produces review packets for source conflicts.
+- `ValidationService` already turns validation issues into `review_required`.
+- storage models already contain `MetricRegistryEntryRecord`, so durable metric
+  registry state has a future landing zone.
+- review, lineage, recompute, and availability surfaces already exist for P5 and
+  persisted artifacts.
+
+### 2.3 Original Governance Gaps And Current Status
+
+The original remaining gaps were governance gaps, not basic extraction gaps:
+
+1. **Registry roles are ambiguous.**
+   `MetricRegistry` and `MetricMappingRegistry` solve different problems, but
+   the names and loader boundaries make that easy to miss.
+
+2. **Provisional metadata is not a stable contract.**
+   `MetricRegistryEntry.registry_status` exists, but normalized candidate facts
+   do not consistently carry a governance metadata block that downstream
+   services can enforce.
+
+3. **Automatic consumption policy was incomplete.**
+   This gap is now closed for downstream consumption: P5 dataset, Turtle export,
+   and availability share an explicit policy for blocking non-consumable governed
+   facts. Remaining optional work should be scoped to `Explicit JSON-to-DB sync
+   bridge` or a separately approved custom-output contract.
+
+4. **Review surface needed to become metric-governance-specific.**
+   This gap is now closed by the Phase 2 review surface and later lifecycle
+   state enrichment. Source-conflict review packets still exist, but governance
+   candidates now have a dedicated review path.
+
+5. **Durable lifecycle registry was missing.**
+   Durable lifecycle registry behavior, mapping decision lookup, and review
+   decision APIs are now implemented. Any further lifecycle work should be scoped
+   as a new focused enhancement, not treated as the missing baseline.
+
+Current implementation status:
+
+- Phase 1 added governance metadata and provisional/custom guardrails.
+- Phase 2 added a metric-governance-specific review surface.
+- Phase 3 added durable lifecycle registry behavior.
+- Phase 4A exposed lifecycle workflow and review API operations.
+- Phase 4B added recompute audit, dry-run, and controlled consumption.
+- The downstream hardening slice added an explicit P5/availability consumption
+  policy so non-consumable governed facts no longer become stable dataset rows,
+  Turtle rows, or availability present metrics.
+
+The remaining post-P4B work is no longer "implement durable lifecycle".
+Lifecycle recompute audit snapshot persistence and DB-backed recompute boundary
+readiness have both been completed. The remaining optional governance/storage
+follow-up is `Explicit JSON-to-DB sync bridge` if product needs JSON-first
+recompute results synchronized into DB read surfaces, or a one-field post-P5
+onboarding slice after the governance/source precedence gates remain satisfied.
+
+## 3. Design Principles
+
+### 3.1 Deterministic Supported Metrics Remain the Main Path
+
+Supported metrics should enter automatic analysis only through deterministic,
+test-covered definitions:
+
+```text
+normalized table semantics -> MetricMappingRegistry -> supported metric id
+```
+
+Adding a high-value Turtle field should normally mean adding deterministic
+semantics and mapping coverage, not relying on provisional custom metrics.
+
+### 3.2 Provisional Custom Metrics Are Review Signals
+
+Unknown metrics may enter the fact ledger as reviewable signals. They must not
+silently become automatic analysis inputs.
+
+Before review, provisional custom metrics are allowed in:
+
+- candidate facts
+- review packets
+- availability / diagnostic reports
+- persisted extracted artifacts as reviewable evidence
+
+Before review, they are not allowed in:
+
+- `key_facts`
+- derived facts / TTM / ratios
+- Turtle formal export rows
+- automatic core analysis
+- quality-gate `pass` assertions
+
+### 3.3 Lifecycle Decisions Are Governance Decisions
+
+LLM fallback, table semantics, and note disclosure locators can help classify
+evidence. They cannot approve a custom metric, map it to a standard metric, or
+decide deprecation/blacklist state. Those are lifecycle decisions.
+
+### 3.4 Governance Metadata Must Travel With Facts
+
+Downstream services should not infer governance state from metric id string
+prefixes alone. `custom::...` remains useful, but the stable contract should be
+explicit metadata.
+
+Minimum governance metadata:
+
+```text
+extensions.metric_governance.registry_status
+extensions.metric_governance.metric_namespace
+extensions.metric_governance.review_required
+extensions.metric_governance.auto_analysis_allowed
+extensions.metric_governance.governance_reason
+```
+
+For backward-compatible consumers, Phase 1 may also mirror selected fields at
+top-level extension keys, but the nested `metric_governance` object is the
+canonical contract.
+
+## 4. Registry Boundaries
+
+### 4.1 MetricMappingRegistry
+
+Responsibility:
+
+- deterministic supported metric mapping;
+- table semantics to supported metric id;
+- market aliases and negative-control-safe labels;
+- period scope, table kind, and value type expectations.
+
+Non-responsibilities:
+
+- generating custom metric ids;
+- approving provisional metrics;
+- storing review decisions;
+- mapping arbitrary prose to facts.
+
+Current location:
+
+`financial_report_analysis.registries.metric_mapping`
+
+### 4.2 MetricIdentityRegistry
+
+Responsibility:
+
+- resolve a raw label into a known standard metric identity when possible;
+- generate stable provisional custom ids for unknown raw labels;
+- assign initial governance metadata.
+
+Current implementation seed:
+
+`financial_report_analysis.registries.metric_registry.MetricRegistry`
+
+Recommended conceptual name:
+
+`MetricIdentityRegistry`
+
+The implementation does not need to rename the class in Phase 1. Phase 1 should
+document the role and may introduce aliases or helper functions if that reduces
+confusion without churn.
+
+### 4.3 CustomMetricLifecycleRegistry
+
+Responsibility:
+
+- store review decisions;
+- persist lifecycle state;
+- map provisional custom metrics to supported standard metrics;
+- deprecate or blacklist unsupported metrics;
+- expose state for recompute and review.
+
+This component is now part of the implemented Phase 3 / Phase 4A baseline. The
+umbrella still documents the responsibility boundary because downstream
+consumers must not infer lifecycle state from metric id strings alone.
+
+## 5. Lifecycle States
+
+The full lifecycle is:
+
+```text
+unknown raw label
+-> provisional_custom
+-> approved_custom
+-> mapped_to_standard
+-> deprecated
+-> blacklisted
+```
+
+### 5.1 `standard`
+
+A first-class supported metric. It may enter canonical facts, key facts,
+derived facts, P5 datasets, and Turtle exports if it passes existing validation
+and conflict rules.
+
+### 5.2 `provisional_custom`
+
+A stable custom metric identity generated from an unknown raw label. It is a
+review signal, not an automatic analysis input.
+
+### 5.3 `approved_custom`
+
+A reviewed custom metric that remains custom because no standard metric is
+appropriate. It may be exposed in review-approved outputs, but it does not
+automatically enter Turtle formal exports unless a downstream contract opts in.
+
+### 5.4 `mapped_to_standard`
+
+A reviewed custom metric whose evidence should be consumed as a standard metric.
+Future recompute should map the old custom identity to the selected standard
+metric id.
+
+### 5.5 `deprecated`
+
+A metric identity retained for audit compatibility but no longer used for new
+automatic outputs.
+
+### 5.6 `blacklisted`
+
+A metric identity or raw-label pattern that must not enter automatic outputs and
+should normally produce a blocked/review signal if encountered again.
+
+## 6. Consumption Policy
+
+| State | Candidate facts | Canonical facts | Key facts | Derived/TTM | Turtle export | Quality gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| `standard` | allowed | allowed | allowed | allowed | allowed | can pass |
+| `provisional_custom` | allowed | Phase 1: blocked from canonical | blocked | blocked | blocked | review |
+| `approved_custom` | allowed | allowed | blocked by default | blocked by default | blocked by default | review/pass depends on output contract |
+| `mapped_to_standard` | allowed | allowed as standard | allowed | allowed | allowed | can pass |
+| `deprecated` | review only | blocked by default | blocked | blocked | blocked | review |
+| `blacklisted` | blocked/review only | blocked | blocked | blocked | blocked | review/fail depending on severity |
+
+Phase 1 originally implemented the `standard` and `provisional_custom` guardrail
+subset. Later phases added lifecycle decisions and controlled consumption for
+the remaining statuses.
+
+## 7. Phase Roadmap
+
+### Phase 1: Registry Boundary and Provisional Guardrails
+
+Goal:
+
+- make registry roles explicit;
+- define the governance metadata contract;
+- propagate provisional/custom status through normalization;
+- prevent provisional custom metrics from entering canonical facts, key facts,
+  derived facts, and Turtle formal outputs;
+- surface validation/review signals.
+
+Phase 1 does not implement durable review decisions.
+
+### Phase 2: Review Surface and Mapping Decisions
+
+Goal:
+
+- list provisional metric candidates with evidence;
+- show raw label, value, source table/page, governance state, and suggested
+  actions;
+- allow a reviewer to record conceptual decisions in a non-durable or
+  lightweight durable form;
+- keep API surface narrow and separate from `/api/v1/analysis/extract`.
+
+### Phase 3: Durable Lifecycle Registry
+
+Goal:
+
+- persist custom metric lifecycle records;
+- support approve, map-to-standard, deprecate, and blacklist decisions;
+- preserve reviewer, timestamp, reason, evidence, and target mapping;
+- make recompute read lifecycle decisions deterministically.
+
+### Phase 4A: Lifecycle Workflow And Review API
+
+Goal:
+
+- expose lifecycle workflow endpoints for explicit lifecycle entry creation,
+  candidate linking, lifecycle state reads, and lifecycle decision writes;
+- allow review item list/detail responses to show Phase 3 lifecycle state next
+  to Phase 2 review decision history;
+- require explicit candidate links before review-item reads resolve lifecycle
+  state;
+- preserve Phase 1 guardrails and Phase 2 review-decision semantics;
+- avoid recompute, canonical fact, P5 dataset, Turtle, extraction, Ollama, or
+  semantic fallback behavior changes.
+
+Phase 4A is the workflow/API bridge. It makes the durable lifecycle registry
+operable through internal review APIs, but it does not make lifecycle decisions
+change automatic outputs.
+
+### Phase 4B: Recompute Planning And Controlled Consumption
+
+Goal:
+
+- produce deterministic recompute-needed and dry-run audit views when lifecycle
+  decisions change;
+- integrate lifecycle decisions into recompute only after the planning and audit
+  contract is stable;
+- support controlled consumption rules such as `mapped_to_standard` remapping
+  and `blacklisted` suppression with explicit provenance;
+- keep P5 dataset and Turtle behavior changes behind focused regressions that
+  show exactly which lifecycle decision affected each output.
+
+Phase 4B was designed as the recompute/output bridge. The implemented result
+started with planning and audit signals, then added controlled consumption with
+deterministic tests for each output-changing rule.
+
+Deferred unless a separate business need appears:
+
+- durable approval workflow;
+- async job orchestration;
+- UI;
+- historical Phase 2 decision backfill or migration tooling.
+
+## 8. Phase 1 Detailed Scope
+
+Phase 1 created a narrow but enforceable guardrail. This section is retained as
+the implemented design contract.
+
+In scope:
+
+- document registry roles in package/module docstrings or dedicated docs;
+- introduce governance metadata helper functions;
+- make `FactNormalizer` add `metric_governance` metadata based on
+  `MetricRegistryEntry`;
+- keep deterministic supported candidate ids unchanged;
+- block provisional custom candidates from canonical promotion in
+  `ConflictResolver`;
+- add review packets or validation issues for blocked provisional custom
+  candidates;
+- make `ValidationService` report a review-required status when provisional
+  metric candidates are encountered;
+- make `ReportAdapter` defensively exclude facts whose governance metadata says
+  `auto_analysis_allowed=false`;
+- add tests showing provisional custom metrics do not enter key facts or derived
+  facts.
+
+Out of scope:
+
+- renaming public classes;
+- external YAML/JSON/DB mapping registry loading;
+- durable lifecycle decision storage;
+- approve/map/deprecate/blacklist APIs;
+- UI;
+- whole-document LLM assessment;
+- changing Turtle field coverage.
+
+## 9. Interaction With Fallback
+
+Semantic fallback may help resolve bounded ambiguities:
+
+- table kind;
+- currency/unit when deterministic context is ambiguous;
+- row label among a closed set of supported labels;
+- note/disclosure locator among target metrics.
+
+Semantic fallback must not:
+
+- create new metric lifecycle states;
+- approve a provisional custom metric;
+- map custom metrics to standard metrics;
+- directly generate canonical facts;
+- override governance consumption policy.
+
+If fallback output produces a standard supported metric through an allowed closed
+set, that fact follows standard metric policy. If fallback output cannot map to
+a supported metric, it must remain a review signal.
+
+## 10. Interaction With Storage
+
+Current storage includes durable metric lifecycle state used by the implemented
+Phase 3 / Phase 4A baseline. Phase 1 did not depend on durable registry state;
+later phases made it explicit.
+
+Future durable lifecycle state should preserve:
+
+- metric id;
+- raw label;
+- normalized label;
+- statement type;
+- accounting standard;
+- industry slug;
+- parent metric id;
+- lifecycle status;
+- mapped standard metric id when applicable;
+- reviewer / actor;
+- decision reason;
+- evidence pointers;
+- created and updated timestamps.
+
+## 11. Interaction With API and P5/Turtle
+
+Phase 1 protects existing API and P5/Turtle consumers:
+
+- `key_facts` must not include provisional custom metrics.
+- derived TTM facts must not be built from provisional custom canonical facts.
+- P5 dataset and Turtle export should only see standard or explicitly allowed
+  reviewed facts. Since reviewed custom output is not in Phase 1, only standard
+  facts should flow through.
+- analysis snapshots and review packets may include provisional review signals.
+
+## 12. Phase 1 Acceptance Criteria
+
+Phase 1 is complete when:
+
+- a candidate with an unknown/raw/custom metric receives explicit
+  `metric_governance` metadata;
+- standard mapped candidates retain automatic consumption behavior;
+- provisional custom metrics do not become canonical facts;
+- provisional custom metrics do not appear in `key_facts`;
+- provisional custom metrics do not produce derived TTM facts;
+- validation/quality gate enters `review` when provisional custom candidates are
+  present;
+- Phase 1 review packets expose the metric id, candidate value, review reason,
+  and `evidence_bundle_id`; the full candidate context remains inspectable
+  through the persisted extracted artifact / candidate fact payload. Later phases
+  may add raw label, table coordinates, extraction method, and governance
+  metadata directly to a dedicated metric-governance review surface;
+- existing real-PDF deterministic regression tests continue to pass.
+
+## 13. Non-Goals
+
+This umbrella spec does not require immediate implementation of:
+
+- all v0.15 field gaps;
+- new Turtle coverage phases;
+- full custom metric UI;
+- durable approval workflow;
+- async job orchestration;
+- Postgres migration;
+- object storage;
+- LLM-driven whole-document fact extraction.
+
+## 14. Recommended Next Step
+
+Do not execute the old Phase 1 implementation path as the next step. Current
+status is tracked by the unified roadmap and architecture analysis; the active-doc
+reconciliation spec is archived as a historical closeout record:
+
+- `2026-04-22-financial-report-analysis-unified-roadmap.md`
+- `../archived/2026-04-28-financial-report-analysis-active-docs-reconciliation-design.md`
+- `docs/architecture-analysis/2026-04-28-financial-report-analysis-system-architecture/`
+
+Downstream governance hardening, lifecycle recompute audit snapshot persistence,
+and DB-backed recompute boundary readiness are now complete. Recommended
+post-boundary choices:
+
+- `Explicit JSON-to-DB sync bridge` if product needs JSON-first recompute
+  results synchronized into DB read surfaces;
+- one-field post-P5 onboarding only after the governance/source precedence gates
+  remain satisfied;
+- whole-document LLM assessment/diff review only as a review artifact, never as a
+  canonical fact or recompute decision source.

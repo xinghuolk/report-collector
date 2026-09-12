@@ -92,3 +92,7 @@ memory-bank/
 
 # Sensitive files
 cookie.json
+
+# P5 generated local artifacts
+financial-report-analysis/data/p5/extracted/
+financial-report-analysis/data/p5/datasets/
